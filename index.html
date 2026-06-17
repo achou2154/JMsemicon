@@ -44,7 +44,7 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .nav-item:hover{background:var(--bg);color:var(--text)}
 .nav-item.active{background:var(--accent-light);color:var(--accent);font-weight:500}
 .nav-icon{font-size:15px;width:20px;text-align:center;flex-shrink:0}
-.sidebar-footer{margin-top:auto;padding:10px;border-top:1px solid var(--border)}
+.sidebar-footer{position:fixed;bottom:0;left:0;width:220px;padding:10px;border-top:1px solid var(--border);background:var(--surface);z-index:100}
 .footer-btns{display:flex;gap:5px;margin-bottom:8px}
 .footer-btn{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius);background:transparent;color:var(--text2);text-align:center}
 .footer-btn:hover{background:var(--bg)}
@@ -437,7 +437,6 @@ async function loadAdminEmails() {
 
 async function notifyAdmin(req) {
   if (!_supa || !adminEmails.length) return;
-  const emp = currentEmp;
   const typeMap = { leave:'연차', ot:'특근', comp:'대체휴무', trip:'출장' };
   const typeName = typeMap[req.type] || req.type;
   let detail = '';
@@ -446,19 +445,32 @@ async function notifyAdmin(req) {
   else if (req.type==='comp') detail = `${req.startDate} / ${req.hours}h`;
   else if (req.type==='trip') detail = `${req.startDate} ~ ${req.endDate} / ${req.dest}`;
 
+  // 신청인 (req.empId) vs 대리인 (currentEmp)
+  const applicant = eid(req.empId); // 실제 신청 대상 직원
+  const agent = currentEmp;         // 현재 로그인한 사람 (대리 신청자)
+  const isSame = applicant && agent && String(applicant.id) === String(agent.id);
+
+  const whoLine = isSame
+    ? `<strong>${applicant?.name||'직원'}</strong> (${applicant?.dept||''}) 님이`
+    : `<strong>${applicant?.name||'직원'}</strong> (${applicant?.dept||''}) 님 / 대리신청: <strong>${agent?.name||''}</strong> 님이`;
+
+  const whoText = isSame
+    ? `${applicant?.name||'직원'} (${applicant?.dept||''}) 님이`
+    : `${applicant?.name||'직원'} (${applicant?.dept||''}) 님 / 대리신청: ${agent?.name||''} 님이`;
+
   try {
-    const siteUrl = 'https://singular-semolina-4a70f0.netlify.app';
+    const siteUrl = 'https://achou2154.github.io/JMsemicon';
     const payload = {
       to: adminEmails,
-      subject: `[근태관리] ${emp?.name||'직원'} 님의 ${typeName} 신청`,
-      text: `${emp?.name||'직원'} (${emp?.dept||''}) 님이 ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}`,
+      subject: `[근태관리] ${applicant?.name||'직원'} 님의 ${typeName} 신청${isSame?'':` (대리: ${agent?.name||''})`}`,
+      text: `${whoText} ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
           <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0">
             <span style="color:#fff;font-size:16px;font-weight:700">JM근태관리 신청 알림</span>
           </div>
           <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:20px">
-            <p style="font-size:15px;margin:0 0 12px"><strong>${emp?.name||'직원'}</strong> (${emp?.dept||''}) 님이 <strong>${typeName}</strong>을 신청하였습니다.</p>
+            <p style="font-size:15px;margin:0 0 12px">${whoLine} <strong>${typeName}</strong>을 신청하였습니다.</p>
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
               <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b;width:80px">내용</td><td style="padding:8px 12px">${detail}</td></tr>
               <tr><td style="padding:8px 12px;color:#64748b">사유</td><td style="padding:8px 12px">${req.reason||'없음'}</td></tr>
@@ -2176,7 +2188,7 @@ async function notifyHealthChange(empId, members, reserveDate='') {
   const main = members.find(m => m.relation === '본인') || members[0];
   const famCount = members.filter(m => m.relation !== '본인').length;
   const detail = `예약일: ${reserveDate||main?.reserveDate||'미정'} / 가족: ${famCount}명`;
-  const siteUrl = 'https://singular-semolina-4a70f0.netlify.app';
+  const siteUrl = 'https://achou2154.github.io/JMsemicon';
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
       <div style="background:#0d9488;padding:16px 20px;border-radius:8px 8px 0 0">
@@ -4035,7 +4047,7 @@ async function sendNotifyEmail() {
             <p style="font-size:14px;line-height:1.7;white-space:pre-wrap;margin:0 0 16px">${body}</p>
             ${personalInfo}
             <div style="text-align:center;margin-top:8px">
-              <a href="https://singular-semolina-4a70f0.netlify.app" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:14px;font-weight:600">
+              <a href="https://achou2154.github.io/JMsemicon" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:14px;font-weight:600">
                 📋 근태관리 바로가기
               </a>
             </div>
