@@ -186,7 +186,7 @@ tbody tr:hover td{background:var(--surface2)}
     <div class="nav-sec">개인 기록</div>
     <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근 / 대체휴무</button>
-    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장 관리</button>
+    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장 / 외근 관리</button>
     <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
@@ -438,7 +438,7 @@ async function loadAdminEmails() {
 
 async function notifyAdmin(req) {
   if (!_supa || !adminEmails.length) return;
-  const typeMap = { leave:'연차', ot:'특근', comp:'대체휴무', trip:'출장' };
+  const typeMap = { leave:'연차', ot:'특근', comp:'대체휴무', trip:'출장', outside:'외근', education:'교육' };
   const typeName = typeMap[req.type] || req.type;
   let detail = '';
   if (req.type==='leave') detail = `${req.leaveType} / ${req.startDate}${req.endDate&&req.endDate!==req.startDate?' ~ '+req.endDate:''} / ${req.hours}h`;
@@ -1873,61 +1873,156 @@ function renderTransport(){
 // ─ 7. 출장 ─────────────────────────────────
 function renderTrip(){
   const yr=currentYear;
-  const domestic=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.tripKind!=='overseas').slice().sort((a,b)=>b.id-a.id);
-  const overseas=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.tripKind==='overseas').slice().sort((a,b)=>b.id-a.id);
-  const mkRow=(r,isOverseas)=>`<tr class="${r.status==='pending'?'row-pending':''}">
-    <td><div class="name-cell">${av(r.empId)}<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openAddTrip('${isOverseas?'overseas':'domestic'}',${r.empId})">${ename(r.empId)}</span></div></td>
+  const filt = r => canView(r) && String(r.year)===String(yr);
+  const domestic  = db.requests.filter(r=>r.type==='trip'&&filt(r)&&r.tripKind!=='overseas').sort((a,b)=>b.id-a.id);
+  const overseas  = db.requests.filter(r=>r.type==='trip'&&filt(r)&&r.tripKind==='overseas').sort((a,b)=>b.id-a.id);
+  const outsideR  = db.requests.filter(r=>r.type==='outside'&&filt(r)).sort((a,b)=>b.id-a.id);
+  const educationR= db.requests.filter(r=>r.type==='education'&&filt(r)).sort((a,b)=>b.id-a.id);
+
+  const mkTripRow=(r,isOverseas)=>`<tr class="${r.status==='pending'?'row-pending':''}">
+    <td><div class="name-cell">${av(r.empId)}<span>${ename(r.empId)}</span></div></td>
     <td>${edept(r.empId)}</td><td>${fmt(r.startDate)}</td><td>${fmt(r.endDate||r.startDate)}</td>
-    <td>${r.dest||''}</td>
-    <td style="font-size:12px;color:var(--text2)">${r.reason}</td>
+    <td>${r.dest||''}</td><td style="font-size:12px;color:var(--text2)">${r.reason}</td>
     ${isOverseas?`<td>${r.allowance>0?'₩'+(+r.allowance).toLocaleString():'—'}</td>`:''}
     <td>${statusBadge(r.status)}</td>
     <td style="white-space:nowrap">
-      <button class="btn btn-sm" onclick="openEditTrip(${r.id})">✏️ 수정</button>
-      ${isAdmin?`<button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="delReq(${r.id},'trip')">삭제</button>`:''}
+      ${canEdit(r)?`<button class="btn btn-sm" onclick="openEditTrip(${r.id})">✏️</button>`:''}
+      ${canEdit(r)?`<button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="delReq(${r.id},'trip')">삭제</button>`:''}
     </td>
   </tr>`;
-  // 직원별 신청 버튼 행
+
+  const mkSimpleRow=(r,type)=>`<tr class="${r.status==='pending'?'row-pending':''}">
+    <td><div class="name-cell">${av(r.empId)}<span>${ename(r.empId)}</span></div></td>
+    <td>${edept(r.empId)}</td><td>${fmt(r.startDate)}</td><td>${fmt(r.endDate||r.startDate)}</td>
+    <td style="font-size:12px;color:var(--text2)">${r.reason}</td>
+    <td>${statusBadge(r.status)}</td>
+    <td style="white-space:nowrap">
+      ${canEdit(r)?`<button class="btn btn-sm btn-danger" onclick="delReq(${r.id},'trip')">삭제</button>`:''}
+    </td>
+  </tr>`;
+
   const tripEmps = isAdmin
     ? getSortedByPosition().filter(e=>!isHiddenFromPersonal(e))
     : getSortedByPosition().filter(e=>!isHiddenFromPersonal(e) && currentEmp && String(e.id)===String(currentEmp.id));
+
   const empRows=tripEmps.map(e=>`
     <tr>
-      <td><div class="name-cell">${av(e.id)}<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openAddTrip('domestic',${e.id})">${e.name}</span></div></td>
+      <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
       <td>${e.dept}</td>
-      <td><button class="btn btn-sm" onclick="openAddTrip('domestic',${e.id})">🇰🇷 국내</button></td>
-      <td><button class="btn btn-sm" onclick="openAddTrip('overseas',${e.id})">🌏 해외</button></td>
+      <td><button class="btn btn-sm" onclick="openAddTrip('domestic',${e.id})">🇰🇷 국내출장</button></td>
+      <td><button class="btn btn-sm" onclick="openAddTrip('overseas',${e.id})">🌏 해외출장</button></td>
+      <td><button class="btn btn-sm" onclick="openAddOutside(${e.id})">🚗 외근</button></td>
+      <td><button class="btn btn-sm" onclick="openAddEducation(${e.id})">📚 교육</button></td>
     </tr>`).join('');
+
   setContent(`
     <div class="card" style="margin-bottom:10px">
-      <div class="card-title">직원별 출장 신청</div>
+      <div class="card-title">출장 / 외근 신청</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>국내 출장</th><th>해외 출장</th></tr></thead>
+        <thead><tr><th>직원</th><th>부서</th><th>국내출장</th><th>해외출장</th><th>외근</th><th>교육</th></tr></thead>
         <tbody>${empRows}</tbody>
       </table></div>
     </div>
     <div class="card">
-      <div class="card-title" style="border-bottom:2px solid #ddd;padding-bottom:10px">
-        🇰🇷 국내 출장 (${domestic.length}건)
-      </div>
-      <div class="table-wrap" style="margin-top:10px"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>상태</th><th>수정</th></tr></thead>
-        <tbody>${domestic.map(r=>mkRow(r,false)).join('')||emptyRow(8,'국내 출장 내역 없음')}</tbody>
+      <div class="card-title">🇰🇷 국내 출장 (${domestic.length}건)</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>상태</th><th></th></tr></thead>
+        <tbody>${domestic.map(r=>mkTripRow(r,false)).join('')||emptyRow(8,'내역 없음')}</tbody>
       </table></div>
     </div>
     <div class="card" style="margin-top:4px">
-      <div class="card-title" style="border-bottom:2px solid #ddd;padding-bottom:10px">
-        🌏 해외 출장 (${overseas.length}건)
-      </div>
-      <div class="info-bar" style="background:#fff8e6;border:1px solid #fcd34d;color:#92400e;margin-top:8px">
-        💡 해외 출장 수당은 <strong>경영상황에 따라 지급</strong>될 수 있으며, 확정 전까지 예정 금액으로 기재해 주세요.
+      <div class="card-title">🌏 해외 출장 (${overseas.length}건)</div>
+      <div class="info-bar" style="background:#fff8e6;border:1px solid #fcd34d;color:#92400e">
+        💡 해외 출장 수당은 경영상황에 따라 지급될 수 있으며, 확정 전까지 예정 금액으로 기재해 주세요.
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>출장수당(예정)</th><th>상태</th><th>수정</th></tr></thead>
-        <tbody>${overseas.map(r=>mkRow(r,true)).join('')||emptyRow(9,'해외 출장 내역 없음')}</tbody>
+        <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>수당(예정)</th><th>상태</th><th></th></tr></thead>
+        <tbody>${overseas.map(r=>mkTripRow(r,true)).join('')||emptyRow(9,'내역 없음')}</tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">🚗 외근 (${outsideR.length}건)</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>직원</th><th>부서</th><th>시작일</th><th>종료일</th><th>사유</th><th>상태</th><th></th></tr></thead>
+        <tbody>${outsideR.map(r=>mkSimpleRow(r,'outside')).join('')||emptyRow(7,'내역 없음')}</tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-top:4px">
+      <div class="card-title">📚 교육 (${educationR.length}건)</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>직원</th><th>부서</th><th>시작일</th><th>종료일</th><th>사유/교육명</th><th>상태</th><th></th></tr></thead>
+        <tbody>${educationR.map(r=>mkSimpleRow(r,'education')).join('')||emptyRow(7,'내역 없음')}</tbody>
       </table></div>
     </div>
   `);
+}
+
+// 외근 신청
+function openAddOutside(empId) {
+  const e = eid(empId); if (!e) return;
+  openModal(`
+    <div class="modal-title">🚗 외근 신청 — ${e.name}</div>
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="field"><label>시작일 *</label>${makeDateInput('out-start')}</div>
+      <div class="field"><label>종료일</label>${makeDateInput('out-end')}</div>
+    </div>
+    <div class="field" style="margin-bottom:16px"><label>사유 *</label><input id="out-reason" placeholder="외근 사유를 입력하세요"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveOutside(${empId})">신청</button>
+    </div>
+  `);
+}
+
+async function saveOutside(empId) {
+  const s = getDateVal('out-start');
+  const e2 = getDateVal('out-end') || s;
+  const reason = document.getElementById('out-reason')?.value?.trim();
+  if (!s) { showToast('시작일을 입력하세요'); return; }
+  if (!reason) { showToast('사유를 입력하세요'); return; }
+  const _r = {id:nextId++,type:'outside',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason,reqDate:todayStr()};
+  const _saved = await sbInsert('requests', {type:'outside',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason,req_date:todayStr()});
+  if (_saved) {
+    _r.id = _saved.id;
+    db.requests.unshift(_r);
+    saveAll(); showToast('✅ 외근 신청 완료'); await notifyAdmin(_r);
+  } else { showToast('⚠️ 저장 실패'); }
+  closeModal(); renderTrip();
+}
+
+// 교육 신청
+function openAddEducation(empId) {
+  const e = eid(empId); if (!e) return;
+  openModal(`
+    <div class="modal-title">📚 교육 신청 — ${e.name}</div>
+    <div class="field" style="margin-bottom:12px"><label>교육명 *</label><input id="edu-title" placeholder="교육명을 입력하세요"></div>
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="field"><label>시작일 *</label>${makeDateInput('edu-start')}</div>
+      <div class="field"><label>종료일</label>${makeDateInput('edu-end')}</div>
+    </div>
+    <div class="field" style="margin-bottom:16px"><label>사유/기관</label><input id="edu-reason" placeholder="교육 기관 또는 추가 사유"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveEducation(${empId})">신청</button>
+    </div>
+  `);
+}
+
+async function saveEducation(empId) {
+  const title = document.getElementById('edu-title')?.value?.trim();
+  const s = getDateVal('edu-start');
+  const e2 = getDateVal('edu-end') || s;
+  const reason = document.getElementById('edu-reason')?.value?.trim() || '';
+  if (!s) { showToast('시작일을 입력하세요'); return; }
+  if (!title) { showToast('교육명을 입력하세요'); return; }
+  const _r = {id:nextId++,type:'education',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason:`[${title}] ${reason}`.trim(),reqDate:todayStr()};
+  const _saved = await sbInsert('requests', {type:'education',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason:_r.reason,req_date:todayStr()});
+  if (_saved) {
+    _r.id = _saved.id;
+    db.requests.unshift(_r);
+    saveAll(); showToast('✅ 교육 신청 완료'); await notifyAdmin(_r);
+  } else { showToast('⚠️ 저장 실패'); }
+  closeModal(); renderTrip();
 }
 
 // ─ 8. 생일/기념일 ──────────────────────────
@@ -2054,22 +2149,55 @@ function openHealthApply(empId) {
   const e = eid(empId); if (!e) return;
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
+  const existFam = (h?.members||[]).filter(m=>m.relation!=='본인');
+  const famHtml = existFam.map((m,i)=>`
+    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <input placeholder="관계(예:배우자)" value="${m.relation||''}" id="fam-rel-${i}"
+        style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+      <input type="date" value="${m.birthdate||''}" id="fam-birth-${i}"
+        style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+      <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()">✕</button>
+    </div>`).join('');
+
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
-    <div class="field" style="margin-bottom:20px">
+    <div class="field" style="margin-bottom:12px">
       <label>예약일 *</label>
       <input type="date" id="h-reserve-date" value="${h?.reserveDate||''}"
         style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px">
     </div>
-    <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px;font-size:12px;color:var(--text2);margin-bottom:16px">
-      💡 예약일 입력 후 저장하면 관리자 승인을 받습니다.<br>
-      승인 후 가족 추가 및 수검 완료 입력이 가능합니다.
+    <div style="margin-bottom:12px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">
+        가족 추가
+        <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="addFamRow()">+ 가족 추가</button>
+      </div>
+      <div id="fam-list">${famHtml}</div>
+    </div>
+    <div style="background:var(--bg);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--text2);margin-bottom:16px">
+      💡 예약일 입력 후 저장하면 관리자 승인을 받습니다.
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveHealthApply(${empId})">신청</button>
     </div>
   `);
+}
+
+function addFamRow() {
+  const list = document.getElementById('fam-list');
+  if (!list) return;
+  const i = Date.now();
+  const div = document.createElement('div');
+  div.className = 'fam-row';
+  div.id = `fam-row-${i}`;
+  div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
+  div.innerHTML = `
+    <input placeholder="관계(예:배우자)" id="fam-rel-${i}"
+      style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+    <input type="date" id="fam-birth-${i}"
+      style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+    <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()">✕</button>`;
+  list.appendChild(div);
 }
 
 async function saveHealthApply(empId) {
@@ -2079,22 +2207,32 @@ async function saveHealthApply(empId) {
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
   const newStatus = h?.status === 'approved' ? 'modify_requested' : 'pending';
 
+  // 가족 정보 수집
+  const famRows = document.querySelectorAll('#fam-list .fam-row');
+  const members = [{relation:'본인', birthdate:'', confirmed:false, reserveDate, checkupDate:'', cost:0}];
+  famRows.forEach(row => {
+    const relEl = row.querySelector('input[id^="fam-rel"]');
+    const birthEl = row.querySelector('input[type="date"]');
+    const rel = relEl?.value?.trim();
+    if (rel) members.push({relation:rel, birthdate:birthEl?.value||'', confirmed:false, reserveDate:'', checkupDate:'', cost:0});
+  });
+
   if (h?.id) {
     const ok = await sbUpdate('health_records', h.id, {
-      reserve_date: reserveDate, status: newStatus, approved: false
+      reserve_date: reserveDate, status: newStatus, approved: false, members_json: JSON.stringify(members)
     });
-    if (ok) { h.reserveDate = reserveDate; h.status = newStatus; h.approved = false; }
+    if (ok) { h.reserveDate = reserveDate; h.status = newStatus; h.approved = false; h.members = members; }
   } else {
     const saved = await sbInsert('health_records', {
-      emp_id: empId, year: yr, members_json: '[]',
+      emp_id: empId, year: yr, members_json: JSON.stringify(members),
       reserve_date: reserveDate, status: 'pending', approved: false
     });
     if (saved) {
-      db.health.push(normalizeHealth({...saved, reserve_date: reserveDate, status:'pending', approved:false, members_json:'[]'}));
+      db.health.push(normalizeHealth({...saved, reserve_date: reserveDate, status:'pending', approved:false, members_json:JSON.stringify(members)}));
     }
   }
   saveAll();
-  await notifyHealthChange(empId, [], reserveDate);
+  await notifyHealthChange(empId, members, reserveDate);
   showToast('✅ 건강검진 신청됨 — 관리자 승인 대기');
   closeModal();
   renderHealth();
@@ -2105,24 +2243,35 @@ function openHealthComplete(empId) {
   const e = eid(empId); if (!e) return;
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
-  const famRows = (h?.members||[]).filter(m=>m.relation!=='본인').map((m,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <span style="font-size:13px;min-width:50px">${m.relation}</span>
-      <input type="date" id="fam-check-${i}" value="${m.checkupDate||''}"
-        style="flex:1;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
-      <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
-        <input type="checkbox" id="fam-done-${i}" ${m.confirmed?'checked':''} style="width:14px;height:14px"> 완료
+  // 예약일을 수검일 기본값으로, 금액 자동계산
+  const defaultDate = h?.checkupDate || h?.reserveDate || '';
+  const mainCost = calcHealthCost(e.birthdate);
+  const famMembers = (h?.members||[]).filter(m=>m.relation!=='본인');
+  const famRows = famMembers.map((m,i)=>`
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <span style="font-size:13px;min-width:60px;font-weight:500">${m.relation}</span>
+      <input type="date" id="fam-check-${i}" value="${m.checkupDate||h?.reserveDate||''}"
+        style="flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
+      <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="fam-done-${i}" ${m.confirmed?'checked':''} style="width:14px;height:14px"> 수검완료
       </label>
     </div>`).join('');
 
   openModal(`
     <div class="modal-title">수검 완료 입력 — ${e.name}</div>
     <div class="field" style="margin-bottom:12px">
-      <label>본인 수검일</label>
-      <input type="date" id="h-checkup-date" value="${h?.checkupDate||''}"
+      <label>본인 수검일 <span style="font-size:11px;color:var(--text3)">(예약일: ${fmt(h?.reserveDate||'')})</span></label>
+      <input type="date" id="h-checkup-date" value="${defaultDate}"
         style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px">
     </div>
-    ${famRows ? `<div style="margin-bottom:12px"><div style="font-size:13px;font-weight:600;margin-bottom:8px">가족 수검</div>${famRows}</div>` : ''}
+    <div style="background:var(--health-bg);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--health);margin-bottom:12px">
+      💰 본인 검진비: ₩${mainCost.toLocaleString()} (만 40세 ${new Date().getFullYear()-parseInt((e.birthdate||'2000').slice(0,4))>=40?'이상':'미만'})
+    </div>
+    ${famMembers.length>0 ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">가족 수검 확인</div>
+        ${famRows}
+      </div>` : ''}
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveHealthComplete(${empId})">완료 저장</button>
@@ -2219,21 +2368,6 @@ async function notifyHealthChange(empId, members, reserveDate='') {
   } catch(err) { console.warn('건강검진 알림 실패:', err); }
 }
 
-async function approveHealth(empId) {
-  const yr = currentYear;
-  const h = db.health.find(r => String(r.empId) === String(empId) && String(r.year) === String(yr));
-  if (!h) return;
-  const ok = await sbUpdate('health_records', h.id, { members_json: JSON.stringify(h.members), approved: true });
-  if (ok) {
-    h.approved = true;
-    saveAll();
-    showToast('✅ 건강검진 승인됨');
-  } else {
-    showToast('⚠️ 승인 실패');
-  }
-  renderHealth();
-}
-
 // ─ 10. 달력 ────────────────────────────────
 function renderCalendar(){
   const y=calYear,m=calMonth;
@@ -2250,6 +2384,8 @@ function renderCalendar(){
     else if(r.type==='ot'&&(r.date||'').startsWith(mStr))addEv(r.date,statusIcon+' '+ename(r.empId)+' 특근','ev-ot',r.status);
     else if(r.type==='trip')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 출장','ev-trip',r.status);});
     else if(r.type==='comp')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 대휴','ev-comp',r.status);});
+    else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
+    else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status);});
   });
   db.events.forEach(ev2=>{
     const ds=getEventDate(ev2,y);
@@ -2283,11 +2419,11 @@ function renderCalendar(){
   ));
 
   // 자리비움: 연차, 대휴, 출장
-  const absenceToday = todayReqs.filter(r => r.type==='leave'||r.type==='comp'||r.type==='trip');
+  const absenceToday = todayReqs.filter(r => r.type==='leave'||r.type==='comp'||r.type==='trip'||r.type==='outside'||r.type==='education');
   // 특근: ot
   const otToday = todayReqs.filter(r => r.type==='ot');
 
-  const typeLabel = {leave:'연차',ot:'특근',comp:'대휴',trip:'출장'};
+  const typeLabel = {leave:'연차',ot:'특근',comp:'대휴',trip:'출장',outside:'외근',education:'교육'};
   const stBadge = r => r.status==='pending'
     ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px">승인대기</span>`
     : `<span style="font-size:10px;background:#d1fae5;color:#065f46;border-radius:4px;padding:1px 5px">승인</span>`;
@@ -3124,6 +3260,8 @@ function getActiveAlerts() {
 function checkAndShowAlerts() {
   // 공지사항 팝업
   setTimeout(checkAndShowNotice, 1000);
+  // 수검일 경과 알람 (6번)
+  setTimeout(checkHealthCheckupAlert, 1500);
   // 생일/기념일 상단 알람 바
   updateBdayAlarmBar();
   // 팝업 알람
@@ -3463,6 +3601,30 @@ async function changePassword() {
 // ══════════════════════════════════════════════
 //  공지사항 팝업 (7~11번)
 // ══════════════════════════════════════════════
+function checkHealthCheckupAlert() {
+  if (!currentEmp) return;
+  const yr = currentYear;
+  const h = db.health.find(r => String(r.empId) === String(currentEmp.id) && String(r.year) === String(yr));
+  if (!h || h.status === 'completed' || !h.approved) return;
+  if (!h.reserveDate) return;
+  // 예약일이 오늘 이전인 경우
+  if (h.reserveDate >= todayStr()) return;
+  // 이미 오늘 알림 봤으면 스킵
+  const skipKey = `health_alert_${currentEmp.id}_${todayStr()}`;
+  if (localStorage.getItem(skipKey)) return;
+
+  const popup = document.getElementById('health-alert-popup');
+  if (popup) {
+    popup.style.display = 'flex';
+    localStorage.setItem(skipKey, '1');
+  }
+}
+
+function closeHealthAlert() {
+  const popup = document.getElementById('health-alert-popup');
+  if (popup) popup.style.display = 'none';
+}
+
 function checkAndShowNotice() {
   if (!currentEmp) return;
   const today = todayStr();
@@ -3491,6 +3653,8 @@ function checkAndShowNotice() {
   const popupBg = document.getElementById('notice-popup-bg');
   if (!popupBg) return;
   popupBg.style.display = 'flex';
+  popupBg.style.alignItems = 'center';
+  popupBg.style.justifyContent = 'center';
   popupBg._noticeId = notice.id;
 }
 
@@ -3929,6 +4093,11 @@ function switchNotifyTab(tab, btn) {
     if (notifyBody) notifyBody.style.display = '';
     if (scheduleCard) scheduleCard.style.display = '';
     if (extraContent) extraContent.innerHTML = '';
+    // 탭 전환 시 제목/내용 초기화 (7~8번)
+    const titleEl = document.getElementById('notify-title');
+    const content1El = document.getElementById('notify-content1');
+    if (titleEl) titleEl.value = '';
+    if (content1El) content1El.value = '';
     // 내용2 표시 여부
     if (wrap) wrap.style.display = tab === 'etc' ? 'none' : '';
     // 내용2 미리보기 탭별 업데이트
