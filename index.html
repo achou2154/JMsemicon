@@ -129,8 +129,8 @@ tbody tr:hover td{background:var(--surface2)}
 .prog-bar{height:100%;border-radius:99px;background:var(--leave)}
 .empty-row td{text-align:center;color:var(--text3);padding:32px}
 /* Calendar */
-.cal-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-.cal-nav h2{font-size:15px;font-weight:600}
+.cal-nav{display:flex;align-items:center;justify-content:center;margin-bottom:14px;position:relative}
+.cal-nav h2{font-size:15px;font-weight:600;text-align:center}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 .cal-dow{text-align:center;font-size:11px;color:var(--text3);font-weight:600;padding:4px 0 8px}
 .cal-day{min-height:72px;border:1px solid var(--border);border-radius:6px;padding:4px 5px;background:var(--surface);font-size:11px}
@@ -2341,10 +2341,10 @@ function renderCalendar(){
     ${todayBannerHtml}
     ${upcoming30Html}
     <div class="cal-nav">
-      <button class="btn" onclick="chM(-1)">&#8249;</button>
+      <button class="btn" style="position:absolute;left:0" onclick="chM(-1)">&#8249;</button>
       <h2>${y}년 ${months[m-1]}</h2>
       <button class="btn btn-sm" style="margin-left:8px;font-size:12px" onclick="calYear=new Date().getFullYear();calMonth=new Date().getMonth()+1;renderCalendar()">오늘</button>
-      <button class="btn" onclick="chM(1)">&#8250;</button>
+      <button class="btn" style="position:absolute;right:0" onclick="chM(1)">&#8250;</button>
     </div>
     <div class="legend">
       <div class="legend-item"><div class="legend-dot" style="background:var(--leave-bg);border:1px solid var(--leave)"></div>연차</div>
@@ -4132,34 +4132,19 @@ function getDefaultRequests(){return[{id:1,type:'leave',empId:1,status:'approved
 function getDefaultEvents(){return[{id:1,empId:1,type:'birthday',name:'김민준 생일',month:7,day:15,calType:'solar',note:''},{id:2,empId:2,type:'birthday',name:'이서연 생일',month:3,day:22,calType:'lunar',note:'음력 3/22'},{id:3,empId:0,type:'anniversary',name:'창립기념일',month:6,day:1,calType:'solar',note:''}];}
 
 // ══════════════════════════════════════════════
-//  페이지 떠날 때 자동 로그아웃
-// ══════════════════════════════════════════════
-window.addEventListener('beforeunload', () => {
-  if (_supa && currentUser) {
-    // 동기 방식으로 로그아웃 (비동기 불가)
-    navigator.sendBeacon(
-      `${SUPA_URL}/auth/v1/logout`,
-      JSON.stringify({})
-    );
-    _supa.auth.signOut();
-  }
-});
-
-// ══════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════
 buildYearSel();
 if (initSupabase()) {
-  // 로그인/로그아웃 이벤트 감지만 사용 (INITIAL_SESSION 포함)
+  // 페이지 로드 시 항상 기존 세션 초기화 후 로그인 화면 표시
+  _supa.auth.signOut().finally(() => {
+    showLoginScreen();
+  });
+
+  // 로그인/로그아웃 이벤트 감지
   _supa.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'INITIAL_SESSION') {
-      if (session?.user) {
-        await onSignedIn(session.user);
-      } else {
-        showLoginScreen();
-      }
-    } else if (event === 'SIGNED_IN' && session?.user) {
-      if (currentUser) return; // 이미 로그인됨
+    if (event === 'SIGNED_IN' && session?.user) {
+      if (currentUser) return;
       await onSignedIn(session.user);
     } else if (event === 'SIGNED_OUT') {
       onSignedOut();
