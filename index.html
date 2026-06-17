@@ -3667,9 +3667,7 @@ function checkAndShowNotice() {
   `;
   const popupBg = document.getElementById('notice-popup-bg');
   if (!popupBg) return;
-  popupBg.style.display = 'flex';
-  popupBg.style.alignItems = 'center';
-  popupBg.style.justifyContent = 'center';
+  popupBg.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center';
   popupBg._noticeId = notice.id;
 }
 
@@ -4345,5 +4343,19 @@ if (initSupabase()) {
   showSetupBanner();
 }
 </script>
+<!-- 공지사항 팝업 -->
+<div id="notice-popup-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:28px 32px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div id="notice-popup-content"></div>
+    <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#64748b">
+        <input type="checkbox" id="notice-no-today" style="width:14px;height:14px">
+        오늘 하루 더 이상 보지 않기
+      </label>
+      <button onclick="closeNoticePopup()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-weight:600">확인</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
