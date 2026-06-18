@@ -199,9 +199,9 @@ tbody tr:hover td{background:var(--surface2)}
   <div class="sidebar-footer">
     <div class="footer-btns">
       <button class="footer-btn" onclick="syncNow()" title="지금 동기화">🔄 동기화</button>
-      <button class="footer-btn" onclick="exportBackup()" title="JSON 백업">💾 JSON</button>
-      <button class="footer-btn" onclick="exportExcel()" title="Excel 백업">📊 Excel</button>
-      <button class="footer-btn btn-danger" onclick="resetAll()" title="초기화" style="flex:.5">🗑️</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportBackup()" title="JSON 백업" style="display:none">💾 JSON</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportExcel()" title="Excel 백업" style="display:none">📊 Excel</button>
+      <button class="footer-btn btn-danger admin-backup-btn" onclick="resetAll()" title="초기화" style="display:none;flex:.5">🗑️</button>
     </div>
     <div class="mode-row">
       <span class="mode-label" id="mode-label">직원 모드</span>
@@ -2129,7 +2129,29 @@ function renderBday(){
       ${isAdmin?`<td style="white-space:nowrap"><button class="btn btn-sm" onclick="openEditEvent(${ev.id})">수정</button> <button class="btn btn-sm btn-danger" onclick="delEvent(${ev.id})">삭제</button></td>`:'<td></td>'}
     </tr>`;
   }).join('');
-  const upcoming30=db.events.map(ev=>{const ds=getEventDate(ev,yr);if(!ds)return null;const diff=Math.round((parseLocalDate(ds)-todayD)/864e5);if(diff<0||diff>30)return null;return{...ev,ds,diff};}).filter(Boolean).sort((a,b)=>a.diff-b.diff);
+  // db.events에서 기념일/생일 (올해 지났으면 내년으로)
+  const evList30 = db.events.map(ev=>{
+    let ds=getEventDate(ev,yr);
+    if(!ds)return null;
+    let diff=Math.round((parseLocalDate(ds)-todayD)/864e5);
+    if(diff<0){ ds=getEventDate(ev,yr+1); if(!ds)return null; diff=Math.round((parseLocalDate(ds)-todayD)/864e5); }
+    if(diff<0||diff>30)return null;
+    return{...ev,ds,diff};
+  }).filter(Boolean);
+  // 직원 birthdate 직접 계산 (events 테이블에 없는 경우 보완)
+  const evIds = new Set(evList30.map(ev=>String(ev.empId)));
+  db.employees.filter(e=>e.birthdate&&!e.isExternal).forEach(e=>{
+    if(evIds.has(String(e.id))) return; // 이미 events에 있으면 스킵
+    const parts=e.birthdate.split('-');
+    if(parts.length<3)return;
+    const m=parseInt(parts[1]),d=parseInt(parts[2]);
+    let ds=`${yr}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    let diff=Math.round((parseLocalDate(ds)-todayD)/864e5);
+    if(diff<0){ds=`${yr+1}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;diff=Math.round((parseLocalDate(ds)-todayD)/864e5);}
+    if(diff<0||diff>30)return;
+    evList30.push({id:'bd_'+e.id,empId:e.id,type:'birthday',name:e.name+' 생일',month:m,day:d,calType:e.birthdateLunar?'lunar':'solar',ds,diff});
+  });
+  const upcoming30=evList30.sort((a,b)=>a.diff-b.diff);
   setContent(`
     <div class="info-bar" style="background:var(--bday-bg);border:1px solid #7dd3fc;color:var(--bday)">🎂 음력 생일은 해당 연도 양력으로 자동 변환됩니다.</div>
     ${upcoming30.length?`<div class="card"><div class="card-title">30일 이내 예정</div><div style="display:flex;flex-wrap:wrap;gap:10px">${upcoming30.map(ev=>`<div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-lg)"><div style="font-weight:500;font-size:13px;margin-bottom:3px">${ev.name}</div><div style="font-size:11px;color:var(--text2)">${fmt(ev.ds)}${ev.calType==='lunar'?' (음→양)':''}</div><div style="margin-top:5px"><span class="upcoming-chip">D-${ev.diff}</span></div></div>`).join('')}</div></div>`:''}
@@ -2640,15 +2662,33 @@ function renderCalendar(){
 
   // 30일 이내 예정 이벤트 (생일/기념일)
   const todayD2 = parseLocalDate(todayStr());
-  const upcoming30 = db.events.map(ev2 => {
-    const yr2 = ev2.month < (todayD2.getMonth()+1) || (ev2.month === (todayD2.getMonth()+1) && ev2.day < todayD2.getDate())
-      ? todayD2.getFullYear() + 1 : todayD2.getFullYear();
-    const ds2 = getEventDate(ev2, yr2);
-    if (!ds2) return null;
-    const diff = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
-    if (diff < 0 || diff > 30) return null;
-    return { ...ev2, ds: ds2, diff };
-  }).filter(Boolean).sort((a,b) => a.diff - b.diff);
+  // db.events 기준 (올해 지났으면 내년으로)
+  const upcoming30 = [];
+  db.events.forEach(ev2 => {
+    let ds2 = getEventDate(ev2, todayD2.getFullYear());
+    if (!ds2) return;
+    let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    if (diff2 < 0) {
+      ds2 = getEventDate(ev2, todayD2.getFullYear() + 1);
+      if (!ds2) return;
+      diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    }
+    if (diff2 < 0 || diff2 > 30) return;
+    upcoming30.push({ ...ev2, ds: ds2, diff: diff2 });
+  });
+  // 직원 birthdate 직접 보완 (events 테이블에 없는 경우)
+  const evEmpIds30 = new Set(upcoming30.map(ev => String(ev.empId)));
+  db.employees.filter(e => e.birthdate && !e.isExternal).forEach(e => {
+    if (evEmpIds30.has(String(e.id))) return;
+    const parts = e.birthdate.split('-'); if (parts.length < 3) return;
+    const m2 = parseInt(parts[1]), d2 = parseInt(parts[2]);
+    let ds2 = `${todayD2.getFullYear()}-${String(m2).padStart(2,'0')}-${String(d2).padStart(2,'0')}`;
+    let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    if (diff2 < 0) { ds2 = `${todayD2.getFullYear()+1}-${String(m2).padStart(2,'0')}-${String(d2).padStart(2,'0')}`; diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5); }
+    if (diff2 < 0 || diff2 > 30) return;
+    upcoming30.push({ id:'bd_'+e.id, empId:e.id, type:'birthday', name:e.name+' 생일', month:m2, day:d2, calType:e.birthdateLunar?'lunar':'solar', ds:ds2, diff:diff2 });
+  });
+  upcoming30.sort((a,b) => a.diff - b.diff);
 
   const upcoming30Html = upcoming30.length ? `
     <div style="background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px">
