@@ -939,16 +939,33 @@ function doToggleSidebar() {
   const sb = document.getElementById('sidebar');
   const openBtn = document.getElementById('sb-open-btn');
   if (!sb) return;
-  const collapsed = sb.classList.toggle('collapsed');
-  if (openBtn) openBtn.style.display = collapsed ? 'block' : 'none';
-  localStorage.setItem('sb_collapsed', collapsed ? '1' : '0');
+  const isCollapsed = sb.style.width === '0px';
+  if (isCollapsed) {
+    // 펴기
+    sb.style.width = '220px';
+    sb.style.overflow = '';
+    sb.style.borderRight = '';
+    if (openBtn) openBtn.style.display = 'none';
+    localStorage.setItem('sb_collapsed', '0');
+  } else {
+    // 접기
+    sb.style.width = '0px';
+    sb.style.overflow = 'hidden';
+    sb.style.borderRight = 'none';
+    if (openBtn) openBtn.style.display = 'block';
+    localStorage.setItem('sb_collapsed', '1');
+  }
 }
 
 function initSidebarState() {
   if (localStorage.getItem('sb_collapsed') === '1') {
     const sb = document.getElementById('sidebar');
     const openBtn = document.getElementById('sb-open-btn');
-    if (sb) sb.classList.add('collapsed');
+    if (sb) {
+      sb.style.width = '0px';
+      sb.style.overflow = 'hidden';
+      sb.style.borderRight = 'none';
+    }
     if (openBtn) openBtn.style.display = 'block';
   }
 }
