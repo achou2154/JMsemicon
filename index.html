@@ -49,6 +49,7 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .footer-btns{display:flex;gap:5px;margin-bottom:8px}
 .footer-btn{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius);background:transparent;color:var(--text2);text-align:center}
 .footer-btn:hover{background:var(--bg)}
+.admin-backup-btn{display:none}
 .mode-row{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg);border-radius:var(--radius)}
 .mode-label{font-size:12px;color:var(--text2)}
 .mode-btn{font-size:11px;padding:3px 9px;border:1px solid var(--border2);border-radius:5px;background:var(--surface);color:var(--text)}
@@ -199,9 +200,9 @@ tbody tr:hover td{background:var(--surface2)}
   <div class="sidebar-footer">
     <div class="footer-btns">
       <button class="footer-btn" onclick="syncNow()" title="지금 동기화">🔄 동기화</button>
-      <button class="footer-btn admin-backup-btn" onclick="exportBackup()" title="JSON 백업" style="display:none">💾 JSON</button>
-      <button class="footer-btn admin-backup-btn" onclick="exportExcel()" title="Excel 백업" style="display:none">📊 Excel</button>
-      <button class="footer-btn btn-danger admin-backup-btn" onclick="resetAll()" title="초기화" style="display:none;flex:.5">🗑️</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportBackup()" title="JSON 백업">💾 JSON</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportExcel()" title="Excel 백업">📊 Excel</button>
+      <button class="footer-btn btn-danger admin-backup-btn" onclick="resetAll()" title="초기화" style="flex:.5">🗑️</button>
     </div>
     <div class="mode-row">
       <span class="mode-label" id="mode-label">직원 모드</span>
@@ -916,6 +917,16 @@ function toggleSidebar() {
   sb.classList.toggle('open');
   ov.classList.toggle('show');
 }
+function closeSidebarIfOpen() {
+  const sb = document.querySelector('.sidebar');
+  if (sb && sb.classList.contains('open')) toggleSidebar();
+}
+function updateMobileTabbar(page) {
+  document.querySelectorAll('#mobile-tabbar button').forEach(b => b.classList.remove('active'));
+  const tabMap = {calendar:'mtab-calendar',requests:'mtab-requests',leave:'mtab-leave',roster:'mtab-roster'};
+  const activeId = tabMap[page];
+  if (activeId) document.getElementById(activeId)?.classList.add('active');
+}
 
 // ── 권한 헬퍼 ──
 // 수정/삭제 가능: 승인 전→본인 or 관리자 / 승인 후→관리자만
@@ -1128,6 +1139,7 @@ function go(page) {
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
+  updateMobileTabbar(page);
   document.querySelectorAll('.nav-item').forEach(el=>{
     const onclick = el.getAttribute('onclick')||'';
     const match = onclick.match(/go\('([^']+)'\)/);
@@ -1658,7 +1670,8 @@ async function deleteEmp(id){
 // ─ 3. 신청/승인 ────────────────────────────
 function renderRequests(){
   const yr=currentYear;
-  let list=db.requests.filter(r=>String(r.year)===String(yr) && canView(r));
+  let list=db.requests.filter(r=>String(r.year)===String(yr) && canView(r) &&
+    (isAdmin || (currentEmp && String(r.empId)===String(currentEmp.id))));
   if(reqFilter!=='all')list=list.filter(r=>r.status===reqFilter);
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
   list=list.slice().sort((a,b)=>b.id-a.id);
@@ -1669,6 +1682,8 @@ function renderRequests(){
     else if(r.type==='ot'){tl=badge('특근','ot');det=`${fmt(r.date)} / ${r.otType} ${r.hours}h → 대휴 ${calcComp(r.hours,r.otType)}h`;}
     else if(r.type==='trip'){tl=badge('출장','trip');det=`${fmt(r.startDate)} ~ ${fmt(r.endDate)} / ${r.dest}`;}
     else if(r.type==='comp'){tl=badge('대체휴무','comp');det=`${fmt(r.startDate)} / ${r.hours}h`;}
+    else if(r.type==='outside'){tl=badge('외근','trip');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}`;}
+    else if(r.type==='education'){tl=badge('교육','ot');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''} / ${r.reason||''}`;}
     const canA=isAdmin&&r.status==='pending';
     const canE=canEdit(r);
     return`<tr class="${r.status==='pending'?'row-pending':''}">
@@ -1692,7 +1707,7 @@ function renderRequests(){
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <select onchange="setRTF(this.value)" style="padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
-          ${['all','leave','ot','trip','comp'].map(t=>`<option value="${t}" ${reqTypeFilter===t?'selected':''}>${{all:'전체 유형',leave:'연차',ot:'특근',trip:'출장',comp:'대체휴무'}[t]}</option>`).join('')}
+          ${['all','leave','ot','comp','trip','outside','education'].map(t=>`<option value="${t}" ${reqTypeFilter===t?'selected':''}>${{all:'전체 유형',leave:'연차',ot:'특근',comp:'대체휴무',trip:'출장',outside:'외근',education:'교육'}[t]}</option>`).join('')}
         </select>
         <button class="btn btn-primary btn-sm" onclick="openAddRequest()">+ 신청하기</button>
       </div>
@@ -1786,7 +1801,36 @@ function renderLeave(){
     </tr>`;
   }).join('');
 
+  // 5번: 연차 사용률 그래프 데이터
+  const deptMap = {};
+  getSortedByPosition().filter(e=>!isHiddenFromPersonal(e)).forEach(e=>{
+    const a=getAlloc(e.id,yr);
+    const total=(+a.total||0)+(+a.carryover||0);
+    const used=getLeaveUsed(e.id,yr);
+    const pct=total>0?Math.round(used/total*100):0;
+    if(!deptMap[e.dept]) deptMap[e.dept]={total:0,used:0,count:0};
+    deptMap[e.dept].total+=total;
+    deptMap[e.dept].used+=used;
+    deptMap[e.dept].count++;
+  });
+  const deptBars=Object.entries(deptMap).map(([dept,d])=>{
+    const p=d.total>0?Math.round(d.used/d.total*100):0;
+    return`<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+        <span style="font-weight:500">${dept}</span>
+        <span style="color:var(--text2)">${Math.round(d.used/8*10)/10}일 / ${Math.round(d.total/8*10)/10}일 (${p}%)</span>
+      </div>
+      <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden">
+        <div style="width:${p}%;background:var(--leave);height:100%;border-radius:4px;transition:width .3s"></div>
+      </div>
+    </div>`;
+  }).join('');
+
   setContent(`
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">📊 부서별 연차 사용률 (${yr}년)</div>
+      ${deptBars||'<div style="color:var(--text3);font-size:13px">데이터 없음</div>'}
+    </div>
     <div class="info-bar" style="background:var(--leave-bg);border:1px solid #86efac;color:var(--leave)">
       ℹ️ 연차 8h / 반차 4h / 외출 1h~ / 공가 4h / 병가 | 이월연차·이월대체휴무는 <strong>다음해 3월 1일 자동 소멸</strong>
     </div>
@@ -2222,7 +2266,7 @@ function renderHealth(){
     const isMine = currentEmp && String(e.id)===String(currentEmp.id);
     // 5번: 가족 관계 표시
     const famMembers = (h?.members||[]).filter(m=>m.relation!=='본인');
-    const famBadges = famMembers.map(m=>`<span class="badge" style="font-size:10px;margin-right:2px">${m.relation}${m.name?'('+m.name+')':''}</span>`).join('');
+    const famBadges = famMembers.map(m=>`<span class="badge" style="font-size:10px;margin-right:2px">${m.relation}${isAdmin&&m.name?'('+m.name+')':''}</span>`).join('');
     return`<tr>
       <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
       <td>${e.dept}</td>
@@ -2256,6 +2300,36 @@ function renderHealth(){
     <div class="info-bar" style="background:var(--health-bg);border:1px solid #5eead4;color:var(--health);margin-top:-8px">
       🏥 예약일 신청 → 관리자 승인 → 수검 완료 입력 순서로 진행됩니다
     </div>
+    ${isAdmin ? `
+    <div class="card" style="margin-top:10px">
+      <div class="card-title">💰 건강검진 비용 집계 (${yr}년)</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>부서</th><th>직원수</th><th>신청자</th><th>본인 비용</th><th>가족 비용</th><th>합계</th></tr></thead>
+        <tbody>${(()=>{
+          const dMap={};
+          db.employees.filter(e=>!e.isExternal).forEach(e=>{
+            if(!dMap[e.dept])dMap[e.dept]={total:0,applied:0,empCost:0,famCost:0};
+            dMap[e.dept].total++;
+            const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
+            if(h&&h.members?.length){
+              dMap[e.dept].applied++;
+              const main=h.members.find(m=>m.relation==='본인');
+              const fam=h.members.filter(m=>m.relation!=='본인');
+              dMap[e.dept].empCost+=(+main?.cost||calcHealthCost(e.birthdate));
+              fam.forEach(m=>dMap[e.dept].famCost+=(+m.cost||calcHealthCost(m.birthdate)));
+            }
+          });
+          const rows=Object.entries(dMap).map(([dept,d])=>`<tr>
+            <td>${dept}</td><td>${d.total}명</td><td>${d.applied}명</td>
+            <td>₩${d.empCost.toLocaleString()}</td>
+            <td>₩${d.famCost.toLocaleString()}</td>
+            <td><strong>₩${(d.empCost+d.famCost).toLocaleString()}</strong></td>
+          </tr>`).join('');
+          const tot=Object.values(dMap).reduce((s,d)=>({emp:s.emp+d.empCost,fam:s.fam+d.famCost}),{emp:0,fam:0});
+          return rows+`<tr style="background:var(--bg);font-weight:600"><td colspan="3">합계</td><td>₩${tot.emp.toLocaleString()}</td><td>₩${tot.fam.toLocaleString()}</td><td>₩${(tot.emp+tot.fam).toLocaleString()}</td></tr>`;
+        })()}</tbody>
+      </table></div>
+    </div>` : ''}
   `);
 }
 
