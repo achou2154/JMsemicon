@@ -45,11 +45,11 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .nav-item:hover{background:var(--bg);color:var(--text)}
 .nav-item.active{background:var(--accent-light);color:var(--accent);font-weight:500}
 .nav-icon{font-size:15px;width:20px;text-align:center;flex-shrink:0}
-.sidebar-footer{position:fixed;bottom:0;left:0;width:220px;padding:10px;border-top:1px solid var(--border);background:var(--surface);z-index:100}
+.sidebar-footer{position:sticky;bottom:0;padding:10px;border-top:1px solid var(--border);background:var(--surface);z-index:100}
 .footer-btns{display:flex;gap:5px;margin-bottom:8px}
 .footer-btn{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius);background:transparent;color:var(--text2);text-align:center}
 .footer-btn:hover{background:var(--bg)}
-.admin-backup-btn{display:none}
+.admin-backup-btn{display:none} /* JS에서 관리자 로그인 시 표시 */
 .mode-row{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg);border-radius:var(--radius)}
 .mode-label{font-size:12px;color:var(--text2)}
 .mode-btn{font-size:11px;padding:3px 9px;border:1px solid var(--border2);border-radius:5px;background:var(--surface);color:var(--text)}
@@ -916,6 +916,31 @@ function toggleSidebar() {
   const ov = document.getElementById('sidebar-overlay');
   sb.classList.toggle('open');
   ov.classList.toggle('show');
+}
+
+function toggleSidebarCollapse() {
+  const sb = document.querySelector('.sidebar');
+  const btn = document.getElementById('sidebar-toggle-btn');
+  const main = document.querySelector('.main');
+  const collapsed = sb.classList.toggle('collapsed');
+  if (btn) {
+    btn.classList.toggle('collapsed', collapsed);
+    btn.textContent = collapsed ? '▶' : '◀';
+    btn.style.left = collapsed ? '0' : '220px';
+  }
+  if (main) main.style.marginLeft = collapsed ? '0' : '';
+  localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
+}
+
+function initSidebarState() {
+  if (localStorage.getItem('sidebar_collapsed') === '1') {
+    const sb = document.querySelector('.sidebar');
+    const btn = document.getElementById('sidebar-toggle-btn');
+    const main = document.querySelector('.main');
+    if (sb) sb.classList.add('collapsed');
+    if (btn) { btn.classList.add('collapsed'); btn.textContent = '▶'; btn.style.left = '0'; }
+    if (main) main.style.marginLeft = '0';
+  }
 }
 function closeSidebarIfOpen() {
   const sb = document.querySelector('.sidebar');
@@ -4479,6 +4504,32 @@ if (initSupabase()) {
       </label>
       <button onclick="closeNoticePopup()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-weight:600">확인</button>
     </div>
+  </div>
+</div>
+
+<!-- 모바일 하단 탭바 -->
+<div id="mobile-tabbar">
+  <button onclick="go('calendar')" id="mtab-calendar">
+    <span class="tab-icon">📅</span>달력
+  </button>
+  <button onclick="go('requests')" id="mtab-requests">
+    <span class="tab-icon">📋</span>신청
+  </button>
+  <button onclick="go('leave')" id="mtab-leave">
+    <span class="tab-icon">🏖️</span>연차
+  </button>
+  <button onclick="go('roster')" id="mtab-roster">
+    <span class="tab-icon">👥</span>명부
+  </button>
+  <button onclick="toggleSidebar()" id="mtab-menu">
+    <span class="tab-icon">☰</span>메뉴
+  </button>
+</div>
+
+<!-- 건강검진 수검 완료 안내 팝업 -->
+<div id="health-alert-popup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2001;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:var(--radius-lg);padding:28px 32px;width:380px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div id="health-alert-content"></div>
   </div>
 </div>
 
