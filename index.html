@@ -25,7 +25,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
 button{cursor:pointer;font-family:inherit;font-size:13px}
-.app{display:flex;height:100vh;overflow:hidden}
+.app{display:flex;height:100vh;overflow:hidden;position:relative}
 
 /* Sidebar */
 .sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
@@ -49,14 +49,14 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .footer-btns{display:flex;gap:5px;margin-bottom:8px}
 .footer-btn{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius);background:transparent;color:var(--text2);text-align:center}
 .footer-btn:hover{background:var(--bg)}
-.admin-backup-btn{display:none !important} /* updateAdminUI에서 override */
+
 .mode-row{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg);border-radius:var(--radius)}
 .mode-label{font-size:12px;color:var(--text2)}
 .mode-btn{font-size:11px;padding:3px 9px;border:1px solid var(--border2);border-radius:5px;background:var(--surface);color:var(--text)}
 .admin-chip{font-size:10px;padding:2px 7px;border-radius:3px;background:var(--accent);color:#fff;font-weight:600}
 
 /* Main */
-.main{flex:1;display:flex;flex-direction:column;overflow-y:auto;height:100vh}
+.main{flex:1;display:flex;flex-direction:column;overflow-y:auto;height:100vh;min-width:0}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .page-title{font-size:15px;font-weight:600}
 .topbar-right{display:flex;align-items:center;gap:10px}
@@ -201,9 +201,9 @@ tbody tr:hover td{background:var(--surface2)}
   <div class="sidebar-footer">
     <div class="footer-btns">
       <button class="footer-btn" onclick="syncNow()" title="지금 동기화">🔄 동기화</button>
-      <button class="footer-btn admin-backup-btn" onclick="exportBackup()" title="JSON 백업">💾 JSON</button>
-      <button class="footer-btn admin-backup-btn" onclick="exportExcel()" title="Excel 백업">📊 Excel</button>
-      <button class="footer-btn btn-danger admin-backup-btn" onclick="resetAll()" title="초기화" style="flex:.5">🗑️</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportBackup()" title="JSON 백업" style="display:none">💾 JSON</button>
+      <button class="footer-btn admin-backup-btn" onclick="exportExcel()" title="Excel 백업" style="display:none">📊 Excel</button>
+      <button class="footer-btn btn-danger admin-backup-btn" onclick="resetAll()" title="초기화" style="display:none;flex:unset;width:36px">🗑️</button>
     </div>
     <div class="mode-row">
       <span class="mode-label" id="mode-label">직원 모드</span>
@@ -921,11 +921,24 @@ function syncNow() { loadAllData().then(()=>showToast('✅ 동기화 완료')); 
 function toggleSidebar() {
   const sb = document.querySelector('.sidebar');
   const ov = document.getElementById('sidebar-overlay');
-  sb.classList.toggle('open');
-  ov.classList.toggle('show');
+  if (!sb) return;
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    // 모바일: open 클래스로 슬라이드인
+    const isOpen = sb.classList.toggle('open');
+    if (ov) ov.classList.toggle('show', isOpen);
+  } else {
+    // PC: collapsed 클래스로 너비 조절
+    toggleSidebarCollapse();
+  }
 }
 
 function toggleSidebarCollapse() {
+  const isMobile = window.innerWidth <= 768;
+  if (isMobile) {
+    toggleSidebar();
+    return;
+  }
   const sb = document.getElementById('sidebar');
   if (!sb) return;
   const collapsed = sb.classList.toggle('collapsed');
@@ -939,8 +952,13 @@ function initSidebarState() {
   }
 }
 function closeSidebarIfOpen() {
+  if (window.innerWidth > 768) return;
   const sb = document.querySelector('.sidebar');
-  if (sb && sb.classList.contains('open')) toggleSidebar();
+  const ov = document.getElementById('sidebar-overlay');
+  if (sb && sb.classList.contains('open')) {
+    sb.classList.remove('open');
+    if (ov) ov.classList.remove('show');
+  }
 }
 function updateMobileTabbar(page) {
   document.querySelectorAll('#mobile-tabbar button').forEach(b => b.classList.remove('active'));
@@ -1145,11 +1163,7 @@ function updateAdminUI(){
 
   // 백업/초기화 버튼 - 관리자만 표시
   document.querySelectorAll('.admin-backup-btn').forEach(el => {
-    if (isAdmin) {
-      el.style.setProperty('display', '', 'important');
-    } else {
-      el.style.setProperty('display', 'none', 'important');
-    }
+    el.style.display = isAdmin ? '' : 'none';
   });
 
   // 관리자 알람설정 메뉴
@@ -1174,6 +1188,7 @@ function go(page) {
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   updateMobileTabbar(page);
+  closeSidebarIfOpen(); // 모바일에서 메뉴 클릭 후 자동 닫기
   document.querySelectorAll('.nav-item').forEach(el=>{
     const onclick = el.getAttribute('onclick')||'';
     const match = onclick.match(/go\('([^']+)'\)/);
