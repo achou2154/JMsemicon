@@ -1119,8 +1119,8 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근 / 대체휴무',transport:'교통비',trip:'출장 관리',bday:'생일 / 기념일',health:'건강검진',alerts:'알람 관리',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정'};
-const NAV_ORDER=['overview','roster','requests','leave','ot','transport','trip','bday','health','alerts','calendar','myprofile'];
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근 / 대체휴무',transport:'교통비',trip:'출장 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정'};
+const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
@@ -1144,7 +1144,7 @@ function go(page) {
   // 관리자 알람설정은 별도 처리
   const nsEl = document.getElementById('nav-notifysetting');
   if(nsEl) nsEl.style.display = isAdmin ? '' : 'none';
-  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,alerts:renderAlerts,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting}[page]||renderOverview)();
+  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
 function setContent(html){document.getElementById('main-content').innerHTML=html;}
@@ -1214,7 +1214,6 @@ function renderOverview(){
       <td>${trans>0?'₩'+trans.toLocaleString():'—'}</td>
     </tr>`;
   }).join('');
-
 
 
   setContent(`
@@ -2336,17 +2335,7 @@ function openHealthApply(empId) {
   `);
 }
 
-function limitYear(el) {
-  // 년도 입력 4자리 제한
-  const val = el.value;
-  if (val && val.length > 0) {
-    const parts = val.split('-');
-    if (parts[0] && parts[0].length > 4) {
-      parts[0] = parts[0].slice(0, 4);
-      el.value = parts.join('-');
-    }
-  }
-}
+
 
 function addFamRow() {
   const list = document.getElementById('fam-list');
@@ -3281,63 +3270,6 @@ function openHealthEdit(empId){
   renderHealthModal();
 }
 
-function renderHealthModal(){
-  const e=eid(_hEmpId);
-  const rows=_hMembers.map((m,i)=>`
-    <div style="border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px;background:${i===0?'var(--surface)':'var(--surface2)'}">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-        <strong style="font-size:13px">${i===0?'👤 본인':'👨‍👩‍👧 가족'}</strong>
-        ${i>0?`<button class="btn btn-sm btn-danger" onclick="saveBeforeAction();_hMembers.splice(${i},1);renderHealthModal()">삭제</button>`:''}
-      </div>
-      <div class="form-grid" style="margin-bottom:8px">
-        <div class="field"><label>이름</label><input id="hname-${i}" value="${m.name||''}" onchange="_hMembers[${i}].name=this.value"></div>
-        <div class="field"><label>관계</label><select id="hrel-${i}" onchange="_hMembers[${i}].relation=this.value">
-          ${['본인','배우자','자녀','부모','기타'].map(r=>`<option${m.relation===r?' selected':''}>${r}</option>`).join('')}
-        </select></div>
-      </div>
-      <div class="form-grid" style="margin-bottom:8px">
-        <div class="field"><label>생년월일 <span style="font-size:10px;color:var(--text3)">(비용 자동계산)</span></label>${makeDateInput(`hb-${i}`,m.birthdate||'')}</div>
-        <div class="field"><label>검진기관</label><input id="hinst-${i}" value="${m.institution||'메디피움 동탄'}" onchange="_hMembers[${i}].institution=this.value"></div>
-      </div>
-      <div class="form-grid" style="margin-bottom:8px">
-        <div class="field"><label>예약일</label>${makeDateInput(`hr-${i}`,m.reserveDate||'')}</div>
-        <div class="field"><label>수검일 <span style="font-size:10px;color:var(--text3)">(입력 시 자동확인)</span></label>${makeDateInput(`hd-${i}`,m.checkupDate||'')}</div>
-      </div>
-      <div class="form-grid" style="margin-bottom:0">
-        <div class="field"><label>비용 (원)</label><input id="hcost-${i}" type="number" value="${m.cost||0}" min="0" onchange="_hMembers[${i}].cost=+this.value"></div>
-        <div class="field"><label style="opacity:0">확인</label>
-          <div style="display:flex;align-items:center;gap:14px;padding-top:2px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="checkbox" id="conf_${i}" ${m.confirmed?'checked':''} onchange="_hMembers[${i}].confirmed=this.checked" style="width:15px;height:15px">
-              수검확인
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--warn)">
-              <input type="checkbox" id="other_${i}" ${m.otherClinic?'checked':''} onchange="_hMembers[${i}].otherClinic=this.checked" style="width:15px;height:15px">
-              타기관
-            </label>
-          </div>
-        </div>
-      </div>
-    </div>`).join('');
-
-  openModal(`<div class="modal-title">건강검진 기록 — ${e?e.name:''} (${currentYear}년)</div>
-    ${rows}
-    <button class="btn btn-sm" onclick="addFamilyMember()" style="margin-bottom:12px">+ 가족 추가</button>
-    <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveHealth()">저장</button></div>`);
-
-  setTimeout(()=>{
-    _hMembers.forEach((_,i)=>{
-      ['hd-'+i+'-y','hd-'+i+'-m','hd-'+i+'-d'].forEach(id=>{
-        const el=document.getElementById(id);
-        if(el) el.addEventListener('input',()=>onCheckupDateInput(i));
-      });
-      ['hb-'+i+'-y','hb-'+i+'-m','hb-'+i+'-d'].forEach(id=>{
-        const el=document.getElementById(id);
-        if(el) el.addEventListener('input',()=>onBirthdateInput(i));
-      });
-    });
-  },100);
-}
 
 function saveBeforeAction(){
   _hMembers.forEach((m,i)=>{
@@ -3551,133 +3483,6 @@ function showAlertPopup(alerts) {
   `);
 }
 
-// 알람 관리 탭 (관리자용)
-function renderAlerts() {
-  const alerts = db.alerts || [];
-  const rows = alerts.map(a => `
-    <tr>
-      <td>${a.date||''}</td>
-      <td style="font-weight:500;color:${a.color||'#c0392b'}">${a.title}</td>
-      <td style="font-size:12px;color:var(--text2);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${(a.content||'').replace(/\n/g,' ')}</td>
-      <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${a.color||'#c0392b'};vertical-align:middle"></span></td>
-      <td style="white-space:nowrap">
-        <button class="btn btn-sm" onclick="openEditAlert('${a.id}')">✏️ 수정</button>
-        <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteAlert('${a.id}')">삭제</button>
-      </td>
-    </tr>`).join('');
-
-  const defaultRows = DEFAULT_ALERTS.map(a => `
-    <tr style="background:var(--surface2)">
-      <td>${a.date}</td>
-      <td style="font-weight:500;color:${a.color}">${a.title}</td>
-      <td style="font-size:12px;color:var(--text2);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${a.content.replace(/\n/g,' ')}</td>
-      <td><span style="display:inline-block;width:14px;height:14px;border-radius:50%;background:${a.color};vertical-align:middle"></span></td>
-      <td><span style="font-size:11px;color:var(--text3)">기본 알람</span></td>
-    </tr>`).join('');
-
-  setContent(`
-    <div class="info-bar" style="background:#fff9f9;border:1px solid #f9a8a8;color:#c0392b">
-      🔔 매년 설정한 날짜에 자동으로 팝업 알림이 표시됩니다. <strong>MM-DD</strong> 형식으로 입력하면 매년 반복, <strong>YYYY-MM-DD</strong> 형식이면 해당 연도만 표시됩니다.
-    </div>
-    <div class="card">
-      <div class="card-title">기본 알람 (수정 불가)
-        <button class="btn btn-sm" onclick="showAlertPopup(DEFAULT_ALERTS)" style="font-size:11px">미리보기</button>
-      </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>날짜</th><th>제목</th><th>내용</th><th>색상</th><th></th></tr></thead>
-        <tbody>${defaultRows}</tbody>
-      </table></div>
-    </div>
-    <div class="card">
-      <div class="card-title">커스텀 알람
-        <button class="btn btn-primary btn-sm" onclick="openAddAlert()">+ 추가</button>
-      </div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>날짜</th><th>제목</th><th>내용</th><th>색상</th><th>수정</th></tr></thead>
-        <tbody>${rows || emptyRow(5, '커스텀 알람이 없습니다')}</tbody>
-      </table></div>
-    </div>
-  `);
-}
-
-function openAddAlert() {
-  openModal(`<div class="modal-title">알람 추가</div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field">
-        <label>날짜 <span style="font-size:11px;color:var(--text3)">(MM-DD: 매년반복 / YYYY-MM-DD: 특정일)</span></label>
-        <input id="al-date" placeholder="예: 03-15 또는 2026-12-31">
-      </div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field"><label>제목</label><input id="al-title" placeholder="연차 및 대체휴무 사용 촉진 안내"></div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field"><label>내용</label><textarea id="al-content" rows="4" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;resize:vertical;width:100%;font-family:inherit"></textarea></div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>글자 색상</label><input id="al-color" type="color" value="#c0392b" style="height:36px;width:100%;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveAlert()">저장</button>
-    </div>`);
-}
-
-async function saveAlert() {
-  const date = document.getElementById('al-date').value.trim();
-  const title = document.getElementById('al-title').value.trim();
-  if (!date || !title) { alert('날짜와 제목을 입력하세요'); return; }
-  if (!db.alerts) db.alerts = [];
-  const newAlert = {
-    date, title,
-    content: document.getElementById('al-content').value || '',
-    color: document.getElementById('al-color').value || '#c0392b'
-  };
-  const saved = await sbInsert('alerts', newAlert);
-  if(saved){ if(!db.alerts)db.alerts=[];db.alerts.push({...newAlert,id:saved.id}); }
-  saveAll(); showToast('✅ 알람 추가됨'); closeModal(); renderAlerts();
-}
-
-function openEditAlert(id) {
-  const a = (db.alerts||[]).find(x=>x.id===id);
-  if (!a) return;
-  openModal(`<div class="modal-title">알람 수정</div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field"><label>날짜</label><input id="al-date" value="${a.date||''}"></div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field"><label>제목</label><input id="al-title" value="${a.title||''}"></div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field"><label>내용</label><textarea id="al-content" rows="4" style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;resize:vertical;width:100%;font-family:inherit">${a.content||''}</textarea></div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>글자 색상</label><input id="al-color" type="color" value="${a.color||'#c0392b'}" style="height:36px;width:100%;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-danger" onclick="deleteAlert('${id}');closeModal()">삭제</button>
-      <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="updateAlert('${id}')">저장</button>
-    </div>`);
-}
-
-async function updateAlert(id) {
-  const a = (db.alerts||[]).find(x=>x.id===id);
-  if (!a) return;
-  a.date = document.getElementById('al-date').value.trim();
-  a.title = document.getElementById('al-title').value.trim();
-  a.content = document.getElementById('al-content').value || '';
-  a.color = document.getElementById('al-color').value || '#c0392b';
-  await sbUpdate('alerts',id,{date:a.date,title:a.title,content:a.content,color:a.color});
-  saveAll(); showToast('✅ 알람 수정됨'); closeModal(); renderAlerts();
-}
-
-async function deleteAlert(id) {
-  if (!confirm('삭제하시겠습니까?')) return;
-  await sbDelete('alerts',id);
-  db.alerts = (db.alerts||[]).filter(x=>x.id!==id);
-  saveAll(); showToast('🗑️ 알람 삭제됨'); renderAlerts();
-}
 
 // ══════════════════════════════════════════════
 //  내 정보 (개인 프로필 수정)
