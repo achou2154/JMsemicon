@@ -199,7 +199,8 @@ tbody tr:hover td{background:var(--surface2)}
   <div class="sidebar-footer">
     <div class="footer-btns">
       <button class="footer-btn" onclick="syncNow()" title="지금 동기화">🔄 동기화</button>
-      <button class="footer-btn" onclick="exportBackup()" title="JSON 백업">💾 백업</button>
+      <button class="footer-btn" onclick="exportBackup()" title="JSON 백업">💾 JSON</button>
+      <button class="footer-btn" onclick="exportExcel()" title="Excel 백업">📊 Excel</button>
       <button class="footer-btn btn-danger" onclick="resetAll()" title="초기화" style="flex:.5">🗑️</button>
     </div>
     <div class="mode-row">
@@ -527,6 +528,85 @@ function saveSupaConfig() {
   localStorage.setItem('supa_url', url);
   localStorage.setItem('supa_key', key);
   location.reload();
+}
+
+function exportExcel() {
+  // SheetJS(XLSX) 라이브러리로 Excel 생성
+  if (typeof XLSX === 'undefined') {
+    showToast('⚠️ Excel 라이브러리 로딩 중... 잠시 후 다시 시도해주세요');
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => exportExcel();
+    document.head.appendChild(s);
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+  const typeMap = {leave:'연차',ot:'특근',comp:'대체휴무',trip:'출장',outside:'외근',education:'교육'};
+  const statusMap = {pending:'승인대기',approved:'승인됨',rejected:'반려',completed:'수검완료',modify_requested:'수정신청'};
+
+  // 1. 직원 명부
+  const empRows = db.employees.map(e => ({
+    'ID': e.id, '이름': e.name, '부서': e.dept, '직책': e.position,
+    '연락처': e.phone, '이메일': e.email, '입사일': e.joinDate,
+    '생년월일': e.birthdate, '음양력': e.birthdateLunar?'음력':'양력',
+    '사외이사': e.isExternal?'⭐':''
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(empRows), '직원 명부');
+
+  // 2. 연차 배분
+  const laRows = db.leaveAlloc.map(la => {
+    const e = eid(la.empId);
+    return { '직원': e?e.name:'?', '부서': e?e.dept:'', '년도': la.year,
+      '부여연차(h)': la.total||0, '이월(h)': la.carryover||0,
+      '부여(일)': Math.round((la.total||0)/8*10)/10,
+      '이월(일)': Math.round((la.carryover||0)/8*10)/10 };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(laRows), '연차 배분');
+
+  // 3. 신청 내역
+  const reqRows = db.requests.map(r => {
+    const e = eid(r.empId);
+    return { '직원': e?e.name:'?', '부서': e?e.dept:'', '년도': r.year,
+      '유형': typeMap[r.type]||r.type,
+      '구분': r.leaveType||r.otType||r.tripKind||'',
+      '시작일': r.startDate||r.date||'', '종료일': r.endDate||'',
+      '시간(h)': r.hours||'', '사유': r.reason||'',
+      '상태': statusMap[r.status]||r.status, '신청일': r.reqDate||'' };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(reqRows), '신청 내역');
+
+  // 4. 기념일·생일
+  const evRows = db.events.map(ev => {
+    const e = eid(ev.empId);
+    return { '직원': e?e.name:'?', '유형': ev.type==='birthday'?'생일':'기념일',
+      '이름': ev.name, '월': ev.month, '일': ev.day,
+      '음양력': ev.calType==='lunar'?'음력':'양력' };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(evRows), '기념일·생일');
+
+  // 5. 건강검진
+  const healthRows = db.health.map(h => {
+    const e = eid(h.empId);
+    const fam = (h.members||[]).filter(m=>m.relation!=='본인');
+    return { '직원': e?e.name:'?', '부서': e?e.dept:'', '년도': h.year,
+      '예약일': h.reserveDate||'', '수검일': h.checkupDate||'',
+      '상태': statusMap[h.status]||h.status,
+      '승인': h.approved?'승인':'미승인',
+      '가족수': fam.length,
+      '가족정보': fam.map(m=>`${m.relation}(${m.name||''}/${m.birthdate||''})`).join(', ') };
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(healthRows), '건강검진');
+
+  // 6. 공지사항
+  const noticeRows = (db.notices||[]).map(n => ({
+    '제목': n.title, '내용': n.content, '기간(일)': n.duration,
+    '시작일': n.startDate, '종료일': n.endDate, '대상자수': (n.targetIds||[]).length
+  }));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(noticeRows), '공지사항');
+
+  XLSX.writeFile(wb, `JM근태_${todayStr()}.xlsx`);
+  showToast('📊 Excel 다운로드 시작');
 }
 
 function exportBackup() {
@@ -2111,9 +2191,9 @@ function renderHealth(){
   const sortedEmps = showEmps.slice().sort((a,b)=>{
     const ha = db.health.find(r=>String(r.empId)===String(a.id)&&String(r.year)===String(yr));
     const hb = db.health.find(r=>String(r.empId)===String(b.id)&&String(r.year)===String(yr));
-    const da = ha?.reserveDate||'9999';
-    const db2 = hb?.reserveDate||'9999';
-    return da.localeCompare(db2);
+    const da = ha?.reserveDate||'9999-99-99';
+    const db2 = hb?.reserveDate||'9999-99-99';
+    return da.localeCompare(db2); // 오름차순 (예약일 빠른 순)
   });
 
   const rows = sortedEmps.map(e=>{
@@ -2165,23 +2245,48 @@ function openHealthApply(empId) {
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
   const existFam = (h?.members||[]).filter(m=>m.relation!=='본인');
   const famHtml = existFam.map((m,i)=>`
-    <div class="fam-row" id="fam-row-${i}" style="display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:6px;align-items:center;margin-bottom:8px">
-      <input placeholder="관계(예:배우자)" value="${m.relation||''}" id="fam-rel-${i}"
-        style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
-      <input placeholder="이름" value="${m.name||''}" id="fam-name-${i}"
-        style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
-      <input type="date" placeholder="생년월일" value="${m.birthdate||''}" id="fam-birth-${i}"
-        style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="limitYear(this)">
-      <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()">✕</button>
+    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:4px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+      <input placeholder="관계" value="${m.relation||''}" id="fam-rel-${i}"
+        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+      <input placeholder="성명" value="${m.name||''}" id="fam-name-${i}"
+        style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+      <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
+        value="${m.birthdate?m.birthdate.slice(0,4):''}"
+        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+      <span style="font-size:11px">-</span>
+      <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
+        value="${m.birthdate?parseInt(m.birthdate.slice(5,7)):''}"
+        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+      <span style="font-size:11px">-</span>
+      <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
+        value="${m.birthdate?parseInt(m.birthdate.slice(8,10)):''}"
+        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+      <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>
     </div>`).join('');
 
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
     <div class="field" style="margin-bottom:12px">
       <label>예약일 *</label>
-      <input type="date" id="h-reserve-date" value="${h?.reserveDate||''}"
-        style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"
-        oninput="limitYear(this)">
+      <div style="display:flex;gap:4px;align-items:center">
+        <input type="number" id="h-res-year" placeholder="년(4자리)" min="2024" max="2099"
+          value="${h?.reserveDate?h.reserveDate.slice(0,4):''}"
+          style="width:90px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"
+          oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+        <span>-</span>
+        <input type="number" id="h-res-month" placeholder="월" min="1" max="12"
+          value="${h?.reserveDate?parseInt(h.reserveDate.slice(5,7)):''}"
+          style="width:60px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"
+          oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+        <span>-</span>
+        <input type="number" id="h-res-day" placeholder="일" min="1" max="31"
+          value="${h?.reserveDate?parseInt(h.reserveDate.slice(8,10)):''}"
+          style="width:60px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"
+          oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+      </div>
     </div>
     <div style="margin-bottom:12px">
       <div style="font-size:13px;font-weight:600;margin-bottom:8px">
@@ -2220,21 +2325,33 @@ function addFamRow() {
   div.className = 'fam-row';
   div.id = `fam-row-${i}`;
   div.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px';
-  div.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:6px;align-items:center;margin-bottom:8px';
+  div.style.cssText = 'display:flex;gap:4px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
   div.innerHTML = `
-    <input placeholder="관계(예:배우자)" id="fam-rel-${i}"
-      style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
-    <input placeholder="이름" id="fam-name-${i}"
-      style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">
-    <input type="date" placeholder="생년월일" id="fam-birth-${i}"
-      style="padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="limitYear(this)">
-    <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()">✕</button>`;
+    <input placeholder="관계" id="fam-rel-${i}"
+      style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+    <input placeholder="성명" id="fam-name-${i}"
+      style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+    <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
+      style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+    <span style="font-size:11px">-</span>
+    <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
+      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+    <span style="font-size:11px">-</span>
+    <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
+      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+    <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>`;
   list.appendChild(div);
 }
 
 async function saveHealthApply(empId) {
-  const reserveDate = document.getElementById('h-reserve-date')?.value;
-  if (!reserveDate) { showToast('예약일을 입력하세요'); return; }
+  const resY = document.getElementById('h-res-year')?.value;
+  const resM = String(document.getElementById('h-res-month')?.value||'').padStart(2,'0');
+  const resD = String(document.getElementById('h-res-day')?.value||'').padStart(2,'0');
+  const reserveDate = (resY&&resM&&resD) ? `${resY}-${resM}-${resD}` : '';
+  if (!reserveDate || resY.length!==4) { showToast('예약일을 올바르게 입력하세요 (년 4자리)'); return; }
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
   const newStatus = h?.status === 'approved' ? 'modify_requested' : 'pending';
@@ -2245,9 +2362,15 @@ async function saveHealthApply(empId) {
   famRows.forEach(row => {
     const relEl = row.querySelector('input[id^="fam-rel"]');
     const nameEl = row.querySelector('input[id^="fam-name"]');
-    const birthEl = row.querySelector('input[type="date"]');
+    const byEl = row.querySelector('input[id^="fam-by"]');
+    const bmEl = row.querySelector('input[id^="fam-bm"]');
+    const bdEl = row.querySelector('input[id^="fam-bd"]');
     const rel = relEl?.value?.trim();
-    if (rel) members.push({relation:rel, name:nameEl?.value?.trim()||'', birthdate:birthEl?.value||'', confirmed:false, reserveDate:'', checkupDate:'', cost:0});
+    if (rel) {
+      const by = byEl?.value||''; const bm = String(bmEl?.value||'').padStart(2,'0'); const bd = String(bdEl?.value||'').padStart(2,'0');
+      const birthdate = (by&&bm&&bd) ? `${by}-${bm}-${bd}` : '';
+      members.push({relation:rel, name:nameEl?.value?.trim()||'', birthdate, confirmed:false, reserveDate:'', checkupDate:'', cost:0});
+    }
   });
 
   if (h?.id) {
