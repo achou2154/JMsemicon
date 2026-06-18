@@ -4704,5 +4704,15 @@ if (initSupabase()) {
   </div>
 </div>
 
+<!-- 사이드바 펴기 버튼 -->
+<button id="sb-open-btn" onclick="doToggleSidebar()"
+  style="display:none;position:fixed;left:0;top:50%;transform:translateY(-50%);
+         z-index:9999;background:var(--accent);color:#fff;border:none;
+         border-radius:0 8px 8px 0;padding:14px 5px;cursor:pointer;
+         font-size:11px;font-weight:700;writing-mode:vertical-rl;
+         letter-spacing:2px;box-shadow:2px 0 8px rgba(0,0,0,.25)">
+  ▶ 펴기
+</button>
+
 </body>
 </html>
