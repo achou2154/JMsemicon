@@ -25,7 +25,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5}
 button{cursor:pointer;font-family:inherit;font-size:13px}
-.app{display:flex;min-height:100vh}
+.app{display:flex;height:100vh;overflow:hidden}
 
 /* Sidebar */
 .sidebar{width:220px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
@@ -39,7 +39,7 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .sync-dot.loading{background:#f59e0b;animation:pulse .8s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 .sync-label{font-size:10px;color:var(--text3)}
-.nav-wrap{padding:8px 6px;flex:1;overflow-y:auto}
+.nav-wrap{padding:8px 6px;flex:1;overflow-y:auto;padding-bottom:80px}
 .nav-sec{padding:10px 8px 3px;font-size:10px;color:var(--text3);font-weight:600;letter-spacing:.08em;text-transform:uppercase}
 .nav-item{display:flex;align-items:center;gap:9px;padding:8px 10px;margin:1px 0;border-radius:var(--radius);cursor:pointer;color:var(--text2);font-size:13px;border:none;background:transparent;width:100%;text-align:left}
 .nav-item:hover{background:var(--bg);color:var(--text)}
@@ -49,14 +49,14 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 .footer-btns{display:flex;gap:5px;margin-bottom:8px}
 .footer-btn{flex:1;padding:5px 0;font-size:11px;border:1px solid var(--border2);border-radius:var(--radius);background:transparent;color:var(--text2);text-align:center}
 .footer-btn:hover{background:var(--bg)}
-.admin-backup-btn{display:none} /* JS에서 관리자 로그인 시 표시 */
+.admin-backup-btn{display:none !important} /* updateAdminUI에서 override */
 .mode-row{display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--bg);border-radius:var(--radius)}
 .mode-label{font-size:12px;color:var(--text2)}
 .mode-btn{font-size:11px;padding:3px 9px;border:1px solid var(--border2);border-radius:5px;background:var(--surface);color:var(--text)}
 .admin-chip{font-size:10px;padding:2px 7px;border-radius:3px;background:var(--accent);color:#fff;font-weight:600}
 
 /* Main */
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;display:flex;flex-direction:column;overflow-y:auto;height:100vh}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .page-title{font-size:15px;font-weight:600}
 .topbar-right{display:flex;align-items:center;gap:10px}
@@ -171,9 +171,6 @@ tbody tr:hover td{background:var(--surface2)}
 
 <!-- Sidebar -->
 <div class="sidebar" id="sidebar">
-  <div class="sidebar-toggle-wrap">
-    <button onclick="toggleSidebarCollapse()" id="sb-collapse-btn" title="사이드바 접기/펴기">◀ 접기</button>
-  </div>
   <div class="logo" onclick="go('calendar')" style="cursor:pointer" title="월별 달력으로 이동">
     <img src="data:image/jpeg;base64,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" alt="JM Semiconductor" style="height:34px;object-fit:contain;max-width:160px;display:block">
     <div class="sync-row" style="margin-top:6px">
@@ -193,6 +190,7 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장 / 외근 관리</button>
     <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비</button>
     <div class="nav-sec">회사 관리</div>
+    <button class="nav-item" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <div class="nav-sec">내 계정</div>
@@ -217,11 +215,17 @@ tbody tr:hover td{background:var(--surface2)}
 
 <!-- Main -->
 <div class="main">
-  <div id="bday-alarm-bar" style="display:none;background:var(--bday-bg);border-bottom:1px solid #7dd3fc;padding:7px 22px;font-size:12px;color:var(--bday);cursor:pointer" onclick="go('bday')"></div>
+  <!-- 공지/알람 상단바 -->
+  <div id="notice-alarm-bar" style="display:none;background:#eff6ff;border-bottom:1px solid #93c5fd;padding:7px 22px;font-size:12px;color:#1d4ed8;cursor:pointer" onclick="go('noticeboard')">
+    <span id="notice-alarm-bar-text"></span>
+  </div>
   <div class="topbar">
+    <button onclick="toggleSidebarCollapse()" style="background:none;border:none;cursor:pointer;padding:4px 8px;font-size:18px;color:var(--text2);margin-right:4px" title="메뉴 접기/펴기">☰</button>
     <button id="sidebar-toggle" onclick="toggleSidebar()" style="display:none;background:none;border:none;cursor:pointer;padding:4px 8px;font-size:20px;color:var(--text2);margin-right:8px">☰</button>
     <span class="page-title" id="page-title">전체 현황</span>
-    <div class="topbar-right">
+    <div class="topbar-right" style="display:flex;align-items:center;gap:8px">
+      <!-- 기념일 작은 알림 -->
+      <div id="bday-alarm-bar" style="display:none;background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:11px;color:var(--bday);cursor:pointer;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis" onclick="go('bday')"></div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
     </div>
   </div>
@@ -923,18 +927,15 @@ function toggleSidebar() {
 
 function toggleSidebarCollapse() {
   const sb = document.getElementById('sidebar');
-  const btn = document.getElementById('sb-collapse-btn');
+  if (!sb) return;
   const collapsed = sb.classList.toggle('collapsed');
-  if (btn) btn.innerHTML = collapsed ? '▶' : '◀ 접기';
   localStorage.setItem('sidebar_collapsed', collapsed ? '1' : '0');
 }
 
 function initSidebarState() {
   if (localStorage.getItem('sidebar_collapsed') === '1') {
     const sb = document.getElementById('sidebar');
-    const btn = document.getElementById('sb-collapse-btn');
     if (sb) sb.classList.add('collapsed');
-    if (btn) btn.innerHTML = '▶';
   }
 }
 function closeSidebarIfOpen() {
@@ -1144,7 +1145,11 @@ function updateAdminUI(){
 
   // 백업/초기화 버튼 - 관리자만 표시
   document.querySelectorAll('.admin-backup-btn').forEach(el => {
-    el.style.display = isAdmin ? '' : 'none';
+    if (isAdmin) {
+      el.style.setProperty('display', '', 'important');
+    } else {
+      el.style.setProperty('display', 'none', 'important');
+    }
   });
 
   // 관리자 알람설정 메뉴
@@ -1159,7 +1164,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근 / 대체휴무',transport:'교통비',trip:'출장 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근 / 대체휴무',transport:'교통비',trip:'출장 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1185,7 +1190,7 @@ function go(page) {
   // 관리자 알람설정은 별도 처리
   const nsEl = document.getElementById('nav-notifysetting');
   if(nsEl) nsEl.style.display = isAdmin ? '' : 'none';
-  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting}[page]||renderOverview)();
+  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
 function setContent(html){document.getElementById('main-content').innerHTML=html;}
@@ -3546,7 +3551,9 @@ function checkAndShowAlerts() {
   setTimeout(checkAndShowNotice, 1000);
   // 수검일 경과 알람 (6번)
   setTimeout(checkHealthCheckupAlert, 1500);
-  // 생일/기념일 상단 알람 바
+  // 공지/반복알람 상단바
+  updateNoticeAlarmBar();
+  // 생일/기념일 상단 알람 바 (우측)
   updateBdayAlarmBar();
   // 팝업 알람
   const alerts = getActiveAlerts();
@@ -3555,6 +3562,35 @@ function checkAndShowAlerts() {
   if (alerts.length === 0) return;
   localStorage.setItem(shownKey, '1');
   showAlertPopup(alerts);
+}
+
+function updateNoticeAlarmBar() {
+  // 공지사항 + 반복알람 상단바 업데이트
+  const bar = document.getElementById('notice-alarm-bar');
+  const txt = document.getElementById('notice-alarm-bar-text');
+  if (!bar || !txt || !currentEmp) return;
+
+  const today = todayStr();
+  // 활성 공지사항
+  const activeNotices = (db.notices||[]).filter(n => {
+    if (!n.startDate || !n.endDate) return false;
+    if (today < n.startDate || today > n.endDate) return false;
+    if (n.targetIds && n.targetIds.length && !n.targetIds.map(String).includes(String(currentEmp.id))) return false;
+    return true;
+  });
+  // 반복알람 (미발송 예약)
+  const pendingSchedules = (db.notifySchedules||[]).filter(s => !s.sent);
+
+  const items = [];
+  if (activeNotices.length) items.push(`📢 공지사항 ${activeNotices.length}건`);
+  if (pendingSchedules.length && isAdmin) items.push(`🔔 예약알람 ${pendingSchedules.length}건`);
+
+  if (items.length) {
+    txt.textContent = items.join('  |  ') + '  ▶ 클릭하여 확인';
+    bar.style.display = '';
+  } else {
+    bar.style.display = 'none';
+  }
 }
 
 function updateBdayAlarmBar() {
@@ -3572,18 +3608,11 @@ function updateBdayAlarmBar() {
   if (!upcoming.length) { bar.style.display = 'none'; return; }
   bar.style.display = 'block';
   const emp4ev = (ev) => eid(ev.empId);
-  bar.innerHTML = '🎂 ' + upcoming.map(ev => {
-    const e = emp4ev(ev);
-    // 복리후생 기준: anniversaryType === 'anniversary'인데 이 이벤트가 기념일이거나,
-    //              anniversaryType === 'birthday'인데 이 이벤트가 생일인 경우
-    const isWelfare = e && (
-      (e.anniversaryType === 'birthday' && ev.type === 'birthday') ||
-      (e.anniversaryType === 'anniversary' && ev.type === 'anniversary')
-    );
-    return `<strong>${ev.name}</strong>${isWelfare ? ' ⭐' : ''} ${ev.diff === 0 ? '오늘!' : 'D-' + ev.diff}`;
-  }).join(' &nbsp;·&nbsp; ') +
-  ' &nbsp;<span style="font-size:11px;opacity:.7">클릭하여 확인</span>' +
-  '<div style="font-size:10px;opacity:.7;margin-top:2px">⭐ 복리후생 지원</div>';
+  // 우측 작은 칸 - 첫번째 것만 간략히 표시
+  const first = upcoming[0];
+  const e0 = emp4ev(first);
+  const isW0 = e0 && ((e0.anniversaryType==='birthday'&&first.type==='birthday')||(e0.anniversaryType==='anniversary'&&first.type==='anniversary'));
+  bar.textContent = '🎂 ' + first.name + (isW0?' ⭐':'') + ' D-' + first.diff + (upcoming.length>1?` 외 ${upcoming.length-1}건`:'');
 }
 
 function showAlertPopup(alerts) {
@@ -3917,7 +3946,96 @@ async function deleteNotice(id) {
   await sbDelete('notices', id);
   db.notices = db.notices.filter(n => String(n.id) !== String(id));
   showToast('🗑️ 삭제됨');
-  renderNotifySetting();
+  updateNoticeAlarmBar();
+  if (document.getElementById('page-title')?.textContent === '공지사항') renderNoticeBoard();
+  else renderNotifySetting();
+}
+
+// ══════════════════════════════════════════════
+//  공지사항 게시판
+// ══════════════════════════════════════════════
+function renderNoticeBoard() {
+  const today = todayStr();
+
+  if (isAdmin) {
+    // 관리자: 전체 공지 + 반복알람 목록
+    const noticeRows = (db.notices||[]).map(n => {
+      const isActive = today >= n.startDate && today <= n.endDate;
+      return `<tr>
+        <td><span class="badge" style="background:${isActive?'#d1fae5':'#f1f5f9'};color:${isActive?'#065f46':'#64748b'}">${isActive?'게시중':'종료'}</span></td>
+        <td style="font-weight:500">${n.title}</td>
+        <td style="font-size:12px;color:var(--text2)">${fmt(n.startDate)} ~ ${fmt(n.endDate)}</td>
+        <td style="font-size:12px">${n.targetIds?.length||0}명</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteNotice(${n.id})">삭제</button></td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">등록된 공지사항 없음</td></tr>`;
+
+    const scheduleRows = (db.notifySchedules||[]).map(s => `
+      <tr>
+        <td><span class="badge" style="background:${s.sent?'#f1f5f9':'#fef3c7'};color:${s.sent?'#64748b':'#92400e'}">${s.sent?'발송완료':'예약중'}</span></td>
+        <td style="font-weight:500">${s.title||'(제목없음)'}</td>
+        <td style="font-size:12px;color:var(--text2)">${s.sendAt?fmtDateTime(s.sendAt):'즉시'}</td>
+        <td style="font-size:12px">${JSON.parse(s.targetIds||'[]').length}명</td>
+        <td>${!s.sent?`<button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">취소</button>`:''}</td>
+      </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">예약된 알람 없음</td></tr>`;
+
+    setContent(`
+      <div class="card" style="margin-bottom:10px">
+        <div class="card-title">📢 팝업 공지사항
+          <button class="btn btn-sm btn-primary" onclick="go('notifysetting')">+ 공지 등록</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>상태</th><th>제목</th><th>게시기간</th><th>대상</th><th></th></tr></thead>
+          <tbody>${noticeRows}</tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🔔 반복 알람 내역
+          <button class="btn btn-sm btn-primary" onclick="go('notifysetting')">+ 알람 등록</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>상태</th><th>제목</th><th>발송시각</th><th>대상</th><th></th></tr></thead>
+          <tbody>${scheduleRows}</tbody>
+        </table></div>
+      </div>
+    `);
+  } else {
+    // 일반 직원: 본인에게 온 공지만 열람
+    const myNotices = (db.notices||[]).filter(n => {
+      if (!n.targetIds?.length) return true; // 전체 대상
+      return n.targetIds.map(String).includes(String(currentEmp?.id));
+    });
+
+    const rows = myNotices.map(n => {
+      const isActive = today >= n.startDate && today <= n.endDate;
+      return `<tr style="cursor:pointer" onclick="openNoticeDetail(${n.id})">
+        <td><span class="badge" style="background:${isActive?'#d1fae5':'#f1f5f9'};color:${isActive?'#065f46':'#64748b'}">${isActive?'게시중':'종료'}</span></td>
+        <td style="font-weight:500">${n.title}</td>
+        <td style="font-size:12px;color:var(--text2)">${fmt(n.startDate)} ~ ${fmt(n.endDate)}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:24px">공지사항이 없습니다</td></tr>`;
+
+    setContent(`
+      <div class="card">
+        <div class="card-title">📢 공지사항</div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>상태</th><th>제목</th><th>게시기간</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table></div>
+      </div>
+    `);
+  }
+}
+
+function openNoticeDetail(noticeId) {
+  const n = (db.notices||[]).find(x => String(x.id) === String(noticeId));
+  if (!n) return;
+  openModal(`
+    <div class="modal-title">📢 ${n.title}</div>
+    <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;margin-bottom:16px">${n.content}</div>
+    <div style="font-size:12px;color:var(--text3)">게시기간: ${fmt(n.startDate)} ~ ${fmt(n.endDate)}</div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+  `);
 }
 
 // ══════════════════════════════════════════════
