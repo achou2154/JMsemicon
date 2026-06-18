@@ -2044,7 +2044,7 @@ function openAddOutside(empId) {
     <div class="modal-title">🚗 외근 신청 — ${e.name}</div>
     <div class="form-grid" style="margin-bottom:12px">
       <div class="field"><label>시작일 *</label>${makeDateInput('out-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('out-end')}</div>
+      <div class="field"><label>종료일</label>${makeDateInput('out-end','',true)}</div>
     </div>
     <div class="field" style="margin-bottom:16px"><label>사유 *</label><input id="out-reason" placeholder="외근 사유를 입력하세요"></div>
     <div class="modal-footer">
@@ -2078,7 +2078,7 @@ function openAddEducation(empId) {
     <div class="field" style="margin-bottom:12px"><label>교육명 *</label><input id="edu-title" placeholder="교육명을 입력하세요"></div>
     <div class="form-grid" style="margin-bottom:12px">
       <div class="field"><label>시작일 *</label>${makeDateInput('edu-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('edu-end')}</div>
+      <div class="field"><label>종료일</label>${makeDateInput('edu-end','',true)}</div>
     </div>
     <div class="field" style="margin-bottom:16px"><label>사유/기관</label><input id="edu-reason" placeholder="교육 기관 또는 추가 사유"></div>
     <div class="modal-footer">
@@ -2295,6 +2295,15 @@ function openHealthApply(empId) {
       </div>
       <div id="fam-list">${famHtml}</div>
     </div>
+    <div style="margin-bottom:12px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+        <input type="checkbox" id="h-other-clinic" ${h?.members?.[0]?.otherClinic?'checked':''} style="width:15px;height:15px">
+        타기관 검진
+      </label>
+      <div style="font-size:11px;color:var(--text3);margin-top:4px;margin-left:23px">
+        ※ 동일한 금액 실비지원 (영수증이 없는 경우, 소득세 발생)
+      </div>
+    </div>
     <div style="background:var(--bg);border-radius:var(--radius);padding:10px 14px;font-size:12px;color:var(--text2);margin-bottom:16px">
       💡 예약일 입력 후 저장하면 관리자 승인을 받습니다.
     </div>
@@ -2358,7 +2367,8 @@ async function saveHealthApply(empId) {
 
   // 가족 정보 수집
   const famRows = document.querySelectorAll('#fam-list .fam-row');
-  const members = [{relation:'본인', birthdate:'', confirmed:false, reserveDate, checkupDate:'', cost:0}];
+  const otherClinic = document.getElementById('h-other-clinic')?.checked || false;
+  const members = [{relation:'본인', birthdate:'', confirmed:false, reserveDate, checkupDate:'', cost:0, otherClinic}];
   famRows.forEach(row => {
     const relEl = row.querySelector('input[id^="fam-rel"]');
     const nameEl = row.querySelector('input[id^="fam-name"]');
@@ -2562,7 +2572,14 @@ function renderCalendar(){
   });
   db.events.forEach(ev2=>{
     const ds=getEventDate(ev2,y);
-    if(ds&&ds.startsWith(mStr))addEv(ds,(ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name,'ev-bday');
+    if(ds&&ds.startsWith(mStr)) {
+      const emp4 = eid(ev2.empId);
+      const isWelfare4 = emp4 && (
+        (emp4.anniversaryType==='birthday' && ev2.type==='birthday') ||
+        (emp4.anniversaryType==='anniversary' && ev2.type==='anniversary')
+      );
+      addEv(ds,(ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':''),'ev-bday');
+    }
   });
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
@@ -2637,12 +2654,15 @@ function renderCalendar(){
     <div style="background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:600;color:var(--bday);margin-bottom:6px">🗓️ 30일 이내 예정</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
-        ${upcoming30.map(ev2=>`
-          <span style="background:#fff;border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:12px">
-            ${ev2.type==='birthday'?'🎂':'🎉'} <strong>${ev2.name}</strong>
+        ${upcoming30.map(ev2=>{
+          const emp30=eid(ev2.empId);
+          const isW30=emp30&&((emp30.anniversaryType==='birthday'&&ev2.type==='birthday')||(emp30.anniversaryType==='anniversary'&&ev2.type==='anniversary'));
+          return`<span style="background:#fff;border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:12px">
+            ${ev2.type==='birthday'?'🎂':'🎉'} <strong>${ev2.name}</strong>${isW30?' ⭐':''}
             ${ev2.diff===0?'<span style="color:var(--danger);font-weight:700"> 오늘!</span>':`<span style="color:var(--text2)"> D-${ev2.diff}</span>`}
             <span style="color:var(--text3);font-size:11px">(${ev2.ds})</span>
-          </span>`).join('')}
+          </span>`;}).join('')}
+        <div style="font-size:10px;color:var(--text3);margin-top:4px;width:100%">⭐ 복리후생 지원</div>
       </div>
     </div>` : '';
 
@@ -2769,10 +2789,10 @@ function updateReqForm(){
     </div>
   </div>
   <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" value="8" min="1"></div></div>
-  <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시작일 *</label>${makeDateInput('f-start')}</div><div class="field"><label>종료일</label>${makeDateInput('f-end')}</div></div>`;}
+  <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시작일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>종료일</label>${makeDateInput('f-end','',true)}</div></div>`;}
   else if(t==='ot'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>구분</label><select id="f-otype"><option>연장</option><option>특근</option><option>주말연장</option></select></div><div class="field"><label>날짜 *</label>${makeDateInput('f-date')}</div></div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4"></div></div>`;}
-  else if(t==='trip'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>출발일 *</label>${makeDateInput('f-start')}</div><div class="field"><label>복귀일</label>${makeDateInput('f-end')}</div></div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>목적지</label><input id="f-dest"></div></div>`;}
-  else if(t==='comp'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start')}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div>`;}
+  else if(t==='trip'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>출발일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>복귀일</label>${makeDateInput('f-end','',true)}</div></div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>목적지</label><input id="f-dest"></div></div>`;}
+  else if(t==='comp'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div>`;}
   h+=`<div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>`;
   document.getElementById('req-form-body').innerHTML=h;
 }
@@ -2848,7 +2868,7 @@ async function openAddLeave(empId){
     </div>
     <div class="form-grid" style="margin-bottom:12px">
       <div class="field"><label>시작일 *</label>${makeDateInput('f-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('f-end')}</div>
+      <div class="field"><label>종료일</label>${makeDateInput('f-end','',true)}</div>
     </div>
     <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
     <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>`);
@@ -2934,7 +2954,7 @@ async function saveOT(){
   closeModal();
   renderOT();
 }
-async function openAddComp(empId){openModal(`<div class="modal-title">대체휴무 신청</div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div><div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start')}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div><div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div><div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>`);}
+async function openAddComp(empId){openModal(`<div class="modal-title">대체휴무 신청</div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div><div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div><div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div><div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>`);}
 async function saveComp(){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
   const _r = {id:nextId++,type:'comp',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
   const _saved = await sbInsert('requests', reqToDb(_r));
@@ -2952,8 +2972,8 @@ async function openAddTrip(kind,empId){
   openModal(`<div class="modal-title">${isOverseas?'🌏 해외':'🇰🇷 국내'} 출장 신청</div>
     <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div>
     <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>출발일 *</label>${makeDateInput('f-start')}</div>
-      <div class="field"><label>복귀일</label>${makeDateInput('f-end')}</div>
+      <div class="field"><label>출발일 *</label>${makeDateInput('f-start','',true)}</div>
+      <div class="field"><label>복귀일</label>${makeDateInput('f-end','',true)}</div>
     </div>
     <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>목적지</label><input id="f-dest" placeholder="${isOverseas?'예: 일본 도쿄':'예: 부산'}"></div></div>
     ${isOverseas?`<div class="form-grid col1" style="margin-bottom:12px">
@@ -3460,9 +3480,19 @@ function updateBdayAlarmBar() {
 
   if (!upcoming.length) { bar.style.display = 'none'; return; }
   bar.style.display = 'block';
-  bar.innerHTML = '🎂 ' + upcoming.map(ev =>
-    `<strong>${ev.name}</strong> ${ev.diff === 0 ? '오늘!' : 'D-' + ev.diff}`
-  ).join(' &nbsp;·&nbsp; ') + ' &nbsp;<span style="font-size:11px;opacity:.7">클릭하여 확인</span>';
+  const emp4ev = (ev) => eid(ev.empId);
+  bar.innerHTML = '🎂 ' + upcoming.map(ev => {
+    const e = emp4ev(ev);
+    // 복리후생 기준: anniversaryType === 'anniversary'인데 이 이벤트가 기념일이거나,
+    //              anniversaryType === 'birthday'인데 이 이벤트가 생일인 경우
+    const isWelfare = e && (
+      (e.anniversaryType === 'birthday' && ev.type === 'birthday') ||
+      (e.anniversaryType === 'anniversary' && ev.type === 'anniversary')
+    );
+    return `<strong>${ev.name}</strong>${isWelfare ? ' ⭐' : ''} ${ev.diff === 0 ? '오늘!' : 'D-' + ev.diff}`;
+  }).join(' &nbsp;·&nbsp; ') +
+  ' &nbsp;<span style="font-size:11px;opacity:.7">클릭하여 확인</span>' +
+  '<div style="font-size:10px;opacity:.7;margin-top:2px">⭐ 복리후생 지원</div>';
 }
 
 function showAlertPopup(alerts) {
@@ -3780,15 +3810,33 @@ function checkHealthCheckupAlert() {
   const h = db.health.find(r => String(r.empId) === String(currentEmp.id) && String(r.year) === String(yr));
   if (!h || h.status === 'completed' || !h.approved) return;
   if (!h.reserveDate) return;
-  // 예약일이 오늘 이전인 경우
+  // 예약일이 오늘 이전인 경우만
   if (h.reserveDate >= todayStr()) return;
   // 이미 오늘 알림 봤으면 스킵
   const skipKey = `health_alert_${currentEmp.id}_${todayStr()}`;
   if (localStorage.getItem(skipKey)) return;
 
+  // 예약일 파싱
+  const rd = h.reserveDate.split('-');
+  const rMonth = parseInt(rd[1]);
+  const rDay   = parseInt(rd[2]);
+
   const popup = document.getElementById('health-alert-popup');
-  if (popup) {
-    popup.style.display = 'flex';
+  const content = document.getElementById('health-alert-content');
+  if (popup && content) {
+    content.innerHTML = `
+      <div style="font-size:24px;text-align:center;margin-bottom:12px">🏥</div>
+      <div style="font-size:16px;font-weight:700;text-align:center;margin-bottom:16px;color:var(--health)">건강검진 수검 확인</div>
+      <p style="font-size:14px;text-align:center;margin-bottom:8px;color:var(--text)">건강검진 예약일 : <strong>${rMonth}월 ${rDay}일</strong></p>
+      <p style="font-size:13px;text-align:center;margin-bottom:20px;color:var(--text2)">건강검진을 받으셨다면<br>수검완료를 클릭해 주세요!</p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-primary" style="width:100%;background:var(--health);border-color:var(--health)"
+          onclick="closeHealthAlert();openHealthComplete(${currentEmp.id})">
+          ✅ 수검완료 입력하기
+        </button>
+        <button class="btn" style="width:100%" onclick="closeHealthAlert()">나중에 하기</button>
+      </div>`;
+    popup.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2001;align-items:center;justify-content:center';
     localStorage.setItem(skipKey, '1');
   }
 }
