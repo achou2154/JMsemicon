@@ -770,6 +770,10 @@ async function onSignedIn(user) {
 
     updateAdminUI();
 
+    // 접기/펴기 버튼 표시
+    const sbBtn = document.getElementById('sb-toggle-fixed-btn');
+    if (sbBtn) sbBtn.style.display = '';
+
     // 데이터 로드
     await loadAllData();
     await loadAdminEmails();
@@ -784,6 +788,9 @@ async function onSignedIn(user) {
 
 function onSignedOut() {
   currentUser = null; currentEmp = null; isAdmin = false;
+  // 접기/펴기 버튼 숨김
+  const sbBtn = document.getElementById('sb-toggle-fixed-btn');
+  if (sbBtn) sbBtn.style.display = 'none';
   document.querySelector('.app').style.display = 'none';
   showLoginScreen();
 }
@@ -2787,10 +2794,10 @@ function renderCalendar(){
 
   const mkCard = (title, reqs, bg, border, titleColor) => reqs.length === 0 ? '' : `
     <div style="background:${bg};border:1px solid ${border};border-radius:var(--radius);padding:12px 16px;flex:1;min-width:200px">
-      <div style="font-size:12px;font-weight:700;color:${titleColor};margin-bottom:8px">📌 ${title}</div>
-      <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="font-size:12px;font-weight:700;color:${titleColor};margin-bottom:8px">📌 ${title} (${reqs.length}명)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;max-height:${4*32}px;overflow-y:auto">
         ${reqs.map(r=>`
-          <div style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <div style="display:flex;align-items:center;gap:6px;font-size:13px;background:rgba(255,255,255,.6);border-radius:20px;padding:3px 10px 3px 4px;white-space:nowrap">
             ${av(r.empId,22)}
             <span style="font-weight:500">${ename(r.empId)}</span>
             <span style="font-size:11px;color:#64748b">${typeLabel[r.type]||''}</span>
