@@ -160,6 +160,8 @@ tbody tr:hover td{background:var(--surface2)}
 /* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
 .modal-bg.show{display:flex}
+.modal{background:var(--surface);border-radius:var(--radius-lg);padding:28px 32px;width:480px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+.modal.modal-lg{width:800px !important;max-width:95vw !important;max-height:90vh !important}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:20px 24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .modal-title{font-size:16px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
@@ -385,7 +387,7 @@ function normalizeEmp(r) {
     anniversaryType:r.anniversary_type||'birthday' };
 }
 function normalizeLa(r) {
-  return { id:r.id, empId:r.emp_id, year:r.year, total:r.total, carryover:r.carryover };
+  return { id:r.id, empId:r.emp_id, year:r.year, total:r.total||0, carryover:r.carryover||0, extinct:r.extinct||0 };
 }
 function normalizeReq(r) {
   return { id:r.id, type:r.type, empId:r.emp_id, status:r.status, year:r.year,
@@ -1284,9 +1286,12 @@ function renderOverview(){
   const pending=db.requests.filter(r=>String(r.year)===String(yr)&&r.status==='pending').length;
   const totalLU=db.employees.reduce((s,e)=>s+getLeaveUsed(e.id,yr),0);
   const totalExtinct=db.leaveAlloc.filter(a=>String(a.year)===String(yr)).reduce((s,a)=>s+(+a.extinct||0),0);
+  // 전체 잔여연차 합계 (발생-소멸-사용)
+  const totalLeaveAlloc=db.employees.filter(e=>!e.isExternal).reduce((s,e)=>s+getLeaveRemain(e.id,yr),0);
   const totalOT=db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
   const totalComp=db.requests.filter(r=>r.type==='comp'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
-  const totalCompUsed=getCompUsed?db.employees.reduce((s,e)=>s+getCompUsed(e.id,yr),0):0;
+  const totalCompUsed=db.employees.reduce((s,e)=>s+getCompUsed(e.id,yr),0);
+  const totalCompRemain=db.employees.reduce((s,e)=>s+getCompRemain(e.id,yr),0);
   const totalTrips=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.status==='approved').length;
   const totalTrans=db.employees.reduce((s,e)=>s+getTransTotal(e.id,yr),0);
   const todayD=parseLocalDate(todayStr());
@@ -1358,9 +1363,9 @@ function renderOverview(){
     ${pending?`<div style="background:var(--warn-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:13px;color:var(--ot);display:flex;align-items:center;gap:8px">⚠️ 승인 대기 <strong>${pending}건</strong> <button class="btn btn-sm btn-warn" onclick="go('requests')">확인</button></div>`:''}
     <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
       <div class="stat-card leave" style="cursor:pointer" onclick="openOverviewDetail('leave')">
-        <div class="stat-label">연차사용/소멸</div>
-        <div class="stat-val">${Math.round(totalLU/8*10)/10}일</div>
-        <div class="stat-sub">소멸 ${Math.round(totalExtinct/8*10)/10}일</div>
+        <div class="stat-label">잔여연차</div>
+        <div class="stat-val">${Math.round(totalLeaveAlloc/8*10)/10}일</div>
+        <div class="stat-sub">발생 ${Math.round(totalLU/8*10+totalLeaveAlloc/8*10)/10}일 / 잔여 ${Math.round(totalLeaveAlloc/8*10)/10}일</div>
       </div>
       <div class="stat-card ot" style="cursor:pointer" onclick="openOverviewDetail('ot')">
         <div class="stat-label">발생특근</div>
@@ -1368,9 +1373,9 @@ function renderOverview(){
         <div class="stat-sub">${Math.round(totalOT/8*10)/10}일</div>
       </div>
       <div class="stat-card comp" style="cursor:pointer" onclick="openOverviewDetail('comp')">
-        <div class="stat-label">발생대휴/사용대휴</div>
-        <div class="stat-val">${totalComp}h</div>
-        <div class="stat-sub">사용 ${totalCompUsed}h</div>
+        <div class="stat-label">잔여대휴</div>
+        <div class="stat-val">${totalCompRemain}h</div>
+        <div class="stat-sub">발생 ${totalComp}h / 사용 ${totalCompUsed}h</div>
       </div>
       <div class="stat-card trip" style="cursor:pointer" onclick="openOverviewDetail('trip')">
         <div class="stat-label">출장</div>
@@ -3220,8 +3225,17 @@ function chM(d){calMonth+=d;if(calMonth>12){calMonth=1;calYear++;}if(calMonth<1)
 // ══════════════════════════════════════════════
 //  MODALS
 // ══════════════════════════════════════════════
-function openModal(html){document.getElementById('modal-box').innerHTML=html;document.getElementById('modal-bg').classList.add('show');}
-function closeModal(){document.getElementById('modal-bg').classList.remove('show');}
+function openModal(html, large=false){
+  const box=document.getElementById('modal-box');
+  box.innerHTML=html;
+  if(large) box.classList.add('modal-lg');
+  else box.classList.remove('modal-lg');
+  document.getElementById('modal-bg').classList.add('show');
+}
+function closeModal(){
+  document.getElementById('modal-bg').classList.remove('show');
+  document.getElementById('modal-box').classList.remove('modal-lg');
+}
 
 function openAddEmp(){
   openModal(`<div class="modal-title">직원 추가</div>
