@@ -194,7 +194,7 @@ tbody tr:hover td{background:var(--surface2)}
     <div class="nav-sec">개인 기록</div>
     <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
-    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/외근 관리</button>
+    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
     <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
@@ -1214,7 +1214,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/외근 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1251,7 +1251,14 @@ function go(page) {
   ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
-function setContent(html){document.getElementById('main-content').innerHTML=html;}
+function setContent(html){
+  document.getElementById('main-content').innerHTML=html;
+  window.scrollTo(0,0);
+  document.documentElement.scrollTop=0;
+  document.body.scrollTop=0;
+  const m=document.querySelector('.main');
+  if(m) m.scrollTop=0;
+}
 
 // ══════════════════════════════════════════════
 //  YEAR SELECT
@@ -1276,7 +1283,10 @@ function renderOverview(){
   const yr=currentYear;
   const pending=db.requests.filter(r=>String(r.year)===String(yr)&&r.status==='pending').length;
   const totalLU=db.employees.reduce((s,e)=>s+getLeaveUsed(e.id,yr),0);
+  const totalExtinct=db.leaveAlloc.filter(a=>String(a.year)===String(yr)).reduce((s,a)=>s+(+a.extinct||0),0);
   const totalOT=db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
+  const totalComp=db.requests.filter(r=>r.type==='comp'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
+  const totalCompUsed=getCompUsed?db.employees.reduce((s,e)=>s+getCompUsed(e.id,yr),0):0;
   const totalTrips=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.status==='approved').length;
   const totalTrans=db.employees.reduce((s,e)=>s+getTransTotal(e.id,yr),0);
   const todayD=parseLocalDate(todayStr());
@@ -1346,11 +1356,32 @@ function renderOverview(){
 
   setContent(`
     ${pending?`<div style="background:var(--warn-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:13px;color:var(--ot);display:flex;align-items:center;gap:8px">⚠️ 승인 대기 <strong>${pending}건</strong> <button class="btn btn-sm btn-warn" onclick="go('requests')">확인</button></div>`:''}
-    <div class="stats-row">
-      <div class="stat-card leave"><div class="stat-label">연차 사용 (${yr})</div><div class="stat-val">${Math.round(totalLU/8*10)/10}일</div><div class="stat-sub">${totalLU}h</div></div>
-      <div class="stat-card ot"><div class="stat-label">특근 시간 (${yr})</div><div class="stat-val">${totalOT}h</div></div>
-      <div class="stat-card trip"><div class="stat-label">출장 (${yr})</div><div class="stat-val">${totalTrips}건</div></div>
-      <div class="stat-card comp"><div class="stat-label">교통비 (${yr})</div><div class="stat-val">₩${Math.round(totalTrans/10000)}만</div></div>
+    <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+      <div class="stat-card leave" style="cursor:pointer" onclick="openOverviewDetail('leave')">
+        <div class="stat-label">연차사용/소멸</div>
+        <div class="stat-val">${Math.round(totalLU/8*10)/10}일</div>
+        <div class="stat-sub">소멸 ${Math.round(totalExtinct/8*10)/10}일</div>
+      </div>
+      <div class="stat-card ot" style="cursor:pointer" onclick="openOverviewDetail('ot')">
+        <div class="stat-label">발생특근</div>
+        <div class="stat-val">${totalOT}h</div>
+        <div class="stat-sub">${Math.round(totalOT/8*10)/10}일</div>
+      </div>
+      <div class="stat-card comp" style="cursor:pointer" onclick="openOverviewDetail('comp')">
+        <div class="stat-label">발생대휴/사용대휴</div>
+        <div class="stat-val">${totalComp}h</div>
+        <div class="stat-sub">사용 ${totalCompUsed}h</div>
+      </div>
+      <div class="stat-card trip" style="cursor:pointer" onclick="openOverviewDetail('trip')">
+        <div class="stat-label">출장</div>
+        <div class="stat-val">${totalTrips}건</div>
+        <div class="stat-sub">해외+국내+교육</div>
+      </div>
+      <div class="stat-card" style="cursor:pointer" onclick="openOverviewDetail('trans')">
+        <div class="stat-label">교통비</div>
+        <div class="stat-val">₩${Math.round(totalTrans/10000)}만</div>
+        <div class="stat-sub">${totalTrans.toLocaleString()}원</div>
+      </div>
     </div>
     <div class="card" style="margin-bottom:10px">
       <div class="card-title">📊 ${yr}년 월별 연차 사용 현황</div>
@@ -1445,6 +1476,151 @@ function filterTable(tableId, q) {
   tbody.querySelectorAll('tr').forEach(tr => {
     tr.style.display = q ? (tr.textContent.includes(q) ? '' : 'none') : '';
   });
+}
+
+function openOverviewDetail(type) {
+  const yr = currentYear;
+  const emps = getSortedByPosition().filter(e=>!isHiddenFromPersonal(e));
+
+  if (type === 'leave') {
+    // 연차사용 내림차순 + 연차소멸 내역
+    const leaveRows = emps.map(e=>{
+      const used = getLeaveUsed(e.id,yr);
+      return {e, used};
+    }).filter(x=>x.used>0).sort((a,b)=>b.used-a.used)
+      .map(({e,used})=>`<tr>
+        <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+        <td>${e.dept}</td>
+        <td>${Math.round(used/8*10)/10}일</td>
+        <td>${used}h</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
+
+    const extinctRows = emps.map(e=>{
+      const a = getAlloc(e.id,yr);
+      return {e, ext: +a.extinct||0};
+    }).filter(x=>x.ext>0).sort((a,b)=>b.ext-a.ext)
+      .map(({e,ext})=>`<tr>
+        <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+        <td>${e.dept}</td>
+        <td style="color:var(--danger);font-weight:600">${Math.round(ext/8*10)/10}일</td>
+        <td style="color:var(--danger)">${ext}h</td>
+        <td style="color:var(--text3);font-size:11px">${yr}-03-01</td>
+      </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">소멸 내역 없음</td></tr>';
+
+    openModal(`
+      <div class="modal-title">📋 ${yr}년 연차 사용 / 소멸 내역</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-height:500px">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--leave);margin-bottom:8px">연차 사용 (내림차순)</div>
+          <div style="overflow-y:auto;max-height:440px">
+            <table><thead><tr><th>직원</th><th>부서</th><th>사용(일)</th><th>사용(h)</th></tr></thead>
+            <tbody>${leaveRows}</tbody></table>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);margin-bottom:6px">※ 근로기준법 제61조(연차유급휴가의 사용 촉진)에 따라 소멸된 연차 내역</div>
+          <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:8px">연차 소멸</div>
+          <div style="overflow-y:auto;max-height:400px">
+            <table><thead><tr><th>직원</th><th>부서</th><th>소멸(일)</th><th>소멸(h)</th><th>기준일</th></tr></thead>
+            <tbody>${extinctRows}</tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `);
+
+  } else if (type === 'ot') {
+    const rows = emps.map(e=>{
+      const ots = db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved');
+      const total = ots.reduce((s,r)=>s+(+r.hours||0),0);
+      return {e, total, ots};
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
+      .map(({e,total,ots})=>`<tr>
+        <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+        <td>${e.dept}</td>
+        <td>${total}h</td>
+        <td style="font-size:11px;color:var(--text3)">${ots.map(r=>r.otType||'특근').join(', ')}</td>
+      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
+
+    openModal(`
+      <div class="modal-title">⚡ ${yr}년 발생특근 내역</div>
+      <div style="max-height:500px;overflow-y:auto">
+        <table><thead><tr><th>직원</th><th>부서</th><th>특근(h)</th><th>구분</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `);
+
+  } else if (type === 'comp') {
+    const compData = emps.map(e=>{
+      const earned = getCompEarned(e.id,yr);
+      const used = getCompUsed(e.id,yr);
+      const rem = getCompRemain(e.id,yr);
+      return {e, earned, used, rem};
+    }).filter(x=>x.earned>0||x.used>0);
+
+    const earnedRows = [...compData].sort((a,b)=>b.earned-a.earned)
+      .map(({e,earned})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${earned}h</td></tr>`).join('');
+    const usedRows = [...compData].sort((a,b)=>b.used-a.used)
+      .map(({e,used})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${used}h</td></tr>`).join('');
+    const remRows = [...compData].sort((a,b)=>b.rem-a.rem)
+      .map(({e,rem})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td style="${rem>0?'color:var(--comp);font-weight:600':'color:var(--text3)'}">${rem}h</td></tr>`).join('');
+
+    openModal(`
+      <div class="modal-title">🔄 ${yr}년 대체휴무 내역</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;max-height:500px">
+        <div><div style="font-size:12px;font-weight:700;color:var(--comp);margin-bottom:6px">발생 대휴</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>발생(h)</th></tr></thead><tbody>${earnedRows||'<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>'}</tbody></table></div></div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--leave);margin-bottom:6px">사용 대휴</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>사용(h)</th></tr></thead><tbody>${usedRows||'<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>'}</tbody></table></div></div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:6px">잔여 대휴</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>잔여(h)</th></tr></thead><tbody>${remRows||'<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>'}</tbody></table></div></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `);
+
+  } else if (type === 'trip') {
+    const mkTripRows = (kind) => emps.map(e=>{
+      const trips = db.requests.filter(r=>r.type==='trip'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved'&&(kind==='edu'?false:r.tripKind===kind));
+      const edus = kind==='edu' ? db.requests.filter(r=>r.type==='education'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved') : [];
+      const list = kind==='edu' ? edus : trips;
+      return {e, cnt: list.length, list};
+    }).filter(x=>x.cnt>0).sort((a,b)=>b.cnt-a.cnt)
+      .map(({e,cnt})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${cnt}건</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>';
+
+    openModal(`
+      <div class="modal-title">✈️ ${yr}년 출장/교육 내역</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;max-height:500px">
+        <div><div style="font-size:12px;font-weight:700;margin-bottom:6px">🌏 해외출장</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>건수</th></tr></thead><tbody>${mkTripRows('overseas')}</tbody></table></div></div>
+        <div><div style="font-size:12px;font-weight:700;margin-bottom:6px">🇰🇷 국내출장</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>건수</th></tr></thead><tbody>${mkTripRows('domestic')}</tbody></table></div></div>
+        <div><div style="font-size:12px;font-weight:700;margin-bottom:6px">📚 교육</div>
+          <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>건수</th></tr></thead><tbody>${mkTripRows('edu')}</tbody></table></div></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `);
+
+  } else if (type === 'trans') {
+    const rows = emps.map(e=>{
+      const total = getTransTotal(e.id,yr);
+      return {e, total};
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
+      .map(({e,total})=>`<tr>
+        <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+        <td>${e.dept}</td>
+        <td>₩${total.toLocaleString()}</td>
+      </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
+
+    openModal(`
+      <div class="modal-title">🚗 ${yr}년 교통비 내역</div>
+      <div style="max-height:500px;overflow-y:auto">
+        <table><thead><tr><th>직원</th><th>부서</th><th>교통비</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `);
+  }
 }
 
 function filterOverviewTable(q) {
@@ -2216,7 +2392,7 @@ function renderTrip(){
   const filt = r => canView(r) && String(r.year)===String(yr);
   const domestic  = db.requests.filter(r=>r.type==='trip'&&filt(r)&&r.tripKind!=='overseas').sort((a,b)=>b.id-a.id);
   const overseas  = db.requests.filter(r=>r.type==='trip'&&filt(r)&&r.tripKind==='overseas').sort((a,b)=>b.id-a.id);
-  const outsideR  = db.requests.filter(r=>r.type==='outside'&&filt(r)).sort((a,b)=>b.id-a.id);
+
   const educationR= db.requests.filter(r=>r.type==='education'&&filt(r)).sort((a,b)=>b.id-a.id);
 
   const mkTripRow=(r,isOverseas)=>`<tr class="${r.status==='pending'?'row-pending':''}">
@@ -2249,17 +2425,16 @@ function renderTrip(){
     <tr>
       <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
       <td>${e.dept}</td>
-      <td><button class="btn btn-sm" onclick="openAddTrip('domestic',${e.id})">🇰🇷 국내출장</button></td>
       <td><button class="btn btn-sm" onclick="openAddTrip('overseas',${e.id})">🌏 해외출장</button></td>
-      <td><button class="btn btn-sm" onclick="openAddOutside(${e.id})">🚗 외근</button></td>
+      <td><button class="btn btn-sm" onclick="openAddTrip('domestic',${e.id})">🇰🇷 국내출장</button></td>
       <td><button class="btn btn-sm" onclick="openAddEducation(${e.id})">📚 교육</button></td>
     </tr>`).join('');
 
   setContent(`
     <div class="card" style="margin-bottom:10px">
-      <div class="card-title">출장 / 외근 신청</div>
+      <div class="card-title">출장 / 교육 신청</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>국내출장</th><th>해외출장</th><th>외근</th><th>교육</th></tr></thead>
+        <thead><tr><th>직원</th><th>부서</th><th>해외출장</th><th>국내출장</th><th>교육</th></tr></thead>
         <tbody>${empRows}</tbody>
       </table></div>
     </div>
@@ -2280,13 +2455,7 @@ function renderTrip(){
         <tbody>${overseas.map(r=>mkTripRow(r,true)).join('')||emptyRow(9,'내역 없음')}</tbody>
       </table></div>
     </div>
-    <div class="card" style="margin-top:4px">
-      <div class="card-title">🚗 외근 (${outsideR.length}건)</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>시작일</th><th>종료일</th><th>사유</th><th>상태</th><th></th></tr></thead>
-        <tbody>${outsideR.map(r=>mkSimpleRow(r,'outside')).join('')||emptyRow(7,'내역 없음')}</tbody>
-      </table></div>
-    </div>
+
     <div class="card" style="margin-top:4px">
       <div class="card-title">📚 교육 (${educationR.length}건)</div>
       <div class="table-wrap"><table>
