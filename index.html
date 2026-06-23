@@ -221,7 +221,7 @@ tbody tr:hover td{background:var(--surface2)}
 </div>
 
 <!-- Main -->
-<div class="main">
+<div class="main" id="main-content">
   <!-- 공지/알람 상단바 -->
   <div id="notice-alarm-bar" style="display:none;background:#eff6ff;border-bottom:1px solid #93c5fd;padding:7px 22px;font-size:12px;color:#1d4ed8;cursor:pointer" onclick="go('noticeboard')">
     <span id="notice-alarm-bar-text"></span>
@@ -1422,7 +1422,8 @@ function openDayDetail(ds) {
         </div>
       </div>`).join('');
 
-  const _laUsed = Math.round(getLeaveUsed(empId,yr)/8*10)/10;
+  const _laUsedH = getLeaveUsed(empId, yr); // 시간(h)
+  const _laUsedD = Math.round(_laUsedH/8*10)/10; // 일
   openModal(`
     <div class="modal-title">📅 ${date} 일정</div>
     <div style="max-height:400px;overflow-y:auto">${groupHtml}</div>
@@ -2069,6 +2070,7 @@ function openLeaveAdmin(empId) {
     </div>
     <div style="background:var(--bg);border-radius:var(--radius);padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:12px">
       소멸 후 잔여: <strong id="la-preview">계산 중...</strong>
+      ${(+a.extinct||0)>0 ? `<div style="color:var(--danger);margin-top:4px">⚠️ 소멸 처리된 연차: <strong>${(+a.extinct||0)/8}일 (${+a.extinct||0}h)</strong></div>` : ''}
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
@@ -2081,19 +2083,20 @@ function openLeaveAdmin(empId) {
   // 소멸 후 잔여 실시간 계산
   setTimeout(() => {
     const updatePreview = () => {
-      const t = parseFloat(document.getElementById('la-total')?.value)||0;
-      const c = parseFloat(document.getElementById('la-carry')?.value)||0;
-      const x = parseFloat(document.getElementById('la-extinct')?.value)||0;
-      const rem = t + c - x - _laUsed;
+      const t = (parseFloat(document.getElementById('la-total')?.value)||0) * 8;
+      const c = (parseFloat(document.getElementById('la-carry')?.value)||0) * 8;
+      const x = (parseFloat(document.getElementById('la-extinct')?.value)||0) * 8;
+      const remH = t + c - x - _laUsedH;
+      const remD = Math.round(remH/8*10)/10;
       const pr = document.getElementById('la-preview');
-      if (pr) pr.textContent = rem.toFixed(1) + '일 (' + Math.round(rem*8) + 'h)';
+      if (pr) pr.textContent = remD.toFixed(1) + '일 (' + Math.round(remH) + 'h)';
     };
     updatePreview();
     ['la-total','la-carry','la-extinct'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.addEventListener('input', updatePreview);
     });
-  }, 100);
+  }, 150);
 }
 
 async function saveLeaveAdmin(empId) {
@@ -2883,9 +2886,7 @@ function renderCalendar(){
   const first=new Date(y,m-1,1).getDay();
   const last=new Date(y,m,0).getDate();
   const ev={};
-  // label, cls, status 포함
   function addEv(ds,label,cls,status='approved',req=null){if(!ev[ds])ev[ds]=[];ev[ds].push({label,cls,status,req});}
-  window._calEv = ev; // 전역 저장 (날짜 클릭 팝업용)
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
   // 승인여부 관계없이 canView인 신청 모두 표시
   db.requests.filter(r=>canView(r)).forEach(r=>{
@@ -2913,6 +2914,7 @@ function renderCalendar(){
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
     });
   });
+  window._calEv = ev; // 전역 저장 - 이벤트 다 채운 후
   const todayDateStr=todayStr();
   const total=Math.ceil((first+last)/7)*7;
   let cells='';
