@@ -2051,7 +2051,7 @@ function openLeaveAdmin(empId) {
         <div><span style="color:var(--text3)">잔여</span> <strong>${Math.round(getLeaveRemain(empId,yr)/8*10)/10}일</strong></div>
       </div>
     </div>
-    <div class="form-grid" style="margin-bottom:12px">
+    <div class="form-grid" style="margin-bottom:8px">
       <div class="field">
         <label>${yr}년 부여 연차 (일) <span style="font-size:11px;color:var(--text3)">법정: ${legalDays}일</span></label>
         <input id="la-total" type="number" value="${(+a.total||0)/8}" min="0" max="25">
@@ -2060,6 +2060,36 @@ function openLeaveAdmin(empId) {
         <label>이월 연차 (일)</label>
         <input id="la-carry" type="number" value="${(+a.carryover||0)/8}" min="0">
       </div>
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="color:var(--danger)">이월된 연차 소멸 (일) <span style="font-size:11px;color:var(--text3)">※ 잔여연차에서 차감</span></label>
+      <input id="la-extinct" type="number" value="${(+a.extinct||0)/8}" min="0" step="0.5"
+        style="border-color:var(--danger)">
+    </div>
+    <div style="background:var(--bg);border-radius:var(--radius);padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:12px">
+      소멸 후 잔여: <strong id="la-preview">계산 중...</strong>
+      <script>
+        setTimeout(()=>{
+          const t=(parseFloat(document.getElementById('la-total')?.value)||0);
+          const c=(parseFloat(document.getElementById('la-carry')?.value)||0);
+          const x=(parseFloat(document.getElementById('la-extinct')?.value)||0);
+          const used=${Math.round(getLeaveUsed(empId,yr)/8*10)/10};
+          const rem=t+c-x-used;
+          const el=document.getElementById('la-preview');
+          if(el)el.textContent=rem.toFixed(1)+'일 ('+Math.round(rem*8)+'h)';
+          ['la-total','la-carry','la-extinct'].forEach(id=>{
+            const el2=document.getElementById(id);
+            if(el2)el2.addEventListener('input',()=>{
+              const t2=(parseFloat(document.getElementById('la-total')?.value)||0);
+              const c2=(parseFloat(document.getElementById('la-carry')?.value)||0);
+              const x2=(parseFloat(document.getElementById('la-extinct')?.value)||0);
+              const rem2=t2+c2-x2-used;
+              const pr=document.getElementById('la-preview');
+              if(pr)pr.textContent=rem2.toFixed(1)+'일 ('+Math.round(rem2*8)+'h)';
+            });
+          });
+        },100);
+      </script>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
@@ -2072,16 +2102,16 @@ function openLeaveAdmin(empId) {
 }
 
 async function saveLeaveAdmin(empId) {
-  // saveLeaveAdmin은 관리자 직접 입력이므로 중복 체크 후 경고만
   const yr = currentYear;
   const total = (parseFloat(document.getElementById('la-total')?.value)||0) * 8;
   const carryover = (parseFloat(document.getElementById('la-carry')?.value)||0) * 8;
+  const extinct = (parseFloat(document.getElementById('la-extinct')?.value)||0) * 8;
   const a = getAlloc(empId, yr);
-  a.total = total; a.carryover = carryover;
+  a.total = total; a.carryover = carryover; a.extinct = extinct;
   if (a.id) {
-    await sbUpdate('leave_alloc', a.id, { total, carryover });
+    await sbUpdate('leave_alloc', a.id, { total, carryover, extinct });
   } else {
-    const saved = await sbInsert('leave_alloc', { emp_id: empId, year: yr, total, carryover });
+    const saved = await sbInsert('leave_alloc', { emp_id: empId, year: yr, total, carryover, extinct });
     if (saved) a.id = saved.id;
   }
   saveAll(); showToast('✅ 연차 저장됨'); closeModal(); renderLeave();
@@ -3106,7 +3136,7 @@ function updateReqForm(){
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-gong" value="공가" onchange="onLtypeChange()" style="width:15px;height:15px"> 공가 (4h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
-        ${isAdmin ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차소멸" onchange="onLtypeChange()" style="width:15px;height:15px"> <span style="color:var(--danger);font-weight:600">연차소멸</span> (연차촉진)</label>` : ''}
+
       </div>
     </div>
   </div>
