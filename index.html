@@ -1487,7 +1487,7 @@ function openOverviewDetail(type) {
     const leaveRows = emps.map(e=>{
       const used = getLeaveUsed(e.id,yr);
       return {e, used};
-    }).filter(x=>x.used>0).sort((a,b)=>b.used-a.used)
+    }).filter(x=>x.used>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,used})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td>${e.dept}</td>
@@ -1527,14 +1527,14 @@ function openOverviewDetail(type) {
         </div>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-    `);
+    `, true);
 
   } else if (type === 'ot') {
     const rows = emps.map(e=>{
       const ots = db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved');
       const total = ots.reduce((s,r)=>s+(+r.hours||0),0);
       return {e, total, ots};
-    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
+    }).filter(x=>x.total>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,total,ots})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td>${e.dept}</td>
@@ -1549,7 +1549,7 @@ function openOverviewDetail(type) {
         <tbody>${rows}</tbody></table>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-    `);
+    `, true);
 
   } else if (type === 'comp') {
     const compData = emps.map(e=>{
@@ -1559,11 +1559,11 @@ function openOverviewDetail(type) {
       return {e, earned, used, rem};
     }).filter(x=>x.earned>0||x.used>0);
 
-    const earnedRows = [...compData].sort((a,b)=>b.earned-a.earned)
+    const earnedRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,earned})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${earned}h</td></tr>`).join('');
-    const usedRows = [...compData].sort((a,b)=>b.used-a.used)
+    const usedRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,used})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${used}h</td></tr>`).join('');
-    const remRows = [...compData].sort((a,b)=>b.rem-a.rem)
+    const remRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,rem})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td style="${rem>0?'color:var(--comp);font-weight:600':'color:var(--text3)'}">${rem}h</td></tr>`).join('');
 
     openModal(`
@@ -1577,7 +1577,7 @@ function openOverviewDetail(type) {
           <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>잔여(h)</th></tr></thead><tbody>${remRows||'<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>'}</tbody></table></div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-    `);
+    `, true);
 
   } else if (type === 'trip') {
     const mkTripRows = (kind) => emps.map(e=>{
@@ -1585,7 +1585,7 @@ function openOverviewDetail(type) {
       const edus = kind==='edu' ? db.requests.filter(r=>r.type==='education'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved') : [];
       const list = kind==='edu' ? edus : trips;
       return {e, cnt: list.length, list};
-    }).filter(x=>x.cnt>0).sort((a,b)=>b.cnt-a.cnt)
+    }).filter(x=>x.cnt>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,cnt})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${cnt}건</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>';
 
     openModal(`
@@ -1599,13 +1599,13 @@ function openOverviewDetail(type) {
           <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>건수</th></tr></thead><tbody>${mkTripRows('edu')}</tbody></table></div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-    `);
+    `, true);
 
   } else if (type === 'trans') {
     const rows = emps.map(e=>{
       const total = getTransTotal(e.id,yr);
       return {e, total};
-    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
+    }).filter(x=>x.total>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
       .map(({e,total})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td>${e.dept}</td>
@@ -1619,7 +1619,7 @@ function openOverviewDetail(type) {
         <tbody>${rows}</tbody></table>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-    `);
+    `, true);
   }
 }
 
@@ -2137,8 +2137,9 @@ function renderLeave(){
     const a=getAlloc(e.id,yr);
     const legalDays = calcLegalLeave(e.joinDate); // 법정 연차
     const total=(+a.total||0)+(+a.carryover||0);
+    const extinct=(+a.extinct||0);
     const used=getLeaveUsed(e.id,yr);
-    const rem=total-used;
+    const rem=total-extinct-used;
     const pct=getLeavePctInPeriod(e.id,yr); // 3/1 기준 사용률
     const remDays=Math.round(rem/8*10)/10;
     // 11번: 잔여 경고 (관리자에게만, 잔여% 기준)
@@ -2158,7 +2159,7 @@ function renderLeave(){
       <td>${e.dept}</td>
       <td>${e.isExternal?NA:`${(+a.carryover||0)/8}일`}</td>
       <td>${e.isExternal?NA:`<span title="법정연차: ${legalDays}일">${(+a.total||0)/8}일 <span style="font-size:10px;color:var(--text3)">(법정${legalDays}일)</span></span>`}</td>
-      <td>${e.isExternal?NA:`${total/8}일`}</td>
+      <td>${e.isExternal?NA:`${total/8}일${extinct>0?` <span style="font-size:10px;color:var(--danger)">(-${extinct/8}소멸)</span>`:''}`}</td>
       <td>${e.isExternal?NA:badge(Math.round(used/8*10)/10+'일 ('+used+'h)','leave')}</td>
       <td>${e.isExternal?NA:`<span style="${remAlert?'color:var(--danger);font-weight:700':''}">${remDays}일${remAlert?' ⚠️':''}</span>`}</td>
       <td>${e.isExternal?NA:`<span style="${remAlert?'color:var(--danger);font-weight:700':''}">${pct}%${remAlert?' ⚠️':''}</span>
@@ -2170,7 +2171,7 @@ function renderLeave(){
   const deptMap = {};
   getSortedByPosition().filter(e=>!isHiddenFromPersonal(e)).forEach(e=>{
     const a=getAlloc(e.id,yr);
-    const total=(+a.total||0)+(+a.carryover||0);
+    const total=(+a.total||0)+(+a.carryover||0)-(+a.extinct||0);
     const used=getLeaveUsed(e.id,yr);
     const pct=total>0?Math.round(used/total*100):0;
     if(!deptMap[e.dept]) deptMap[e.dept]={total:0,used:0,count:0};
