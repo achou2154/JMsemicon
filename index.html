@@ -1081,7 +1081,8 @@ function getLeaveUsed(empId, year) {
   return db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
 }
 function getLeaveRemain(empId, year) {
-  const a=getAlloc(empId,year); return (+a.total||0)+(+a.carryover||0)-getLeaveUsed(empId,year);
+  const a=getAlloc(empId,year);
+  return (+a.total||0)+(+a.carryover||0)-(+a.extinct||0)-getLeaveUsed(empId,year);
 }
 function calcComp(hours,otType){return Math.round((+hours)*(OT_RATE[otType]||1.5)*10)/10;}
 function getCompEarned(empId,year){
@@ -1223,7 +1224,12 @@ function go(page) {
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   updateMobileTabbar(page);
-  closeSidebarIfOpen(); // 모바일에서 메뉴 클릭 후 자동 닫기
+  closeSidebarIfOpen();
+  // 스크롤 최상단 - .main div가 스크롤 컨테이너
+  try {
+    const mainDiv = document.querySelector('.main');
+    if (mainDiv) mainDiv.scrollTop = 0;
+  } catch(e) {}
   document.querySelectorAll('.nav-item').forEach(el=>{
     const onclick = el.getAttribute('onclick')||'';
     const match = onclick.match(/go\('([^']+)'\)/);
@@ -2914,7 +2920,8 @@ function renderCalendar(){
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
     });
   });
-  window._calEv = ev; // 전역 저장 - 이벤트 다 채운 후
+  window._calEv = {}; // 초기화
+  Object.assign(window._calEv, ev); // 이벤트 다 채운 후 저장
   const todayDateStr=todayStr();
   const total=Math.ceil((first+last)/7)*7;
   let cells='';
