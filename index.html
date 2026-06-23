@@ -191,11 +191,11 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('calendar')"><span class="nav-icon">📅</span>월별 달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
     <button class="nav-item" id="nav-requests" onclick="go('requests')"><span class="nav-icon">📋</span>신청 / 승인</button>
-    <div class="nav-sec">개인 신청 관리</div>
-    <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 신청 관리</button>
-    <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대체휴무 신청 관리</button>
-    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/외근 신청 관리</button>
-    <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 신청 관리</button>
+    <div class="nav-sec">개인 기록</div>
+    <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
+    <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
+    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/외근 관리</button>
+    <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
@@ -990,7 +990,7 @@ function closeSidebarIfOpen() {
   const ov = document.getElementById('sidebar-overlay');
   if (sb && sb.classList.contains('mobile-open')) {
     sb.classList.remove('mobile-open');
-    if (ov) ov.classList.remove('show');
+    if (ov) ov.style.display = 'none';
   }
 }
 function updateMobileTabbar(page) {
@@ -1213,7 +1213,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 신청 관리',ot:'특근/대체휴무 신청 관리',transport:'교통비 신청 관리',trip:'출장/외근 신청 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/외근 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1444,11 +1444,6 @@ function getSortedByPosition() {
   });
 }
 
-function saveRosterOrder() {
-  rosterOrder = getSortedEmployees().map(e => String(e.id));
-  localStorage.setItem('roster_order', JSON.stringify(rosterOrder));
-  showToast('✅ 순서 저장됨');
-}
 
 function renderRoster(){
   // 저장된 커스텀 순서 불러오기
@@ -1507,22 +1502,6 @@ function filterRoster(query) {
 
 // 드래그앤드롭
 let _dragId = null;
-function dragStart(e) { _dragId = e.currentTarget.dataset.id; e.currentTarget.style.opacity='0.5'; }
-function dragOver(e) { e.preventDefault(); }
-function dropOn(e, targetId) {
-  e.preventDefault();
-  if (!_dragId || String(_dragId) === String(targetId)) { _dragId=null; return; }
-  // 현재 순서 기준으로 재배치
-  const sorted = getSortedEmployees().map(e=>String(e.id));
-  const fromIdx = sorted.indexOf(String(_dragId));
-  const toIdx = sorted.indexOf(String(targetId));
-  if (fromIdx === -1 || toIdx === -1) { _dragId=null; return; }
-  sorted.splice(fromIdx, 1);
-  sorted.splice(toIdx, 0, String(_dragId));
-  rosterOrder = sorted;
-  _dragId = null;
-  renderRoster();
-}
 
 // ─ 직원 개인 프로필 모달 ────────────────────
 function openEmpProfile(empId){
@@ -2598,7 +2577,6 @@ function openHealthApply(empId) {
 }
 
 
-
 function toggleHealthReserveDate(isOther) {
   const wrap = document.getElementById('h-reserve-wrap');
   if (wrap) wrap.style.display = isOther ? 'none' : '';
@@ -2762,9 +2740,6 @@ async function saveHealthComplete(empId) {
 }
 
 // 건강검진 상세 (관리자용 - 가족 추가 등)
-function openHealthDetail(empId) {
-  openHealthEdit(empId);
-}
 
 async function deleteHealth(empId) {
   if (!confirm('건강검진 신청을 삭제하시겠습니까?')) return;
@@ -3085,7 +3060,7 @@ function updateReqForm(){
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-gong" value="공가" onchange="onLtypeChange()" style="width:15px;height:15px"> 공가 (4h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
-        ${isAdmin ? '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type=\"radio\" name=\"ltype\" value=\"연차소멸\" onchange=\"onLtypeChange()\" style=\"width:15px;height:15px\"> <span style=\"color:var(--danger);font-weight:600\">연차소멸</span> (연차촉진)</label>' : ''}
+        ${isAdmin ? `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차소멸" onchange="onLtypeChange()" style="width:15px;height:15px"> <span style="color:var(--danger);font-weight:600">연차소멸</span> (연차촉진)</label>` : ''}
       </div>
     </div>
   </div>
@@ -3571,17 +3546,6 @@ function updateEvent(id){
 
 // Health modal
 let _hMembers=[], _hEmpId=0, _hExistId=-1;
-function openHealthEdit(empId){
-  _hEmpId=empId;
-  const h=db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(currentYear));
-  _hExistId=h?h.id:-1;
-  _hMembers=h?JSON.parse(JSON.stringify(h.members||[])):[];
-  if(_hMembers.length===0){
-    const e=eid(empId);
-    _hMembers.push({name:ename(empId),relation:'본인',birthdate:e?.birthdate||'',reserveDate:'',checkupDate:'',institution:'메디피움 동탄',confirmed:false,otherClinic:false,cost:0,note:''});
-  }
-  renderHealthModal();
-}
 
 
 function saveBeforeAction(){
@@ -3693,18 +3657,7 @@ function getCompCarryoverEffective(empId, year) {
 }
 
 // 기존 함수들을 새 함수로 오버라이드
-function getLeaveRemain(empId, year) {
-  const a = getAlloc(empId, year);
-  const total = (+a.total || 0);
-  const carryover = getLeaveCarryoverEffective(empId, year);
-  return total + carryover - getLeaveUsed(empId, year);
-}
-function getCompCarryover(empId, year) {
-  return getCompCarryoverEffective(empId, year);
-}
-function getCompRemain(empId, year) {
-  return getCompCarryoverEffective(empId,year) + getCompEarned(empId,year) - getCompUsed(empId,year);
-}
+
 
 // ══════════════════════════════════════════════
 //  2 & 3. 알람 팝업 시스템
@@ -4032,16 +3985,14 @@ function checkAndShowNotice() {
   if (!currentEmp) return;
   const today = todayStr();
   const now = new Date();
-  console.log('[공지] db.notices:', db.notices?.length, '오늘:', today, '직원ID:', currentEmp.id);
   const activeNotices = (db.notices||[]).filter(n => {
-    if (!n.startDate || !n.endDate) { console.log('[공지] 날짜없음:', n); return false; }
-    if (today < n.startDate || today > n.endDate) { console.log('[공지] 기간외:', n.title, n.startDate, n.endDate); return false; }
-    if (n.targetIds && n.targetIds.length && !n.targetIds.map(String).includes(String(currentEmp.id))) { console.log('[공지] 대상아님:', n.title, n.targetIds); return false; }
+    if (!n.startDate || !n.endDate) { return false; }
+    if (today < n.startDate || today > n.endDate) { return false; }
+    if (n.targetIds && n.targetIds.length && !n.targetIds.map(String).includes(String(currentEmp.id))) { return false; }
     const skipKey = `notice_skip_${n.id}_${today}`;
-    if (localStorage.getItem(skipKey)) { console.log('[공지] 오늘스킵:', n.title); return false; }
+    if (localStorage.getItem(skipKey)) { return false; }
     return true;
   });
-  console.log('[공지] 활성공지:', activeNotices.length);
   if (!activeNotices.length) return;
   // 가장 최신 공지 표시
   const notice = activeNotices[0];
@@ -4869,6 +4820,10 @@ if (initSupabase()) {
          letter-spacing:1px;box-shadow:2px 0 6px rgba(0,0,0,.2)">
   ◀ 접기
 </button>
+
+<!-- 사이드바 오버레이 (모바일) -->
+<div id="sidebar-overlay" onclick="closeSidebarIfOpen()"
+  style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:999"></div>
 
 </body>
 </html>
