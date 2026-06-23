@@ -58,7 +58,7 @@ button{cursor:pointer;font-family:inherit;font-size:13px}
 /* Main */
 .main{flex:1;display:flex;flex-direction:column;overflow-y:auto;height:100vh;min-width:0}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.page-title{font-size:15px;font-weight:600}
+.page-title{font-size:15px;font-weight:600;padding-left:36px}
 .topbar-right{display:flex;align-items:center;gap:10px}
 select.yr{padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)}
 .content{flex:1;overflow-y:auto;padding:22px}
@@ -191,11 +191,11 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('calendar')"><span class="nav-icon">📅</span>월별 달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
     <button class="nav-item" id="nav-requests" onclick="go('requests')"><span class="nav-icon">📋</span>신청 / 승인</button>
-    <div class="nav-sec">개인 기록</div>
-    <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
-    <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근 / 대체휴무</button>
-    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장 / 외근 관리</button>
-    <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비</button>
+    <div class="nav-sec">개인 신청 관리</div>
+    <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 신청 관리</button>
+    <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대체휴무 신청 관리</button>
+    <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/외근 신청 관리</button>
+    <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 신청 관리</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
@@ -230,6 +230,9 @@ tbody tr:hover td{background:var(--surface2)}
 
     <span class="page-title" id="page-title">전체 현황</span>
     <div class="topbar-right" style="display:flex;align-items:center;gap:8px">
+      <!-- 직원 검색 (관리자만, 특정 시트에서만 표시) -->
+      <input id="topbar-emp-search" placeholder="🔍 직원 검색..." oninput="topbarEmpSearch(this.value)"
+        style="display:none;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px;width:150px">
       <!-- 기념일 작은 알림 -->
       <div id="bday-alarm-bar" style="display:none;background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:11px;color:var(--bday);cursor:pointer;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis" onclick="go('bday')"></div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
@@ -1210,7 +1213,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근 / 대체휴무',transport:'교통비',trip:'출장 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 신청 관리',ot:'특근/대체휴무 신청 관리',transport:'교통비 신청 관리',trip:'출장/외근 신청 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1309,6 +1312,30 @@ function renderOverview(){
   }).join('');
 
 
+  // 월별 연차 사용 그래프 데이터
+  const months12 = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  const monthlyUsage = months12.map((_,mi) => {
+    const m = mi+1;
+    const mStr = String(yr)+'-'+String(m).padStart(2,'0');
+    return db.requests.filter(r=>
+      r.type==='leave' && r.status!=='rejected' &&
+      ((r.startDate||'').startsWith(mStr)||(r.endDate||'').startsWith(mStr))
+    ).reduce((s,r)=>s+(+r.hours||0),0);
+  });
+  const maxUsage = Math.max(...monthlyUsage, 1);
+  const monthBars = months12.map((m,i)=>{
+    const h = monthlyUsage[i];
+    const pct = Math.round(h/maxUsage*100);
+    const days = Math.round(h/8*10)/10;
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1">
+      <div style="font-size:10px;color:var(--text2);font-weight:500">${days>0?days+'일':''}</div>
+      <div style="width:100%;background:var(--border);border-radius:4px 4px 0 0;height:60px;display:flex;align-items:flex-end">
+        <div style="width:100%;background:var(--leave);border-radius:4px 4px 0 0;height:${pct}%;min-height:${h>0?2:0}px;transition:height .3s"></div>
+      </div>
+      <div style="font-size:10px;color:var(--text3)">${m}</div>
+    </div>`;
+  }).join('');
+
   setContent(`
     ${pending?`<div style="background:var(--warn-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:13px;color:var(--ot);display:flex;align-items:center;gap:8px">⚠️ 승인 대기 <strong>${pending}건</strong> <button class="btn btn-sm btn-warn" onclick="go('requests')">확인</button></div>`:''}
     <div class="stats-row">
@@ -1317,14 +1344,64 @@ function renderOverview(){
       <div class="stat-card trip"><div class="stat-label">출장 (${yr})</div><div class="stat-val">${totalTrips}건</div></div>
       <div class="stat-card comp"><div class="stat-label">교통비 (${yr})</div><div class="stat-val">₩${Math.round(totalTrans/10000)}만</div></div>
     </div>
-      <div class="card">
-      <div class="card-title">${yr}년 전직원 현황</div>
-      <div class="table-wrap"><table>
+    <div class="card" style="margin-bottom:10px">
+      <div class="card-title">📊 ${yr}년 월별 연차 사용 현황</div>
+      <div style="display:flex;gap:4px;align-items:flex-end;padding:8px 0">${monthBars}</div>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div class="card-title" style="margin:0">${yr}년 전직원 현황</div>
+        <input id="overview-search" placeholder="🔍 직원 검색..." oninput="filterOverviewTable(this.value)"
+          style="padding:6px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;width:180px">
+      </div>
+      <div class="table-wrap"><table id="overview-table">
         <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th></tr></thead>
         <tbody>${rows||emptyRow(7)}</tbody>
       </table></div>
     </div>
   `);
+}
+
+// 검색창이 있는 페이지 목록
+const SEARCH_PAGES = ['roster','requests','leave','ot','trip','transport','bday','health'];
+
+function showTopbarSearch(show) {
+  const el = document.getElementById('topbar-emp-search');
+  if (!el) return;
+  if (show && isAdmin) {
+    el.style.display = '';
+    el.value = '';
+  } else {
+    el.style.display = 'none';
+    el.value = '';
+  }
+}
+
+function topbarEmpSearch(q) {
+  // 현재 페이지의 메인 테이블에서 검색
+  const tables = document.querySelectorAll('.table-wrap table tbody');
+  tables.forEach(tbody => {
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.style.display = q ? (tr.textContent.includes(q) ? '' : 'none') : '';
+    });
+  });
+}
+
+function filterTable(tableId, q) {
+  const tbody = document.querySelector('#'+tableId+' tbody');
+  if (!tbody) return;
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.style.display = q ? (tr.textContent.includes(q) ? '' : 'none') : '';
+  });
+}
+
+function filterOverviewTable(q) {
+  const tbody = document.querySelector('#overview-table tbody');
+  if (!tbody) return;
+  const rows = tbody.querySelectorAll('tr');
+  rows.forEach(tr => {
+    tr.style.display = q ? (tr.textContent.includes(q) ? '' : 'none') : '';
+  });
 }
 
 // ─ 2. 직원 명부 ────────────────────────────
@@ -2311,8 +2388,13 @@ function calcHealthCost(birthdate){
 function renderHealth(){
   const yr=currentYear;
   let empTotal=0,empDone=0,famTotal=0,famDone=0;
+
+  // 타기관 검진자 목록 (별도 집계)
+  const otherClinicEmps = [];
   db.employees.filter(e=>!e.isExternal).forEach(e=>{
     const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
+    const isOther = h?.members?.some(m=>m.relation==='본인'&&m.otherClinic);
+    if(isOther) { otherClinicEmps.push({e,h}); return; } // 타기관은 별도 집계, 메인 통계 제외
     empTotal++;
     if(h?.status==='completed') empDone++;
     (h?.members||[]).filter(m=>m.relation!=='본인').forEach(m=>{famTotal++;if(m.confirmed)famDone++;});
@@ -2321,12 +2403,7 @@ function renderHealth(){
   const doneAll = empDone + famDone;
   const pctAll = totalAll>0?Math.round(doneAll/totalAll*100):0;
   const pctEmp = empTotal>0?Math.round(empDone/empTotal*100):0;
-
-  // 타기관 수 집계
-  const otherClinicCount = db.health.filter(h =>
-    String(h.year)===String(yr) &&
-    h.members?.some(m=>m.relation==='본인'&&m.otherClinic)
-  ).length;
+  const otherClinicCount = otherClinicEmps.length;
 
   const statusBadge2 = (h) => {
     if (!h) return badge('미신청','neutral');
@@ -2371,22 +2448,44 @@ function renderHealth(){
     </tr>`;
   }).join('');
 
+  // 타기관 검진자 행
+  const otherRows = otherClinicEmps.map(({e,h})=>{
+    const isMine = currentEmp && String(e.id)===String(currentEmp.id);
+    const famMembers = (h?.members||[]).filter(m=>m.relation!=='본인');
+    const famBadges = famMembers.map(m=>`<span class="badge" style="font-size:10px;margin-right:2px">${m.relation}</span>`).join('');
+    return`<tr style="background:#fef9ec">
+      <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+      <td>${e.dept}</td>
+      <td colspan="2" style="font-size:12px;color:var(--text2)">타기관 검진 (실비지원)</td>
+      <td><span class="badge" style="background:#fef3c7;color:#92400e">타기관</span></td>
+      <td style="font-size:11px">${famBadges||'—'}</td>
+      <td style="white-space:nowrap">
+        ${(isMine||isAdmin)?`<button class="btn btn-sm btn-primary" onclick="openHealthApply(${e.id})">수정</button>`:''}
+        ${(isMine||isAdmin)?`<button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteHealth(${e.id})">삭제</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+
   setContent(`
-    <div class="stats-row" style="grid-template-columns:repeat(4,1fr)">
-      <div class="stat-card health"><div class="stat-label">총 수검대상</div><div class="stat-val">${totalAll}명</div><div class="stat-sub">직원 ${empTotal} + 가족 ${famTotal}</div></div>
-      <div class="stat-card health"><div class="stat-label">직원 수검완료</div><div class="stat-val">${empDone}명</div><div class="stat-sub">전체 ${empTotal}명 (${pctEmp}%)</div></div>
-      <div class="stat-card"><div class="stat-label">가족 수검완료</div><div class="stat-val">${famDone}명</div><div class="stat-sub">전체 ${famTotal}명</div></div>
-      <div class="stat-card"><div class="stat-label">타기관 검진</div><div class="stat-val">${otherClinicCount}명</div><div class="stat-sub">실비지원 대상</div></div>
-      <div class="stat-card health"><div class="stat-label">전체 완료율</div><div class="stat-val">${pctAll}%</div><div class="stat-sub">직원+가족 ${doneAll}/${totalAll}</div></div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px">
+      <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:11px">총 수검대상</div><div class="stat-val">${totalAll}명</div><div class="stat-sub" style="font-size:10px">직원${empTotal}+가족${famTotal}</div></div>
+      <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:11px">직원 수검완료</div><div class="stat-val">${empDone}명</div><div class="stat-sub" style="font-size:10px">${empTotal}명 중 ${pctEmp}%</div></div>
+      <div class="stat-card" style="padding:10px 12px"><div class="stat-label" style="font-size:11px">가족 수검완료</div><div class="stat-val">${famDone}명</div><div class="stat-sub" style="font-size:10px">전체 ${famTotal}명</div></div>
+      <div class="stat-card" style="padding:10px 12px;background:#fef9ec"><div class="stat-label" style="font-size:11px">타기관 검진</div><div class="stat-val" style="color:#92400e">${otherClinicCount}명</div><div class="stat-sub" style="font-size:10px">별도 집계</div></div>
+      <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:11px">전체 완료율</div><div class="stat-val">${pctAll}%</div><div class="stat-sub" style="font-size:10px">${doneAll}/${totalAll}명</div></div>
     </div>
     <div class="card">
       <div class="card-title">${yr}년 건강검진 현황</div>
       <div class="table-wrap"><table>
         <thead><tr><th>직원</th><th>부서</th><th>예약일</th><th>수검일</th><th>상태</th><th>가족</th><th></th></tr></thead>
-        <tbody>${rows||emptyRow(7)}</tbody>
+        <tbody>${rows||emptyRow(7)}${otherRows}</tbody>
       </table></div>
     </div>
-    <div class="info-bar" style="background:var(--health-bg);border:1px solid #5eead4;color:var(--health);margin-top:-8px">
+    ${otherClinicCount>0?`
+    <div class="info-bar" style="background:#fef9ec;border:1px solid #fcd34d;color:#92400e;margin-top:-8px">
+      🏥 타기관 검진자(노란색)는 전체 수검 통계에서 제외됩니다. 동일 금액 실비지원 대상입니다.
+    </div>`:''}
+    <div class="info-bar" style="background:var(--health-bg);border:1px solid #5eead4;color:var(--health);margin-top:4px">
       🏥 예약일 신청 → 관리자 승인 → 수검 완료 입력 순서로 진행됩니다
     </div>
     ${isAdmin ? `
@@ -2986,12 +3085,25 @@ function updateReqForm(){
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-gong" value="공가" onchange="onLtypeChange()" style="width:15px;height:15px"> 공가 (4h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
+        ${isAdmin ? '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type=\"radio\" name=\"ltype\" value=\"연차소멸\" onchange=\"onLtypeChange()\" style=\"width:15px;height:15px\"> <span style=\"color:var(--danger);font-weight:600\">연차소멸</span> (연차촉진)</label>' : ''}
       </div>
     </div>
   </div>
   <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" value="8" min="1"></div></div>
   <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시작일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>종료일</label>${makeDateInput('f-end','',true)}</div></div>`;}
-  else if(t==='ot'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>구분</label><select id="f-otype"><option>연장</option><option>특근</option><option>주말연장</option></select></div><div class="field"><label>날짜 *</label>${makeDateInput('f-date')}</div></div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4"></div></div>`;}
+  else if(t==='ot'){h+=`
+    <div class="field" style="margin-bottom:12px">
+      <label>구분</label>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:6px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="otsub" value="특근" checked style="width:15px;height:15px"> 특근</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="otsub" value="연장" style="width:15px;height:15px"> 연장</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="otsub" value="주말연장" style="width:15px;height:15px"> 주말연장</label>
+      </div>
+    </div>
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="field"><label>날짜 *</label>${makeDateInput('f-date','',true)}</div>
+      <div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4"></div>
+    </div>`;}
   else if(t==='trip'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>출발일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>복귀일</label>${makeDateInput('f-end','',true)}</div></div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>목적지</label><input id="f-dest"></div></div>`;}
   else if(t==='comp'){h+=`<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div>`;}
   h+=`<div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>`;
@@ -3155,7 +3267,11 @@ function openOTMenu(empId){
 async function openAddOT(empId){openModal(`<div class="modal-title">특근 신청</div>
   <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div>
   <div class="form-grid" style="margin-bottom:12px">
-    <div class="field"><label>구분</label><select id="f-otype"><option>연장</option><option>특근</option><option>주말연장</option></select></div>
+    <div class="field"><label>구분</label><div style="display:flex;gap:12px">
+  <label style="font-size:13px;cursor:pointer"><input type="radio" name="otsub2" value="특근" checked style="width:14px;height:14px"> 특근</label>
+  <label style="font-size:13px;cursor:pointer"><input type="radio" name="otsub2" value="연장" style="width:14px;height:14px"> 연장</label>
+  <label style="font-size:13px;cursor:pointer"><input type="radio" name="otsub2" value="주말연장" style="width:14px;height:14px"> 주말연장</label>
+</div></div>
     <div class="field"><label>날짜 *</label>${makeDateInput('f-date')}</div>
   </div>
   <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4"></div></div>
@@ -4748,9 +4864,9 @@ if (initSupabase()) {
 <button id="sb-toggle-fixed-btn" onclick="doToggleSidebar()"
   style="display:none;position:fixed;left:220px;top:12px;
          z-index:9999;background:var(--accent);color:#fff;border:none;
-         border-radius:0 8px 8px 0;padding:14px 5px;cursor:pointer;
-         font-size:11px;font-weight:700;writing-mode:vertical-rl;
-         letter-spacing:2px;box-shadow:2px 0 8px rgba(0,0,0,.25)">
+         border-radius:0 6px 6px 0;padding:8px 3px;cursor:pointer;
+         font-size:9px;font-weight:700;writing-mode:vertical-rl;
+         letter-spacing:1px;box-shadow:2px 0 6px rgba(0,0,0,.2)">
   ◀ 접기
 </button>
 
