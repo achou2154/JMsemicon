@@ -1229,6 +1229,8 @@ function go(page) {
   try {
     const mainDiv = document.querySelector('.main');
     if (mainDiv) mainDiv.scrollTop = 0;
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
   } catch(e) {}
   document.querySelectorAll('.nav-item').forEach(el=>{
     const onclick = el.getAttribute('onclick')||'';
@@ -1428,8 +1430,6 @@ function openDayDetail(ds) {
         </div>
       </div>`).join('');
 
-  const _laUsedH = getLeaveUsed(empId, yr); // 시간(h)
-  const _laUsedD = Math.round(_laUsedH/8*10)/10; // 일
   openModal(`
     <div class="modal-title">📅 ${date} 일정</div>
     <div style="max-height:400px;overflow-y:auto">${groupHtml}</div>
@@ -2087,6 +2087,7 @@ function openLeaveAdmin(empId) {
     </div>
   `);
   // 소멸 후 잔여 실시간 계산
+  const _laUsedH = getLeaveUsed(empId, yr);
   setTimeout(() => {
     const updatePreview = () => {
       const t = (parseFloat(document.getElementById('la-total')?.value)||0) * 8;
