@@ -1387,6 +1387,50 @@ function topbarEmpSearch(q) {
   });
 }
 
+function openDayDetail(ds) {
+  const evList = (window._calEv && window._calEv[ds]) || [];
+  if (!evList.length) return;
+
+  const date = fmt(ds);
+  const groups = {
+    leave: { label: '🏖️ 연차', items: [], cls: 'var(--leave)' },
+    comp:  { label: '🔄 대체휴무', items: [], cls: 'var(--comp)' },
+    trip:  { label: '✈️ 출장/외근', items: [], cls: 'var(--trip)' },
+    ot:    { label: '⚡ 특근', items: [], cls: 'var(--ot)' },
+    bday:  { label: '🎂 생일/기념일', items: [], cls: 'var(--bday)' },
+    health:{ label: '🏥 건강검진', items: [], cls: 'var(--health)' },
+    other: { label: '📌 기타', items: [], cls: 'var(--text2)' },
+  };
+
+  evList.forEach(e => {
+    const key = e.cls === 'ev-leave' ? 'leave'
+      : e.cls === 'ev-comp' ? 'comp'
+      : e.cls === 'ev-trip' ? 'trip'
+      : e.cls === 'ev-ot' ? 'ot'
+      : e.cls === 'ev-bday' ? 'bday'
+      : e.cls === 'ev-health' ? 'health' : 'other';
+    groups[key].items.push(e.label);
+  });
+
+  const groupHtml = Object.values(groups)
+    .filter(g => g.items.length > 0)
+    .map(g => `
+      <div style="margin-bottom:12px">
+        <div style="font-size:12px;font-weight:700;color:${g.cls};margin-bottom:6px">${g.label}</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${g.items.map(item => `<div style="font-size:13px;padding:4px 10px;background:var(--bg);border-radius:6px">${item}</div>`).join('')}
+        </div>
+      </div>`).join('');
+
+  openModal(`
+    <div class="modal-title">📅 ${date} 일정</div>
+    <div style="max-height:400px;overflow-y:auto">${groupHtml}</div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal()">닫기</button>
+    </div>
+  `);
+}
+
 function filterTable(tableId, q) {
   const tbody = document.querySelector('#'+tableId+' tbody');
   if (!tbody) return;
@@ -2815,7 +2859,8 @@ function renderCalendar(){
   const last=new Date(y,m,0).getDate();
   const ev={};
   // label, cls, status 포함
-  function addEv(ds,label,cls,status='approved'){if(!ev[ds])ev[ds]=[];ev[ds].push({label,cls,status});}
+  function addEv(ds,label,cls,status='approved',req=null){if(!ev[ds])ev[ds]=[];ev[ds].push({label,cls,status,req});}
+  window._calEv = ev; // 전역 저장 (날짜 클릭 팝업용)
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
   // 승인여부 관계없이 canView인 신청 모두 표시
   db.requests.filter(r=>canView(r)).forEach(r=>{
@@ -2823,7 +2868,7 @@ function renderCalendar(){
     if(r.type==='leave')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' '+r.leaveType,'ev-leave',r.status);});
     else if(r.type==='ot'&&(r.date||'').startsWith(mStr))addEv(r.date,statusIcon+' '+ename(r.empId)+' 특근','ev-ot',r.status);
     else if(r.type==='trip')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 출장','ev-trip',r.status);});
-    else if(r.type==='comp')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 대휴','ev-comp',r.status);});
+    else if(r.type==='comp')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 대휴','ev-comp',r.status,r);});
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status);});
   });
@@ -2840,7 +2885,7 @@ function renderCalendar(){
   });
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
-      if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+(mem.relation!=='본인'?' ('+mem.relation+')':''),'ev-health');
+      if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
     });
   });
   const todayDateStr=todayStr();
@@ -2850,10 +2895,11 @@ function renderCalendar(){
     const dn=i-first+1;const inM=dn>=1&&dn<=last;
     const ds=inM?`${y}-${String(m).padStart(2,'0')}-${String(dn).padStart(2,'0')}`:'';
     const dow=i%7;const evList=ds&&ev[ds]?ev[ds]:[];
-    cells+=`<div class="cal-day${!inM?' other-month':''}${ds===todayDateStr?' today':''}${dow===0?' sun':''}">
+    const clickHandler = inM&&evList.length>0 ? `onclick="openDayDetail('${ds}')"` : '';
+    cells+=`<div class="cal-day${!inM?' other-month':''}${ds===todayDateStr?' today':''}${dow===0?' sun':''}" ${clickHandler} style="${inM&&evList.length>0?'cursor:pointer':''}">
       ${inM?`<div class="dn">${dn}</div>`:''}
       ${evList.slice(0,4).map(e=>`<div class="cal-event ${e.cls}">${e.label}</div>`).join('')}
-      ${evList.length>4?`<div style="font-size:10px;color:var(--text3)">+${evList.length-4}</div>`:''}
+      ${evList.length>4?`<div style="font-size:10px;color:var(--text3)">+${evList.length-4}건 더보기</div>`:''}
     </div>`;
   }
   // 오늘의 자리비움 / 오늘의 특근 카드
