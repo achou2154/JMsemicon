@@ -192,7 +192,7 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item active" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
     <button class="nav-item" onclick="go('calendar')"><span class="nav-icon">📅</span>월별 달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
-    <button class="nav-item" id="nav-requests" onclick="go('requests')"><span class="nav-icon">📋</span>신청 / 승인</button>
+    <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
     <div class="nav-sec">개인 기록</div>
     <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
@@ -1258,12 +1258,12 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'신청 / 승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'월별 달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
-  const adminOnly = ['overview','alerts'];
+  const adminOnly = ['overview','alerts','requests'];
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
@@ -5179,8 +5179,8 @@ if (initSupabase()) {
   <button onclick="go('calendar')" id="mtab-calendar">
     <span class="tab-icon">📅</span>달력
   </button>
-  <button onclick="go('requests')" id="mtab-requests">
-    <span class="tab-icon">📋</span>신청
+  <button onclick="go('requests')" id="mtab-requests" style="display:none">
+    <span class="tab-icon">📋</span>승인
   </button>
   <button onclick="go('leave')" id="mtab-leave">
     <span class="tab-icon">🏖️</span>연차
