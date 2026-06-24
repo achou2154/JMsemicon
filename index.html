@@ -2182,9 +2182,20 @@ async function approveReq(id){
 async function rejectReq(id){
   const r=db.requests.find(x=>String(x.id)===String(id));
   if(r){
-    r.status='rejected';
-    await sbUpdate('requests', id, {status:'rejected'});
-    saveAll(); showToast('❌ 반려됨');
+    const updateData={status:'rejected'};
+    // 교통비 전환 신청 취소면 transReqPending 초기화 (status는 기존 approved 유지)
+    if(r.transReqPending){
+      r.transReqPending=false;
+      updateData.trans_req_pending=false;
+      delete updateData.status; // status는 approved 그대로 유지
+      r.status=r.status; // 변경 없음
+      await sbUpdate('requests', id, {trans_req_pending:false});
+      saveAll(); showToast('↩️ 교통비 전환 신청 취소됨');
+    } else {
+      r.status='rejected';
+      await sbUpdate('requests', id, {status:'rejected'});
+      saveAll(); showToast('❌ 반려됨');
+    }
   }
   renderRequests();
 }
