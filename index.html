@@ -345,7 +345,7 @@ async function loadAllData() {
     const [emp, la, req, ev, health, alerts] = await Promise.all([
       _supa.from('employees').select('*'),
       _supa.from('leave_alloc').select('*'),
-      _supa.from('requests').select('*').order('id', {ascending:false}),
+      _supa.from('requests').select('*').neq('status','cancelled').order('id', {ascending:false}),
       _supa.from('events').select('*'),
       _supa.from('health_records').select('*'),
       _supa.from('alerts').select('*').order('date'),
@@ -397,7 +397,7 @@ function normalizeReq(r) {
     dest:r.dest||'', tripKind:r.trip_kind||'', allowance:r.allowance||0 };
 }
 function normalizeEv(r) {
-  return { id:r.id, empId:r.emp_id||0, type:r.type, name:r.name,
+  return { id:r.id, empId:r.emp_id??null, type:r.type, name:r.name,
     month:r.month, day:r.day, calType:r.cal_type||'solar', note:r.note||'' };
 }
 function normalizeHealth(r) {
@@ -2178,7 +2178,41 @@ async function rejectReq(id){
   }
   renderRequests();
 }
-async function delReq(id,rerender){if(!confirm('삭제?'))return;await sbDelete('requests',id);db.requests=db.requests.filter(x=>String(x.id)!==String(id));saveAll();showToast('🗑️ 삭제됨');if(rerender==='ot')renderOT();else if(rerender==='trip')renderTrip();else if(rerender==='leave')renderLeave();else renderRequests();}
+async function delReq(id,rerender){
+  const r=db.requests.find(x=>String(x.id)===String(id));
+  if(!r)return;
+  const isPending=r.status==='pending';
+  const msg=isPending?'승인 대기 중인 신청을 취소하시겠습니까?':'삭제하시겠습니까?';
+  if(!confirm(msg))return;
+  let ok=false;
+  if(_supa){
+    if(!isAdmin&&isPending){
+      // 직원: pending 건은 cancelled로 상태 업데이트 (RLS DELETE 권한 없어도 UPDATE로 처리)
+      const {error}=await _supa.from('requests').update({status:'cancelled'}).eq('id',id);
+      if(error){console.error('cancel error:',error);showToast('⚠️ 취소 실패: '+error.message);return;}
+      ok=true;
+    } else {
+      // 관리자: 완전 삭제
+      const {error}=await _supa.from('requests').delete().eq('id',id);
+      if(error){console.error('delete error:',error);showToast('⚠️ 삭제 실패: '+error.message);return;}
+      ok=true;
+    }
+  } else {ok=true;}
+  if(ok){
+    if(!isAdmin&&isPending){
+      // 로컬에서 cancelled로 변경 후 목록에서 제거
+      db.requests=db.requests.filter(x=>String(x.id)!==String(id));
+    } else {
+      db.requests=db.requests.filter(x=>String(x.id)!==String(id));
+    }
+    saveAll();
+    showToast(isPending&&!isAdmin?'✅ 신청이 취소되었습니다':'🗑️ 삭제됨');
+  }
+  if(rerender==='ot')renderOT();
+  else if(rerender==='trip')renderTrip();
+  else if(rerender==='leave')renderLeave();
+  else renderRequests();
+}
 
 // ─ 4. 연차 ─────────────────────────────────
 function renderLeave(){
@@ -2658,7 +2692,7 @@ function renderBday(){
     // 지난 날짜 → 옅은 회색 배경
     const rowBg=isPast?'style="background:#f3f3f3;color:#999"':'';
     return`<tr ${rowBg}>
-      <td>${e?`<div class="name-cell">${av(ev.empId)}<span${isPast?' style="color:#999"':''}>${e.name}</span></div>`:badge('전사','bday')}</td>
+      <td>${e?`<div class="name-cell">${av(ev.empId)}<span${isPast?' style="color:#999"':''}>${e.name}</span></div>`:(ev.empId===0||ev.empId===null||ev.empId===undefined)?badge('전사','bday'):badge('?','neutral')}</td>
       <td${isPast?' style="color:#999"':''}>${ev.name}</td>
       <td>${ev.type==='birthday'?badge('생일','bday'):badge('기념일','neutral')}</td>
       <td>${ev.calType==='lunar'?badge('음력','warn'):badge('양력','neutral')}</td>
@@ -3193,7 +3227,7 @@ function renderCalendar(){
         (emp4.anniversaryType==='birthday' && ev2.type==='birthday') ||
         (emp4.anniversaryType==='anniversary' && ev2.type==='anniversary')
       );
-      const evLabel = ev2.empId===0 ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
+      const evLabel = (ev2.empId===0||ev2.empId===null||ev2.empId===undefined) ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
       addEv(ds,evLabel,'ev-bday');
     }
   });
@@ -3936,14 +3970,24 @@ async function saveCompanyEvent(){
   const month=parseInt(document.getElementById('f-month').value)||1;
   const day=parseInt(document.getElementById('f-day').value)||1;
   const note=document.getElementById('f-note')?.value||'';
-  const row={emp_id:0,type:'anniversary',name,month,day,cal_type:calType,note};
+  const row={emp_id:null,type:'anniversary',name,month,day,cal_type:calType,note};
   let saved=null;
   if(_supa){
+    // upsert 대신 onConflict 무시 방식으로 시도, 실패 시 상세 로그
     const {data,error}=await _supa.from('events').insert(row).select().single();
-    if(error){console.error('saveCompanyEvent error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
-    saved=data;
+    if(error){
+      console.error('saveCompanyEvent error code:',error.code,'message:',error.message,'details:',error.details);
+      // 409(중복) 또는 RLS 오류면 upsert로 재시도
+      if(error.code==='23505'||error.code==='409'||error.status===409||String(error.code).includes('23')){
+        const {data:d2,error:e2}=await _supa.from('events').upsert({...row},{ignoreDuplicates:false}).select().single();
+        if(e2){showToast('⚠️ 저장 실패: '+e2.message);return;}
+        saved=d2;
+      } else {
+        showToast('⚠️ 저장 실패: '+error.message);return;
+      }
+    } else {saved=data;}
   }
-  const newEv={id:saved?saved.id:nextEventId++,empId:0,type:'anniversary',name,month,day,calType,note};
+  const newEv={id:saved?saved.id:nextEventId++,empId:null,type:'anniversary',name,month,day,calType,note};
   db.events.push(newEv);
   saveAll();showToast('✅ 전사 공통 일정 등록됨');closeModal();renderBday();
 }
