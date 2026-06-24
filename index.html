@@ -1011,6 +1011,14 @@ function canEdit(r) {
 }
 // 조회 가능: 승인 전→본인 or 관리자 / 승인 후→전체
 function canView(r) {
+  // 관리자는 전부 볼 수 있음
+  if (isAdmin) return true;
+  // 직원은 오직 본인 것만
+  if (currentEmp && String(r.empId) === String(currentEmp.id)) return true;
+  return false;
+}
+// 달력 전용: 승인된 건은 전체 공개 (기존 동작 유지)
+function canViewCalendar(r) {
   if (r.status === 'approved') return true;
   if (isAdmin) return true;
   if (currentEmp && String(r.empId) === String(currentEmp.id)) return true;
@@ -2349,7 +2357,7 @@ function renderOT(){
       </td>
     </tr>`;
   }).join('');
-  const compRows=db.requests.filter(r=>r.type==='comp'&&String(r.year)===String(yr)).slice().sort((a,b)=>b.id-a.id).map(r=>`<tr class="${r.status==='pending'?'row-pending':''}">
+  const compRows=db.requests.filter(r=>r.type==='comp'&&String(r.year)===String(yr)&&canView(r)).slice().sort((a,b)=>b.id-a.id).map(r=>`<tr class="${r.status==='pending'?'row-pending':''}">
     <td><div class="name-cell">${av(r.empId)}<span>${ename(r.empId)}</span></div></td>
     <td>${edept(r.empId)}</td><td>${fmt(r.startDate)}</td>
     <td>${r.hours}h</td><td style="font-size:12px;color:var(--text2)">${r.reason}</td>
@@ -2367,18 +2375,19 @@ function renderOT(){
     const remAlert=rem>=40;
     const NA=`<span style="font-size:12px;color:#bbb">임원</span>`;
     return`<tr ${e.isExternal?'style="background:#fafafa"':''}>
-      <td><div class="name-cell">${av(e.id)}<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="${e.isExternal?'':` openOTMenu(${e.id})`}">${e.name}</span>${e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:10px;margin-left:5px">⭐</span>`:''}</div></td>
+      <td><div class="name-cell">${av(e.id)}<span>${e.name}</span>${e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:10px;margin-left:5px">⭐</span>`:''}</div></td>
       <td>${e.dept}</td>
       <td>${e.isExternal?NA:carry>0?carry+'h':'—'}</td>
       <td>${e.isExternal?NA:earned>0?badge(earned+'h','ot'):'—'}</td>
       <td>${e.isExternal?NA:used>0?badge(used+'h','comp'):'—'}</td>
       <td>${e.isExternal?NA:rem>0?`<strong style="${remAlert?'color:var(--danger)':''}">${rem}h (${Math.round(rem/8*10)/10}일)${remAlert?' ⚠️':''}</strong>`:'0h'}</td>
+      ${isAdmin&&!e.isExternal?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">⏰ 특근</button><button class="btn btn-sm" onclick="openAddComp(${e.id})">🔄 대휴</button></td>`:(isAdmin?'<td></td>':'')}
     </tr>`;
   }).join('');
   setContent(`
     <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 이월 가능</div>
     <div class="card"><div class="card-title">개인별 대체휴무 현황 (${yr}년)</div>
-      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th></tr></thead><tbody>${sumRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th>${isAdmin?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
     </div>
     <div class="card"><div class="card-title">특근 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
@@ -3123,7 +3132,7 @@ function renderCalendar(){
   function addEv(ds,label,cls,status='approved',req=null){if(!ev[ds])ev[ds]=[];ev[ds].push({label,cls,status,req});}
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
   // 승인여부 관계없이 canView인 신청 모두 표시
-  db.requests.filter(r=>canView(r)).forEach(r=>{
+  db.requests.filter(r=>canViewCalendar(r)).forEach(r=>{
     const statusIcon = r.status==='pending'?'⏳':r.status==='rejected'?'❌':'✅';
     if(r.type==='leave')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' '+r.leaveType,'ev-leave',r.status);});
     else if(r.type==='ot'&&(r.date||'').startsWith(mStr))addEv(r.date,statusIcon+' '+ename(r.empId)+' 특근','ev-ot',r.status);
