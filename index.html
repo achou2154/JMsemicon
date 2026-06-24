@@ -3419,7 +3419,7 @@ async function submitReq(){
     }
     Object.assign(r,{startDate:s,endDate:e2,leaveType:ltSel?ltSel.value:'연차',hours:parseInt(document.getElementById('f-hours').value)||8});
   }
-  else if(t==='ot'){const date=getDateVal('f-date');if(!date){alert('날짜 입력');return;}Object.assign(r,{date,otType:document.getElementById('f-otype').value,hours:parseInt(document.getElementById('f-hours').value)||4,useTransport:false});}
+  else if(t==='ot'){const date=getDateVal('f-date');if(!date){alert('날짜 입력');return;}const otSel=document.querySelector('input[name="otsub"]:checked');Object.assign(r,{date,otType:otSel?otSel.value:'특근',hours:parseInt(document.getElementById('f-hours').value)||4,useTransport:false});}
   else if(t==='trip'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}Object.assign(r,{startDate:s,endDate:getDateVal('f-end')||s,dest:document.getElementById('f-dest')?.value||''});}
   else if(t==='comp'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}Object.assign(r,{startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8});}
   // Supabase 저장
@@ -3570,7 +3570,7 @@ async function openAddOT(empId){openModal(`<div class="modal-title">특근 신�
 async function saveOT(){
   const d=getDateVal('f-date');if(!d){alert('날짜 입력');return;}
   const useTransport=document.getElementById('f-transport')?document.getElementById('f-transport').checked:false;
-  const _r = {id:nextId++,type:'ot',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,date:d,otType:document.getElementById('f-otype').value,hours:parseInt(document.getElementById('f-hours').value)||4,reason:document.getElementById('f-reason').value||'',reqDate:todayStr(),useTransport};
+  const _otSel=document.querySelector('input[name="otsub2"]:checked');const _r = {id:nextId++,type:'ot',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,date:d,otType:_otSel?_otSel.value:'특근',hours:parseInt(document.getElementById('f-hours').value)||4,reason:document.getElementById('f-reason').value||'',reqDate:todayStr(),useTransport};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
