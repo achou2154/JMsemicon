@@ -1816,7 +1816,7 @@ function openEmpProfile(empId){
   const leaveList=db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(yr)&&r.status==='approved');
   const leaveRows=leaveList.length?leaveList.map(r=>`
     <tr><td>${r.leaveType}</td><td>${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}</td>
-    <td>${Math.round((+r.hours)/8*10)/10}일 (${r.hours}h)</td><td style="color:var(--text2);font-size:12px">${r.reason||'—'}</td></tr>`)
+    <td>${['병가','특별휴가'].includes(r.leaveType)?'<span style="color:var(--text3);font-size:12px">연차 차감 없음</span>':`${Math.round((+r.hours)/8*10)/10}일 (${r.hours}h)`}</td><td style="color:var(--text2);font-size:12px">${r.reason||'—'}</td></tr>`)
     .join(''):`<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:12px">사용 내역 없음</td></tr>`;
 
   const otList=db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(yr)&&r.status==='approved');
@@ -2191,7 +2191,7 @@ function renderLeave(){
       <td><div class="name-cell">${av(r.empId)}<span>${e?e.name:'?'}</span></div></td>
       <td>${e?e.dept:''}</td><td>${r.leaveType}</td>
       <td>${fmt(r.startDate)}</td><td>${fmt(r.endDate||r.startDate)}</td>
-      <td>${r.hours}h (${Math.round((+r.hours)/8*10)/10}일)</td>
+      <td>${['병가','특별휴가'].includes(r.leaveType)?'<span style="color:var(--text3);font-size:12px">차감없음</span>':`${r.hours}h (${Math.round((+r.hours)/8*10)/10}일)`}</td>
       <td style="font-size:12px;color:var(--text2)">${r.reason}</td>
       <td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
@@ -2695,7 +2695,7 @@ function renderBday(){
   setContent(`
     <div class="info-bar" style="background:var(--bday-bg);border:1px solid #7dd3fc;color:var(--bday)">🎂 음력 생일은 해당 연도 양력으로 자동 변환됩니다.</div>
     ${upcoming30.length?`<div class="card"><div class="card-title">30일 이내 예정</div><div style="display:flex;flex-wrap:wrap;gap:10px">${upcoming30.map(ev=>`<div style="padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-lg)"><div style="font-weight:500;font-size:13px;margin-bottom:3px">${ev.name}</div><div style="font-size:11px;color:var(--text2)">${fmt(ev.ds)}${ev.calType==='lunar'?' (음→양)':''}</div><div style="margin-top:5px"><span class="upcoming-chip">D-${ev.diff}</span></div></div>`).join('')}</div></div>`:''}
-    <div class="card"><div class="card-title">${yr}년 생일/기념일 목록 ${isAdmin?`<button class="btn btn-sm" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;margin-right:6px" onclick="openAddEvent()">👤 개인 등록</button><button class="btn btn-primary btn-sm" onclick="openAddCompanyEvent()">🏢 전체 등록</button>`:''}</div>
+    <div class="card"><div class="card-title">${yr}년 생일/기념일 목록${isAdmin?`<div style="display:flex;gap:6px;margin-left:auto"><button class="btn btn-sm" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc" onclick="openAddEvent()">👤 개인 등록</button><button class="btn btn-primary btn-sm" onclick="openAddCompanyEvent()">🏢 전체 등록</button></div>`:''}</div>
       <div class="table-wrap"><table><thead><tr><th>직원</th><th>명칭</th><th>구분</th><th>달력</th><th>날짜</th><th>${yr}년 양력</th><th>D-day</th><th>비고</th><th></th></tr></thead><tbody>${rows||emptyRow(9)}</tbody></table></div>
     </div>
   `);
@@ -3937,19 +3937,30 @@ async function saveCompanyEvent(){
   const day=parseInt(document.getElementById('f-day').value)||1;
   const note=document.getElementById('f-note')?.value||'';
   const row={emp_id:0,type:'anniversary',name,month,day,cal_type:calType,note};
-  const saved=await sbInsert('events',row);
-  if(saved){
-    db.events.push({id:saved.id,empId:0,type:'anniversary',name,month,day,calType,note});
-    saveAll();showToast('✅ 전사 공통 일정 등록됨');closeModal();renderBday();
-  } else {showToast('⚠️ 저장 실패');}
+  let saved=null;
+  if(_supa){
+    const {data,error}=await _supa.from('events').insert(row).select().single();
+    if(error){console.error('saveCompanyEvent error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+    saved=data;
+  }
+  const newEv={id:saved?saved.id:nextEventId++,empId:0,type:'anniversary',name,month,day,calType,note};
+  db.events.push(newEv);
+  saveAll();showToast('✅ 전사 공통 일정 등록됨');closeModal();renderBday();
 }
-function saveEvent(){
+async function saveEvent(){
   const empId=parseInt(document.getElementById('f-emp').value)||0;
   const type=document.querySelector('input[name="evtype"]:checked')?.value||'birthday';
   const calType=document.querySelector('input[name="caltype"]:checked')?.value||'solar';
   const e=eid(empId);
   const autoName=(e?e.name:'전사')+' '+(type==='birthday'?'생일':'기념일');
-  db.events.push({id:nextEventId++,empId,type,name:autoName,month:parseInt(document.getElementById('f-month').value)||1,day:parseInt(document.getElementById('f-day').value)||1,calType,note:document.getElementById('f-note').value||''});
+  const _evRow={emp_id:empId||0,type,name:autoName,month:parseInt(document.getElementById('f-month').value)||1,day:parseInt(document.getElementById('f-day').value)||1,cal_type:calType,note:document.getElementById('f-note').value||''};
+  let _evSaved=null;
+  if(_supa){
+    const {data,error}=await _supa.from('events').insert(_evRow).select().single();
+    if(error){console.error('saveEvent error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+    _evSaved=data;
+  }
+  db.events.push({id:_evSaved?_evSaved.id:nextEventId++,empId,type,name:autoName,month:_evRow.month,day:_evRow.day,calType,note:_evRow.note});
   saveAll();showToast('✅ 등록됨');closeModal();renderBday();
 }
 function openEditEvent(id){
