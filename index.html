@@ -188,6 +188,11 @@ tbody tr:hover td{background:var(--surface2)}
     </div>
   </div>
   <div class="nav-wrap">
+    <div id="nav-sec-admin" class="nav-sec" style="display:none">관리자</div>
+    <button id="nav-overview" class="nav-item" style="display:none" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
+    <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
+    <button id="nav-noticeboard" class="nav-item" style="display:none" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
+    <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>알림설정</button>
     <div class="nav-sec">메인</div>
     <button class="nav-item active" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
@@ -202,11 +207,6 @@ tbody tr:hover td{background:var(--surface2)}
     <div class="nav-sec">내 계정</div>
     <button class="nav-item" onclick="go('myprofile')"><span class="nav-icon">👤</span>내 정보</button>
     <button class="nav-item" onclick="go('inquiry')"><span class="nav-icon">💬</span>1:1 문의</button>
-    <div id="nav-sec-admin" class="nav-sec" style="display:none">관리자</div>
-    <button id="nav-overview" class="nav-item" style="display:none" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
-    <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
-    <button id="nav-noticeboard" class="nav-item" style="display:none" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
-    <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>알림설정</button>
   </div>
   <div class="sidebar-footer">
     <div class="footer-btns">
