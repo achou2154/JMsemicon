@@ -1229,6 +1229,8 @@ function go(page) {
   closeSidebarIfOpen();
   // 스크롤 최상단 - .main div가 스크롤 컨테이너
   try {
+    const c=document.querySelector('.content');
+    if(c) c.scrollTop=0;
     const mainDiv = document.querySelector('.main');
     if (mainDiv) mainDiv.scrollTop = 0;
     document.documentElement.scrollTop = 0;
@@ -1255,11 +1257,14 @@ function go(page) {
 function changeYear(y){currentYear=y;go(currentPage);}
 function setContent(html){
   document.getElementById('main-content').innerHTML=html;
+  // 실제 스크롤 컨테이너: .content (overflow-y:auto)
+  const c=document.querySelector('.content');
+  if(c) c.scrollTop=0;
+  const m=document.querySelector('.main');
+  if(m) m.scrollTop=0;
   window.scrollTo(0,0);
   document.documentElement.scrollTop=0;
   document.body.scrollTop=0;
-  const m=document.querySelector('.main');
-  if(m) m.scrollTop=0;
 }
 
 // ══════════════════════════════════════════════
@@ -1629,6 +1634,13 @@ function openOverviewDetail(type) {
   }
 }
 
+// ── 관리자 전용 직원 검색 input 생성 헬퍼 ──────────────────
+function adminSearchInput(inputId, tableId) {
+  if (!isAdmin) return '';
+  return '<input id="' + inputId + '" type="text" placeholder="🔍 직원 검색"'
+    + ' style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px;outline:none"'
+    + ' oninput="filterTableRows(\'' + tableId + '\',this.value)">';
+}
 function filterOverviewTable(q) {
   const tbody = document.querySelector('#overview-table tbody');
   if (!tbody) return;
@@ -2227,7 +2239,7 @@ function renderLeave(){
     <div class="card">
       <div class="card-title">연차 신청 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="leave-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterLeaveRows(this.value)">`:``}
+          ${adminSearchInput("leave-search","leave-table")}
           <button class="btn btn-primary btn-sm" onclick="openAddLeave()">+ 신청</button>
         </div>
       </div>
@@ -2370,7 +2382,7 @@ function renderOT(){
     </div>
     <div class="card"><div class="card-title">특근 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="ot-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('ot-table',this.value)">`:``}
+          ${adminSearchInput("ot-search","ot-table")}
           <button class="btn btn-primary btn-sm" onclick="openAddOT()">+ 신청</button>
         </div>
       </div>
@@ -2378,7 +2390,7 @@ function renderOT(){
     </div>
     <div class="card"><div class="card-title">대체휴무 사용 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="comp-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('comp-table',this.value)">`:``}
+          ${adminSearchInput("comp-search","comp-table")}
           <button class="btn btn-primary btn-sm" onclick="openAddComp()">+ 신청</button>
         </div>
       </div>
@@ -2414,7 +2426,7 @@ function renderTransport(){
     <div class="card"><div class="card-title">직원별 합계</div><div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>건수</th><th>합계</th></tr></thead><tbody>${sumRows||emptyRow(4,'내역 없음')}</tbody></table></div></div>
     <div class="card"><div class="card-title">상세 내역 (${yr})
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="trans-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trans-table',this.value)">`:``}
+          ${adminSearchInput("trans-search","trans-table")}
         </div>
       </div><div class="table-wrap"><table id="trans-table"><thead><tr><th>직원</th><th>부서</th><th>특근구분</th><th>날짜</th><th>시간</th><th>단가</th><th>금액</th><th>사유</th></tr></thead><tbody>${rows||emptyRow(8,'내역 없음')}</tbody></table></div></div>
   `);
@@ -2475,7 +2487,7 @@ function renderTrip(){
     <div class="card">
       <div class="card-title">🇰🇷 국내 출장 (${domestic.length}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="trip-dom-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trip-dom-table',this.value)">`:``}
+          ${adminSearchInput("trip-dom-search","trip-dom-table")}
         </div>
       </div>
       <div class="table-wrap"><table id="trip-dom-table">
@@ -2486,7 +2498,7 @@ function renderTrip(){
     <div class="card" style="margin-top:4px">
       <div class="card-title">🌏 해외 출장 (${overseas.length}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="trip-sea-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trip-sea-table',this.value)">`:``}
+          ${adminSearchInput("trip-sea-search","trip-sea-table")}
         </div>
       </div>
       <div class="info-bar" style="background:#fff8e6;border:1px solid #fcd34d;color:#92400e">
@@ -2501,7 +2513,7 @@ function renderTrip(){
     <div class="card" style="margin-top:4px">
       <div class="card-title">📚 교육 (${educationR.length}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
-          ${isAdmin?`<input id="edu-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('edu-table',this.value)">`:``}
+          ${adminSearchInput("edu-search","edu-table")}
         </div>
       </div>
       <div class="table-wrap"><table id="edu-table">
