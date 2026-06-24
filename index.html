@@ -3424,16 +3424,17 @@ async function submitReq(){
   else if(t==='comp'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}Object.assign(r,{startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8});}
   // Supabase 저장
   const row = reqToDb(r);
-  const saved = await sbInsert('requests', row);
-  if (saved) {
-    r.id = saved.id;
-    db.requests.unshift(r);
-    saveAll();
-    showToast('✅ 신청 완료 — 관리자 승인 후 반영됩니다');
-    await notifyAdmin(r);
-  } else {
-    showToast('⚠️ 저장 실패, 다시 시도해 주세요');
+  let saved = null;
+  if(_supa){
+    const {data,error}=await _supa.from('requests').insert(row).select().single();
+    if(error){console.error('submitReq error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+    saved=data;
   }
+  if(saved) r.id=saved.id;
+  db.requests.unshift(r);
+  saveAll();
+  showToast('✅ 신청 완료 — 관리자 승인 후 반영됩니다');
+  await notifyAdmin(r);
   closeModal();go(currentPage);
 }
 
@@ -3569,26 +3570,42 @@ async function openAddOT(empId){openModal(`<div class="modal-title">특근 신�
   <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div>`);}
 async function saveOT(){
   const d=getDateVal('f-date');if(!d){alert('날짜 입력');return;}
+  const empId=document.getElementById('f-emp').value;
+  if(!empId){showToast('⚠️ 직원 정보 없음');return;}
   const useTransport=document.getElementById('f-transport')?document.getElementById('f-transport').checked:false;
-  const _otSel=document.querySelector('input[name="otsub2"]:checked');const _r = {id:nextId++,type:'ot',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,date:d,otType:_otSel?_otSel.value:'특근',hours:parseInt(document.getElementById('f-hours').value)||4,reason:document.getElementById('f-reason').value||'',reqDate:todayStr(),useTransport};
-  const _saved = await sbInsert('requests', reqToDb(_r));
-  if (_saved) {
-    _r.id = _saved.id;
-    db.requests.unshift(_r);
-    saveAll(); showToast('✅ 신청 완료'); await notifyAdmin(_r);
-  } else { showToast('⚠️ 저장 실패'); }
+  const _otSel=document.querySelector('input[name="otsub2"]:checked');
+  const otType=_otSel?_otSel.value:'특근';
+  const hours=parseInt(document.getElementById('f-hours').value)||4;
+  const reason=document.getElementById('f-reason')?.value||'';
+  const _r={id:nextId++,type:'ot',empId,status:'pending',year:currentYear,date:d,otType,hours,reason,reqDate:todayStr(),useTransport};
+  const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:todayStr(),use_transport:useTransport};
+  let _saved=null;
+  if(_supa){
+    const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
+    if(error){console.error('saveOT error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+    _saved=data;
+  }
+  if(_saved)_r.id=_saved.id;
+  db.requests.unshift(_r);
+  saveAll(); showToast('✅ 특근 신청 완료'); await notifyAdmin(_r);
   closeModal();
   renderOT();
 }
 async function openAddComp(empId){openModal(`<div class="modal-title">대체휴무 신청</div><div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div><div class="form-grid" style="margin-bottom:12px"><div class="field"><label>사용일 *</label>${makeDateInput('f-start','',true)}</div><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="8" value="8"></div></div><div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div><div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>`);}
 async function saveComp(){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
-  const _r = {id:nextId++,type:'comp',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
-  const _saved = await sbInsert('requests', reqToDb(_r));
-  if (_saved) {
-    _r.id = _saved.id;
-    db.requests.unshift(_r);
-    saveAll(); showToast('✅ 신청 완료'); await notifyAdmin(_r);
-  } else { showToast('⚠️ 저장 실패'); }
+  const empId=document.getElementById('f-emp').value;
+  if(!empId){showToast('⚠️ 직원 정보 없음');return;}
+  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason')?.value||'',reqDate:todayStr()};
+  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:s,hours:_r.hours,reason:_r.reason,req_date:_r.reqDate};
+  let _saved = null;
+  if(_supa){
+    const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
+    if(error){console.error('saveComp error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+    _saved=data;
+  }
+  if(_saved)_r.id=_saved.id;
+  db.requests.unshift(_r);
+  saveAll(); showToast('✅ 대체휴무 신청 완료'); await notifyAdmin(_r);
   closeModal();
   renderOT();}
 
