@@ -1080,7 +1080,7 @@ function getAlloc(empId, year) {
   return a;
 }
 function getLeaveUsed(empId, year) {
-  return db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
+  return db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&r.leaveType!=='병가').reduce((s,r)=>s+(+r.hours||0),0);
 }
 function getLeaveRemain(empId, year) {
   const a=getAlloc(empId,year);
@@ -1392,6 +1392,7 @@ function renderOverview(){
       <div class="card-title">📊 ${yr}년 월별 연차 사용 현황</div>
       <div style="display:flex;gap:4px;align-items:flex-end;padding:8px 0">${monthBars}</div>
     </div>
+    ${alertThreshold?`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--danger)">⚠️ 이번 달 기준: 잔여 연차 ${alertThreshold}% 이상인 직원이 빨간색으로 표시됩니다.</div>`:''}
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
         <div class="card-title" style="margin:0">${yr}년 전직원 현황</div>
@@ -1635,6 +1636,19 @@ function filterOverviewTable(q) {
   rows.forEach(tr => {
     tr.style.display = q ? (tr.textContent.includes(q) ? '' : 'none') : '';
   });
+}
+// 범용 테이블 행 필터 (tableId, 검색어)
+function filterTableRows(tableId, q) {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
+  if (!tbody) return;
+  const kw = q.trim();
+  tbody.querySelectorAll('tr').forEach(tr => {
+    tr.style.display = kw ? (tr.textContent.includes(kw) ? '' : 'none') : '';
+  });
+}
+// 연차 신청 내역 필터
+function filterLeaveRows(q) {
+  filterTableRows('leave-table', q);
 }
 
 // ─ 2. 직원 명부 ────────────────────────────
@@ -2202,9 +2216,6 @@ function renderLeave(){
       <div class="card-title">📊 부서별 연차 사용률 (${yr}년)</div>
       ${deptBars||'<div style="color:var(--text3);font-size:13px">데이터 없음</div>'}
     </div>
-    <div class="info-bar" style="background:var(--leave-bg);border:1px solid #86efac;color:var(--leave)">
-      ℹ️ 연차 8h / 반차 4h / 외출 1h~ / 공가 4h / 병가 | 이월연차·이월대체휴무는 <strong>다음해 3월 1일 자동 소멸</strong>
-    </div>
     ${isAdmin&&alertThreshold?`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--danger)">⚠️ 이번 달 기준: 잔여 연차 ${alertThreshold}% 이상인 직원이 빨간색으로 표시됩니다.</div>`:''}
     <div class="card">
       <div class="card-title">개인별 연차 현황 (${yr}년 · 사용률 기준: ${yr}/3/1 ~ ${yr+1}/2/28)</div>
@@ -2215,9 +2226,12 @@ function renderLeave(){
     </div>
     <div class="card">
       <div class="card-title">연차 신청 내역 (${yr}년)
-        <button class="btn btn-primary btn-sm" onclick="openAddLeave()">+ 신청</button>
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="leave-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterLeaveRows(this.value)">`:``}
+          <button class="btn btn-primary btn-sm" onclick="openAddLeave()">+ 신청</button>
+        </div>
       </div>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table id="leave-table">
         <thead><tr><th>직원</th><th>부서</th><th>구분</th><th>시작일</th><th>종료일</th><th>시간</th><th>사유</th><th>상태</th><th></th></tr></thead>
         <tbody>${leaveRows||emptyRow(9)}</tbody>
       </table></div>
@@ -2354,11 +2368,21 @@ function renderOT(){
     <div class="card"><div class="card-title">개인별 대체휴무 현황 (${yr}년)</div>
       <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th></tr></thead><tbody>${sumRows}</tbody></table></div>
     </div>
-    <div class="card"><div class="card-title">특근 내역 (${yr}년) <button class="btn btn-primary btn-sm" onclick="openAddOT()">+ 신청</button></div>
-      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>구분</th><th>날짜</th><th>시간</th><th>대휴/교통비</th><th>사유</th><th>상태</th><th>수정</th></tr></thead><tbody>${otRows||emptyRow(9)}</tbody></table></div>
+    <div class="card"><div class="card-title">특근 내역 (${yr}년)
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="ot-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('ot-table',this.value)">`:``}
+          <button class="btn btn-primary btn-sm" onclick="openAddOT()">+ 신청</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="ot-table"><thead><tr><th>직원</th><th>부서</th><th>구분</th><th>날짜</th><th>시간</th><th>대휴/교통비</th><th>사유</th><th>상태</th><th>수정</th></tr></thead><tbody>${otRows||emptyRow(9)}</tbody></table></div>
     </div>
-    <div class="card"><div class="card-title">대체휴무 사용 내역 (${yr}년) <button class="btn btn-primary btn-sm" onclick="openAddComp()">+ 신청</button></div>
-      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>사용일</th><th>시간</th><th>사유</th><th>상태</th><th>수정</th></tr></thead><tbody>${compRows||emptyRow(7)}</tbody></table></div>
+    <div class="card"><div class="card-title">대체휴무 사용 내역 (${yr}년)
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="comp-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('comp-table',this.value)">`:``}
+          <button class="btn btn-primary btn-sm" onclick="openAddComp()">+ 신청</button>
+        </div>
+      </div>
+      <div class="table-wrap"><table id="comp-table"><thead><tr><th>직원</th><th>부서</th><th>사용일</th><th>시간</th><th>사유</th><th>상태</th><th>수정</th></tr></thead><tbody>${compRows||emptyRow(7)}</tbody></table></div>
     </div>
   `);
 }
@@ -2388,7 +2412,11 @@ function renderTransport(){
       <div class="stat-card"><div class="stat-label">시간당 단가</div><div class="stat-val">₩15,000</div></div>
     </div>
     <div class="card"><div class="card-title">직원별 합계</div><div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>건수</th><th>합계</th></tr></thead><tbody>${sumRows||emptyRow(4,'내역 없음')}</tbody></table></div></div>
-    <div class="card"><div class="card-title">상세 내역 (${yr})</div><div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>특근구분</th><th>날짜</th><th>시간</th><th>단가</th><th>금액</th><th>사유</th></tr></thead><tbody>${rows||emptyRow(8,'내역 없음')}</tbody></table></div></div>
+    <div class="card"><div class="card-title">상세 내역 (${yr})
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="trans-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trans-table',this.value)">`:``}
+        </div>
+      </div><div class="table-wrap"><table id="trans-table"><thead><tr><th>직원</th><th>부서</th><th>특근구분</th><th>날짜</th><th>시간</th><th>단가</th><th>금액</th><th>사유</th></tr></thead><tbody>${rows||emptyRow(8,'내역 없음')}</tbody></table></div></div>
   `);
 }
 
@@ -2445,26 +2473,38 @@ function renderTrip(){
       </table></div>
     </div>
     <div class="card">
-      <div class="card-title">🇰🇷 국내 출장 (${domestic.length}건)</div>
-      <div class="table-wrap"><table>
+      <div class="card-title">🇰🇷 국내 출장 (${domestic.length}건)
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="trip-dom-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trip-dom-table',this.value)">`:``}
+        </div>
+      </div>
+      <div class="table-wrap"><table id="trip-dom-table">
         <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>상태</th><th></th></tr></thead>
         <tbody>${domestic.map(r=>mkTripRow(r,false)).join('')||emptyRow(8,'내역 없음')}</tbody>
       </table></div>
     </div>
     <div class="card" style="margin-top:4px">
-      <div class="card-title">🌏 해외 출장 (${overseas.length}건)</div>
+      <div class="card-title">🌏 해외 출장 (${overseas.length}건)
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="trip-sea-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('trip-sea-table',this.value)">`:``}
+        </div>
+      </div>
       <div class="info-bar" style="background:#fff8e6;border:1px solid #fcd34d;color:#92400e">
         💡 해외 출장 수당은 경영상황에 따라 지급될 수 있으며, 확정 전까지 예정 금액으로 기재해 주세요.
       </div>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table id="trip-sea-table">
         <thead><tr><th>직원</th><th>부서</th><th>출발일</th><th>복귀일</th><th>목적지</th><th>목적</th><th>수당(예정)</th><th>상태</th><th></th></tr></thead>
         <tbody>${overseas.map(r=>mkTripRow(r,true)).join('')||emptyRow(9,'내역 없음')}</tbody>
       </table></div>
     </div>
 
     <div class="card" style="margin-top:4px">
-      <div class="card-title">📚 교육 (${educationR.length}건)</div>
-      <div class="table-wrap"><table>
+      <div class="card-title">📚 교육 (${educationR.length}건)
+        <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
+          ${isAdmin?`<input id="edu-search" type="text" placeholder="🔍 직원 검색" style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px" oninput="filterTableRows('edu-table',this.value)">`:``}
+        </div>
+      </div>
+      <div class="table-wrap"><table id="edu-table">
         <thead><tr><th>직원</th><th>부서</th><th>시작일</th><th>종료일</th><th>사유/교육명</th><th>상태</th><th></th></tr></thead>
         <tbody>${educationR.map(r=>mkSimpleRow(r,'education')).join('')||emptyRow(7,'내역 없음')}</tbody>
       </table></div>
@@ -3323,7 +3363,6 @@ function updateReqForm(){
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-annual" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차 (8h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-half" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차 (4h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-gong" value="공가" onchange="onLtypeChange()" style="width:15px;height:15px"> 공가 (4h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
 
       </div>
@@ -3430,15 +3469,9 @@ async function openAddLeave(empId){
              <input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)
            </label>
            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-gong" value="공가" onchange="onLtypeChange()" style="width:15px;height:15px"> 공가 (4h)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
              <input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가
            </label>
          </div>
-        <div style="margin-top:8px;padding:8px 12px;background:var(--leave-bg);border-radius:var(--radius);font-size:11px;color:var(--leave);line-height:1.7">
-          ※ 공가: 건강검진 (4h) &nbsp;|&nbsp; ※ 병가: 동일 질병으로 인한 7일 이상의 결근
-        </div>
       </div>
     </div>
     <div class="form-grid" style="margin-bottom:12px">
@@ -3465,7 +3498,6 @@ function onLtypeChange(){
   if(sel.value==='연차') hEl.value=8;
   else if(sel.value==='반차') hEl.value=4;
   else if(sel.value==='외출') hEl.value=1;
-  else if(sel.value==='공가') hEl.value=4;
   else if(sel.value==='병가') hEl.value=8;
 }
 function autoCalcLeaveHours(){
