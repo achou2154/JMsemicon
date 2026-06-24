@@ -394,7 +394,8 @@ function normalizeReq(r) {
     reason:r.reason||'', reqDate:r.req_date||'', startDate:r.start_date||'',
     endDate:r.end_date||'', leaveType:r.leave_type||'', hours:r.hours||0,
     date:r.date||'', otType:r.ot_type||'', useTransport:r.use_transport||false,
-    dest:r.dest||'', tripKind:r.trip_kind||'', allowance:r.allowance||0 };
+    dest:r.dest||'', tripKind:r.trip_kind||'', allowance:r.allowance||0,
+    transReqPending:r.trans_req_pending||false };
 }
 function normalizeEv(r) {
   return { id:r.id, empId:r.emp_id??null, type:r.type, name:r.name,
@@ -2117,12 +2118,12 @@ function renderRequests(){
     const e=eid(r.empId);
     let tl='',det='';
     if(r.type==='leave'){tl=badge('연차','leave');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''} / ${r.leaveType} (${r.hours}h)`;}
-    else if(r.type==='ot'){tl=badge('특근','ot');det=`${fmt(r.date)} / ${r.otType} ${r.hours}h → 대휴 ${calcComp(r.hours,r.otType)}h`;}
+    else if(r.type==='ot'){tl=r.transReqPending?badge('교통비전환신청','warn'):badge('특근','ot');det=`${fmt(r.date)} / ${r.otType} ${r.hours}h${r.transReqPending?' → 교통비 ₩'+((+r.hours)*TRANSPORT_RATE).toLocaleString()+' 전환신청':' → 대휴 '+calcComp(r.hours,r.otType)+'h'}`;}
     else if(r.type==='trip'){tl=badge('출장','trip');det=`${fmt(r.startDate)} ~ ${fmt(r.endDate)} / ${r.dest}`;}
     else if(r.type==='comp'){tl=badge('대체휴무','comp');det=`${fmt(r.startDate)} / ${r.hours}h`;}
     else if(r.type==='outside'){tl=badge('외근','trip');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}`;}
     else if(r.type==='education'){tl=badge('교육','ot');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''} / ${r.reason||''}`;}
-    const canA=isAdmin&&r.status==='pending';
+    const canA=isAdmin&&(r.status==='pending'||r.transReqPending);
     const canE=canEdit(r);
     return`<tr class="${r.status==='pending'?'row-pending':''}">
       <td><div class="name-cell">${av(r.empId)}<span>${e?e.name:'?'}</span></div></td>
@@ -2164,8 +2165,17 @@ async function approveReq(id){
   const r=db.requests.find(x=>String(x.id)===String(id));
   if(r){
     r.status='approved';
-    await sbUpdate('requests', id, {status:'approved'});
-    saveAll(); showToast('✅ 승인됨');
+    const updateData={status:'approved'};
+    // 교통비 전환 신청이면 useTransport도 함께 승인
+    if(r.transReqPending){
+      r.useTransport=true;
+      r.transReqPending=false;
+      updateData.use_transport=true;
+      updateData.trans_req_pending=false;
+    }
+    await sbUpdate('requests', id, updateData);
+    saveAll();
+    showToast(r.useTransport?'✅ 승인됨 — 교통비 전환 완료 (교통비 관리에 반영)':'✅ 승인됨');
   }
   renderRequests();
 }
@@ -2420,7 +2430,8 @@ function renderOT(){
       <td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canEdit(r)?`<button class="btn btn-sm" onclick="openEditOT(${r.id})">✏️ 수정</button>`:''}
-        ${isAdmin?`<button class="btn btn-sm btn-sm" style="margin-left:4px" onclick="toggleTrans(${r.id})">${r.useTransport?'대휴전환':'교통비전환'}</button>`:''}
+        ${r.status==='approved'&&!r.useTransport?`<button class="btn btn-sm" style="margin-left:4px;background:#fef3c7;color:#92400e;border:1px solid #fcd34d" onclick="requestTransConvert(${r.id})">🚗 교통비전환</button>`:''}
+        ${r.status==='approved'&&r.useTransport&&isAdmin?`<button class="btn btn-sm" style="margin-left:4px" onclick="toggleTrans(${r.id})">🔄 대휴전환</button>`:''}
         ${canEdit(r)&&(isAdmin||r.status==='pending')?`<button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="delReq(${r.id},'ot')">삭제</button>`:''}
       </td>
     </tr>`;
@@ -2445,6 +2456,11 @@ function renderOT(){
     const expiringSoon=getCompExpiringSoon(e.id,yr);
     const remAlert=validRem>=40;
     const NA=`<span style="font-size:12px;color:#bbb">임원</span>`;
+    // 특근 총 시간
+    const otTotal=db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
+    // 교통비 전환 건수/금액
+    const transCnt=db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved'&&r.useTransport).length;
+    const transAmt=getTransTotal(e.id,yr);
     const remCell=e.isExternal?NA:(() => {
       if(validRem<=0) return '<span style="color:var(--text3)">0h</span>';
       let s=`<strong style="${remAlert?'color:var(--danger)':''}">${validRem}h (${Math.round(validRem/8*10)/10}일)${remAlert?' ⚠️':''}</strong>`;
@@ -2455,17 +2471,19 @@ function renderOT(){
     return`<tr ${e.isExternal?'style="background:#fafafa"':''}>
       <td><div class="name-cell">${av(e.id)}<span>${e.name}</span>${e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:10px;margin-left:5px">⭐</span>`:''}</div></td>
       <td>${e.dept}</td>
+      <td>${e.isExternal?NA:otTotal>0?badge(otTotal+'h','ot'):'—'}</td>
+      <td>${e.isExternal?NA:earned>0?badge(earned+'h','comp'):'—'}</td>
       <td>${e.isExternal?NA:carry>0?carry+'h':'—'}</td>
-      <td>${e.isExternal?NA:earned>0?badge(earned+'h','ot'):'—'}</td>
-      <td>${e.isExternal?NA:used>0?badge(used+'h','comp'):'—'}</td>
+      <td>${e.isExternal?NA:used>0?badge(used+'h','leave'):'—'}</td>
       <td>${remCell}</td>
-      ${(!e.isExternal&&(isAdmin||(currentEmp&&String(e.id)===String(currentEmp.id))))?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">⏰ 특근</button><button class="btn btn-sm" onclick="openAddComp(${e.id})">🔄 대휴</button></td>`:(isAdmin?'<td></td>':'')}
+      <td>${e.isExternal?NA:transCnt>0?`<span style="font-size:12px">${transCnt}건 / ₩${transAmt.toLocaleString()}</span>`:'—'}</td>
+      ${(!e.isExternal&&(isAdmin||(currentEmp&&String(e.id)===String(currentEmp.id))))?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">+특근</button><button class="btn btn-sm" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc" onclick="openAddComp(${e.id})">+대휴</button></td>`:(isAdmin?'<td></td>':'')}
     </tr>`;
   }).join('');
   setContent(`
     <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 대체휴무 사용기한: 발생일로부터 1년</div>
-    <div class="card"><div class="card-title">개인별 대체휴무 현황 (${yr}년)</div>
-      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th>${(isAdmin||(currentEmp&&otEmps.some(e=>String(e.id)===String(currentEmp.id)&&!e.isExternal)))?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
+    <div class="card"><div class="card-title">개인별 특근/대휴 현황 (${yr}년)</div>
+      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>특근</th><th>발생 대휴</th><th>이월 대휴</th><th>사용 대휴</th><th>잔여 대휴</th><th>교통비 전환</th>${(isAdmin||(currentEmp&&otEmps.some(e=>String(e.id)===String(currentEmp.id)&&!e.isExternal)))?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
     </div>
     <div class="card"><div class="card-title">특근 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
@@ -2486,6 +2504,26 @@ function renderOT(){
   `);
 }
 function toggleTrans(id){const r=db.requests.find(x=>String(x.id)===String(id));if(r){r.useTransport=!r.useTransport;saveAll();showToast(r.useTransport?'🚗 교통비 전환':'🔄 대휴 전환');renderOT();}}
+
+// 교통비 전환 신청 (직원 → 관리자 승인 필요)
+function requestTransConvert(otId){
+  const r=db.requests.find(x=>String(x.id)===String(otId));
+  if(!r||r.status!=='approved'){showToast('⚠️ 승인된 특근만 전환 신청 가능');return;}
+  const amt=(+r.hours)*TRANSPORT_RATE;
+  if(!confirm(`🚗 교통비 전환 신청\n\n날짜: ${fmt(r.date)} / ${r.hours}h\n금액: ₩${amt.toLocaleString()}\n\n관리자 승인 후 교통비로 전환됩니다.\n대체휴무는 소멸됩니다.\n\n신청하시겠습니까?`))return;
+  // 관리자면 즉시 전환, 직원이면 승인대기 처리 → 승인 탭에 표시
+  if(isAdmin){
+    r.useTransport=true;
+    sbUpdate('requests',r.id,{use_transport:true});
+    saveAll();showToast('✅ 교통비 전환 완료');renderOT();
+  } else {
+    // 전환 신청을 별도 pending 플래그로 표시
+    r.transReqPending=true;
+    sbUpdate('requests',r.id,{trans_req_pending:true});
+    saveAll();showToast('✅ 교통비 전환 신청 완료 — 관리자 승인 대기');renderOT();
+    notifyAdmin({type:'ot',empId:r.empId,reason:'교통비 전환 신청: '+fmt(r.date)+' '+r.hours+'h → ₩'+amt.toLocaleString()});
+  }
+}
 
 // ─ 6. 교통비 ───────────────────────────────
 function renderTransport(){
@@ -2563,18 +2601,23 @@ function renderTrip(){
       <td><button class="btn btn-sm" onclick="openAddEducation(${e.id})">📚 교육</button></td>
     </tr>`).join('');
 
+  // 현황 집계
+  const myEmpId = currentEmp ? currentEmp.id : null;
+  const domCnt = domestic.length;
+  const seaCnt = overseas.length;
+  const eduCnt = educationR.length;
+
   setContent(`
-    <div class="card" style="margin-bottom:10px">
-      <div class="card-title">출장 / 교육 신청</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>직원</th><th>부서</th><th>해외출장</th><th>국내출장</th><th>교육</th></tr></thead>
-        <tbody>${empRows}</tbody>
-      </table></div>
+    <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+      <div class="stat-card"><div class="stat-label">🇰🇷 국내 출장</div><div class="stat-val">${domCnt}건</div></div>
+      <div class="stat-card"><div class="stat-label">🌏 해외 출장</div><div class="stat-val">${seaCnt}건</div></div>
+      <div class="stat-card"><div class="stat-label">📚 교육</div><div class="stat-val">${eduCnt}건</div></div>
     </div>
     <div class="card">
-      <div class="card-title">🇰🇷 국내 출장 (${domestic.length}건)
+      <div class="card-title">🇰🇷 국내 출장 (${domCnt}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
           ${adminSearchInput("trip-dom-search","trip-dom-table")}
+          <button class="btn btn-primary btn-sm" onclick="openAddTrip('domestic',${myEmpId||''})">+ 신청</button>
         </div>
       </div>
       <div class="table-wrap"><table id="trip-dom-table">
@@ -2583,9 +2626,10 @@ function renderTrip(){
       </table></div>
     </div>
     <div class="card" style="margin-top:4px">
-      <div class="card-title">🌏 해외 출장 (${overseas.length}건)
+      <div class="card-title">🌏 해외 출장 (${seaCnt}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
           ${adminSearchInput("trip-sea-search","trip-sea-table")}
+          <button class="btn btn-primary btn-sm" onclick="openAddTrip('overseas',${myEmpId||''})">+ 신청</button>
         </div>
       </div>
       <div class="info-bar" style="background:#fff8e6;border:1px solid #fcd34d;color:#92400e">
@@ -2596,11 +2640,11 @@ function renderTrip(){
         <tbody>${overseas.map(r=>mkTripRow(r,true)).join('')||emptyRow(9,'내역 없음')}</tbody>
       </table></div>
     </div>
-
     <div class="card" style="margin-top:4px">
-      <div class="card-title">📚 교육 (${educationR.length}건)
+      <div class="card-title">📚 교육 (${eduCnt}건)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
           ${adminSearchInput("edu-search","edu-table")}
+          <button class="btn btn-primary btn-sm" onclick="openAddEducation(${myEmpId||''})">+ 신청</button>
         </div>
       </div>
       <div class="table-wrap"><table id="edu-table">
