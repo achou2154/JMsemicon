@@ -1106,6 +1106,40 @@ function getCompCarryover(empId,year){
   return Math.max(0,getCompEarned(empId,py)-getCompUsed(empId,py));
 }
 function getCompRemain(empId,year){return getCompCarryover(empId,year)+getCompEarned(empId,year)-getCompUsed(empId,year);}
+// 대체휴무 만료 계산: 발생일로부터 1년 이내 사용 (건별)
+function getCompExpired(empId, year) {
+  // 해당 연도 특근 중 발생일+1년이 오늘 이전인 것 → 만료
+  const today = todayStr();
+  return db.requests
+    .filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&!r.useTransport)
+    .filter(r=>{
+      if(!r.date) return false;
+      const exp = new Date(r.date); exp.setFullYear(exp.getFullYear()+1);
+      return toLocalDateStr(exp) < today;
+    })
+    .reduce((s,r)=>s+calcComp(r.hours,r.otType),0);
+}
+function getCompValidRemain(empId, year) {
+  // 유효한 잔여 대휴: 전체 잔여 - 만료된 것
+  const rem = getCompRemain(empId, year);
+  const expired = getCompExpired(empId, year);
+  return Math.max(0, rem - expired);
+}
+// 만료 임박(30일 이내) 대휴 시간
+function getCompExpiringSoon(empId, year) {
+  const today = parseLocalDate(todayStr());
+  const soon = new Date(today); soon.setDate(soon.getDate()+30);
+  const soonStr = toLocalDateStr(soon);
+  return db.requests
+    .filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&!r.useTransport)
+    .filter(r=>{
+      if(!r.date) return false;
+      const exp = new Date(r.date); exp.setFullYear(exp.getFullYear()+1);
+      const expStr = toLocalDateStr(exp);
+      return expStr >= todayStr() && expStr <= soonStr;
+    })
+    .reduce((s,r)=>s+calcComp(r.hours,r.otType),0);
+}
 function getTransTotal(empId,year){
   return db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&r.useTransport).reduce((s,r)=>s+(+r.hours||0)*TRANSPORT_RATE,0);
 }
@@ -2372,22 +2406,32 @@ function renderOT(){
     : getSortedByPosition().filter(e=>!isHiddenFromPersonal(e) && currentEmp && String(e.id)===String(currentEmp.id));
   const sumRows=otEmps.map(e=>{
     const carry=getCompCarryover(e.id,yr),earned=getCompEarned(e.id,yr),used=getCompUsed(e.id,yr),rem=getCompRemain(e.id,yr);
-    const remAlert=rem>=40;
+    const validRem=getCompValidRemain(e.id,yr);
+    const expired=getCompExpired(e.id,yr);
+    const expiringSoon=getCompExpiringSoon(e.id,yr);
+    const remAlert=validRem>=40;
     const NA=`<span style="font-size:12px;color:#bbb">임원</span>`;
+    const remCell=e.isExternal?NA:(() => {
+      if(validRem<=0) return '<span style="color:var(--text3)">0h</span>';
+      let s=`<strong style="${remAlert?'color:var(--danger)':''}">${validRem}h (${Math.round(validRem/8*10)/10}일)${remAlert?' ⚠️':''}</strong>`;
+      if(expired>0) s+=`<br><span style="font-size:11px;color:var(--danger)">만료 ${expired}h</span>`;
+      if(expiringSoon>0) s+=`<br><span style="font-size:11px;color:#d97706">⏳ 30일내 만료 ${expiringSoon}h</span>`;
+      return s;
+    })();
     return`<tr ${e.isExternal?'style="background:#fafafa"':''}>
       <td><div class="name-cell">${av(e.id)}<span>${e.name}</span>${e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:10px;margin-left:5px">⭐</span>`:''}</div></td>
       <td>${e.dept}</td>
       <td>${e.isExternal?NA:carry>0?carry+'h':'—'}</td>
       <td>${e.isExternal?NA:earned>0?badge(earned+'h','ot'):'—'}</td>
       <td>${e.isExternal?NA:used>0?badge(used+'h','comp'):'—'}</td>
-      <td>${e.isExternal?NA:rem>0?`<strong style="${remAlert?'color:var(--danger)':''}">${rem}h (${Math.round(rem/8*10)/10}일)${remAlert?' ⚠️':''}</strong>`:'0h'}</td>
-      ${isAdmin&&!e.isExternal?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">⏰ 특근</button><button class="btn btn-sm" onclick="openAddComp(${e.id})">🔄 대휴</button></td>`:(isAdmin?'<td></td>':'')}
+      <td>${remCell}</td>
+      ${(!e.isExternal&&(isAdmin||(currentEmp&&String(e.id)===String(currentEmp.id))))?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">⏰ 특근</button><button class="btn btn-sm" onclick="openAddComp(${e.id})">🔄 대휴</button></td>`:(isAdmin?'<td></td>':'')}
     </tr>`;
   }).join('');
   setContent(`
-    <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 이월 가능</div>
+    <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 대체휴무 사용기한: 발생일로부터 1년</div>
     <div class="card"><div class="card-title">개인별 대체휴무 현황 (${yr}년)</div>
-      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th>${isAdmin?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>이월 대휴</th><th>발생 대휴</th><th>사용 대휴</th><th>잔여</th>${(isAdmin||(currentEmp&&otEmps.some(e=>String(e.id)===String(currentEmp.id)&&!e.isExternal)))?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
     </div>
     <div class="card"><div class="card-title">특근 내역 (${yr}년)
         <div style="display:flex;align-items:center;gap:8px;margin-left:auto">
