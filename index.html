@@ -3219,7 +3219,7 @@ function renderCalendar(){
   }
   // 오늘의 자리비움 / 오늘의 특근 카드
   const todayStr2 = todayStr();
-  const todayReqs = db.requests.filter(r => canView(r) && r.status !== 'rejected' && (
+  const todayReqs = db.requests.filter(r => canViewCalendar(r) && r.status !== 'rejected' && (
     (r.type==='leave' && r.startDate<=todayStr2 && (r.endDate||r.startDate)>=todayStr2) ||
     (r.type==='comp' && r.startDate<=todayStr2 && (r.endDate||r.startDate)>=todayStr2) ||
     (r.type==='trip' && r.startDate<=todayStr2 && (r.endDate||r.startDate)>=todayStr2) ||
@@ -3244,7 +3244,7 @@ function renderCalendar(){
           <div style="display:flex;align-items:center;gap:6px;font-size:13px;background:rgba(255,255,255,.6);border-radius:20px;padding:3px 10px 3px 4px;white-space:nowrap">
             ${av(r.empId,22)}
             <span style="font-weight:500">${ename(r.empId)}</span>
-            <span style="font-size:11px;color:#64748b">${typeLabel[r.type]||''}</span>
+            <span style="font-size:11px;color:#64748b">${r.type==='leave'?(r.leaveType||'연차'):typeLabel[r.type]||''}</span>
             ${stBadge(r)}
           </div>`).join('')}
       </div>
