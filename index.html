@@ -189,23 +189,24 @@ tbody tr:hover td{background:var(--surface2)}
   </div>
   <div class="nav-wrap">
     <div class="nav-sec">메인</div>
-    <button class="nav-item active" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
-    <button class="nav-item" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
+    <button class="nav-item active" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
-    <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
     <div class="nav-sec">개인 기록</div>
     <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
     <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
     <div class="nav-sec">회사 관리</div>
-    <button class="nav-item" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <div class="nav-sec">내 계정</div>
     <button class="nav-item" onclick="go('myprofile')"><span class="nav-icon">👤</span>내 정보</button>
     <button class="nav-item" onclick="go('inquiry')"><span class="nav-icon">💬</span>1:1 문의</button>
-    <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>관리자 알람설정</button>
+    <div id="nav-sec-admin" class="nav-sec" style="display:none">관리자</div>
+    <button id="nav-overview" class="nav-item" style="display:none" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
+    <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
+    <button id="nav-noticeboard" class="nav-item" style="display:none" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
+    <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>알림설정</button>
   </div>
   <div class="sidebar-footer">
     <div class="footer-btns">
@@ -1245,11 +1246,11 @@ function updateAdminUI(){
     el.style.display = isAdmin ? '' : 'none';
   });
 
-  // 관리자 전용 메뉴
-  const ns = document.getElementById('nav-notifysetting');
-  if (ns) ns.style.display = isAdmin ? '' : 'none';
-  const nr = document.getElementById('nav-requests');
-  if (nr) nr.style.display = isAdmin ? '' : 'none';
+  // 관리자 카테고리 전체 show/hide
+  ['nav-sec-admin','nav-overview','nav-requests','nav-noticeboard','nav-notifysetting'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el) el.style.display = isAdmin ? '' : 'none';
+  });
 }
 
 // ══════════════════════════════════════════════
@@ -1259,12 +1260,12 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'관리자 알람설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'생일 / 기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
-  const adminOnly = ['overview','alerts','requests'];
+  const adminOnly = ['overview','alerts','requests','notifysetting','noticeboard'];
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
