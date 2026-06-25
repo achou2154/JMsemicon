@@ -405,12 +405,16 @@ function normalizeEv(r) {
 function normalizeHealth(r) {
   let members = [];
   try { members = JSON.parse(r.members_json||'[]'); } catch {}
+  // 본인 예약일: members에서 relation=본인 우선, 없으면 reserve_date
+  const mainMem = members.find(m=>m.relation==='본인')||members[0];
+  const reserveDate = mainMem?.reserveDate || r.reserve_date || '';
   return {
     id: r.id, empId: r.emp_id, year: r.year, members,
     approved: r.approved||false,
     status: r.status||'pending',
-    reserveDate: r.reserve_date||'',
-    checkupDate: r.checkup_date||''
+    reserveDate,
+    checkupDate: r.checkup_date||'',
+    reqDate: r.req_date||''
   };
 }
 
@@ -791,7 +795,7 @@ async function onSignedIn(user) {
     await loadAllData();
     await loadAdminEmails();
     go('calendar');
-    setTimeout(checkAndShowAlerts, 800);
+    setTimeout(checkAndShowAlerts, 2500);
   } catch(e) {
     console.error('onSignedIn 오류:', e);
     // 오류나도 앱은 표시
@@ -2115,6 +2119,27 @@ function renderRequests(){
   if(reqFilter!=='all')list=list.filter(r=>r.status===reqFilter);
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
   list=list.slice().sort((a,b)=>b.id-a.id);
+  // 건강검진 신청 목록 (관리자만)
+  const healthRows=isAdmin?db.health.filter(h=>String(h.year)===String(yr))
+    .slice().sort((a,b)=>b.id-a.id).map(h=>{
+      const e=eid(h.empId);
+      const main=h.members?.find(m=>m.relation==='본인')||h.members?.[0];
+      const famCnt=(h.members||[]).filter(m=>m.relation!=='본인').length;
+      const reserveDate=main?.reserveDate||'';
+      const reqDate=h.reqDate||'';
+      return`<tr class="${h.status==='pending'||h.status==='modify_requested'?'row-pending':''}">
+        <td><div class="name-cell">${av(h.empId)}<span>${e?e.name:'?'}</span></div></td>
+        <td>${e?e.dept:''}</td>
+        <td>${reserveDate?fmt(reserveDate):'<span style="color:#bbb">미정</span>'}</td>
+        <td>${famCnt>0?famCnt+'명':'본인만'}</td>
+        <td>${reqDate?fmt(reqDate):''}</td>
+        <td>${statusBadge(h.status)}</td>
+        <td style="white-space:nowrap">
+          ${h.status==='pending'||h.status==='modify_requested'?`<button class="btn btn-sm btn-ok" onclick="approveHealthFromReq(${h.empId})">승인</button> <button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="rejectHealthFromReq(${h.empId})">반려</button>`:''}
+          <button class="btn btn-sm" style="margin-left:4px" onclick="go('health')">상세</button>
+        </td>
+      </tr>`;
+    }).join('')||emptyRow(7,'건강검진 신청 없음'):'';
   const rows=list.map(r=>{
     const e=eid(r.empId);
     let tl='',det='';
@@ -2158,6 +2183,13 @@ function renderRequests(){
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
     </div>
+    ${isAdmin?`<div class="card" style="margin-top:8px">
+      <div class="card-title">🏥 건강검진 신청 현황</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>직원</th><th>부서</th><th>예약일</th><th>가족</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
+        <tbody>${healthRows}</tbody>
+      </table></div>
+    </div>`:''}
   `);
 }
 function setRF(f){reqFilter=f;renderRequests();}
@@ -3204,6 +3236,23 @@ async function deleteHealth(empId) {
   } else { console.error('deleteHealth error:',error); showToast('⚠️ 삭제 실패: '+error.message); }
 }
 
+// 승인 탭에서 건강검진 승인/반려
+async function approveHealthFromReq(empId) {
+  await approveHealth(empId);
+  renderRequests();
+}
+async function rejectHealthFromReq(empId) {
+  if (!confirm('건강검진 신청을 반려하시겠습니까?')) return;
+  const yr = currentYear;
+  const h = db.health.find(r => String(r.empId)===String(empId) && String(r.year)===String(yr));
+  if (!h) return;
+  const { error } = await _supa.from('health_records').update({ status: 'rejected' }).eq('id', h.id);
+  if (!error) {
+    h.status = 'rejected';
+    saveAll(); showToast('❌ 건강검진 신청 반려됨');
+  } else { showToast('⚠️ 반려 실패: ' + error.message); }
+  renderRequests();
+}
 async function approveHealth(empId) {
   const yr = currentYear;
   const h = db.health.find(r => String(r.empId) === String(empId) && String(r.year) === String(yr));
@@ -4503,16 +4552,21 @@ function checkHealthCheckupAlert() {
   if (!currentEmp) return;
   const yr = currentYear;
   const h = db.health.find(r => String(r.empId) === String(currentEmp.id) && String(r.year) === String(yr));
-  if (!h || h.status === 'completed' || !h.approved) return;
-  if (!h.reserveDate) return;
+  if (!h || h.status === 'completed') return;
+  // 승인 여부 체크 (approved 필드 또는 status=approved)
+  if (!h.approved && h.status !== 'approved') return;
+  // 본인 예약일 확인
+  const mainM = (h.members||[]).find(m=>m.relation==='본인')||(h.members||[])[0];
+  const rDate = mainM?.reserveDate || h.reserveDate || '';
+  if (!rDate) return;
   // 예약일이 오늘 이전인 경우만
-  if (h.reserveDate >= todayStr()) return;
+  if (rDate >= todayStr()) return;
   // 이미 오늘 알림 봤으면 스킵
   const skipKey = `health_alert_${currentEmp.id}_${todayStr()}`;
   if (localStorage.getItem(skipKey)) return;
 
   // 예약일 파싱
-  const rd = h.reserveDate.split('-');
+  const rd = rDate.split('-');
   const rMonth = parseInt(rd[1]);
   const rDay   = parseInt(rd[2]);
 
