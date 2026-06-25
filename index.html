@@ -3061,9 +3061,9 @@ function addFamRow() {
 }
 
 async function saveHealthApply(empId) {
-  const otherClinicFirst = document.getElementById('h-other-clinic')?.checked || false;
+  const otherClinic = document.getElementById('h-other-clinic')?.checked || false;
   let reserveDate = '';
-  if (!otherClinicFirst) {
+  if (!otherClinic) {
     const resY = document.getElementById('h-res-year')?.value;
     const resM = String(document.getElementById('h-res-month')?.value||'').padStart(2,'0');
     const resD = String(document.getElementById('h-res-day')?.value||'').padStart(2,'0');
