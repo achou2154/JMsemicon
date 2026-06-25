@@ -360,14 +360,16 @@ async function loadAllData() {
     db.alerts     = (alerts.data || []);
     // 부가 테이블 별도 로드 (실패해도 계속 진행)
     try {
-      const [inq, rep, noticeRes] = await Promise.all([
+      const [inq, rep, noticeRes, nsRes] = await Promise.all([
         _supa.from('inquiries').select('*').order('created_at', {ascending:false}),
         _supa.from('inquiry_replies').select('*').order('created_at', {ascending:true}),
         _supa.from('notices').select('*').order('created_at', {ascending:false}),
+        _supa.from('notify_schedules').select('*').order('send_at', {ascending:true}),
       ]);
       db.inquiries      = (inq.data    || []).map(r=>({id:r.id,empId:r.emp_id,title:r.title,content:r.content,status:r.status,createdAt:r.created_at}));
       db.inquiryReplies = (rep.data    || []).map(r=>({id:r.id,inquiryId:r.inquiry_id,empId:r.emp_id,isAdmin:r.is_admin,content:r.content,createdAt:r.created_at}));
       db.notices        = (noticeRes.data || []).map(r=>({id:r.id,title:r.title,content:r.content,duration:r.duration,targetIds:JSON.parse(r.target_ids||'[]'),startDate:r.start_date,endDate:r.end_date,createdAt:r.created_at}));
+      db.notifySchedules = (nsRes.data || []).map(r=>({id:r.id,type:r.type,title:r.title,content1:r.content1,targetIds:JSON.parse(r.target_ids||'[]'),sendAt:r.send_at,sent:r.sent||false}));
     } catch(e2) { console.warn('부가 테이블 로드 실패 (무시):', e2); }
     recalcNextIds();
     setSyncStatus('ok');
@@ -5277,9 +5279,14 @@ async function sendNotifyEmail() {
     if (!dateVal) { showToast('예약 날짜를 선택하세요'); return; }
     const sendAt = new Date(`${dateVal}T${timeVal}:00`).toISOString();
     const row = { type: _notifyTab, title, content1, target_ids: JSON.stringify(targets.map(t=>t.id)), send_at: sendAt, is_immediate: false, sent: false };
-    const saved = await sbInsert('notify_schedules', row);
-    if (saved) {
-      (db.notifySchedules = db.notifySchedules || []).push({ ...row, id: saved.id, sendAt });
+    let saved = null;
+    if(_supa){
+      const {data,error} = await _supa.from('notify_schedules').insert(row).select().single();
+      if(error){console.error('notify_schedules insert error:',error);showToast('⚠️ 저장 실패: '+error.message);return;}
+      saved = data;
+    }
+    if(saved){
+      (db.notifySchedules = db.notifySchedules || []).push({...row, id:saved.id, sendAt});
       showToast(`✅ ${dateVal} ${timeVal} 예약 완료`);
       document.getElementById('notify-schedule-list').innerHTML = renderNotifyScheduleList();
     }
