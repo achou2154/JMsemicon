@@ -2184,7 +2184,7 @@ function renderRequests(){
       </table></div>
     </div>
     ${isAdmin?`<div class="card" style="margin-top:8px">
-      <div class="card-title">🏥 건강검진 신청 현황</div>
+      <div class="card-title">🏥 건강검진 신청 현황 (${db.health.filter(h=>String(h.year)===String(yr)).length}건)</div>
       <div class="table-wrap"><table>
         <thead><tr><th>직원</th><th>부서</th><th>예약일</th><th>가족</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
         <tbody>${healthRows}</tbody>
