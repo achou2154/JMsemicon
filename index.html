@@ -1303,16 +1303,20 @@ function go(page) {
   ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
-function setContent(html){
+function setContent(html, scrollToTop=true){
   document.getElementById('main-content').innerHTML=html;
-  // 실제 스크롤 컨테이너: .content (overflow-y:auto)
-  const c=document.querySelector('.content');
-  if(c) c.scrollTop=0;
-  const m=document.querySelector('.main');
-  if(m) m.scrollTop=0;
-  window.scrollTo(0,0);
-  document.documentElement.scrollTop=0;
-  document.body.scrollTop=0;
+  const _doScroll = scrollToTop && !_keepScroll;
+  _keepScroll = false; // 플래그 리셋
+  if(_doScroll){
+    // 실제 스크롤 컨테이너: .content (overflow-y:auto)
+    const c=document.querySelector('.content');
+    if(c) c.scrollTop=0;
+    const m=document.querySelector('.main');
+    if(m) m.scrollTop=0;
+    window.scrollTo(0,0);
+    document.documentElement.scrollTop=0;
+    document.body.scrollTop=0;
+  }
 }
 
 // ══════════════════════════════════════════════
@@ -2194,7 +2198,10 @@ function renderRequests(){
 }
 function setRF(f){reqFilter=f;renderRequests();}
 function setRTF(f){reqTypeFilter=f;renderRequests();}
+// 스크롤 유지 플래그 (승인/반려 등 현재 페이지 액션 시)
+let _keepScroll = false;
 async function approveReq(id){
+  _keepScroll=true;
   const r=db.requests.find(x=>String(x.id)===String(id));
   if(r){
     r.status='approved';
@@ -2213,6 +2220,7 @@ async function approveReq(id){
   renderRequests();
 }
 async function rejectReq(id){
+  _keepScroll=true;
   const r=db.requests.find(x=>String(x.id)===String(id));
   if(r){
     const updateData={status:'rejected'};
@@ -3238,11 +3246,13 @@ async function deleteHealth(empId) {
 
 // 승인 탭에서 건강검진 승인/반려
 async function approveHealthFromReq(empId) {
+  _keepScroll=true;
   await approveHealth(empId);
   renderRequests();
 }
 async function rejectHealthFromReq(empId) {
   if (!confirm('건강검진 신청을 반려하시겠습니까?')) return;
+  _keepScroll=true;
   const yr = currentYear;
   const h = db.health.find(r => String(r.empId)===String(empId) && String(r.year)===String(yr));
   if (!h) return;
