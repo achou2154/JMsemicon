@@ -191,7 +191,7 @@ tbody tr:hover td{background:var(--surface2)}
     <div id="nav-sec-admin" class="nav-sec" style="display:none">관리자</div>
     <button id="nav-overview" class="nav-item" style="display:none" onclick="go('overview')"><span class="nav-icon">📊</span>전체 현황</button>
     <button class="nav-item" id="nav-requests" onclick="go('requests')" style="display:none"><span class="nav-icon">📋</span>승인</button>
-    <button id="nav-noticeboard" class="nav-item" style="display:none" onclick="go('noticeboard')"><span class="nav-icon">📢</span>공지사항</button>
+
     <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>알림설정</button>
     <div class="nav-sec">메인</div>
     <button class="nav-item active" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
@@ -1257,7 +1257,7 @@ function updateAdminUI(){
   });
 
   // 관리자 카테고리 전체 show/hide
-  ['nav-sec-admin','nav-overview','nav-requests','nav-noticeboard','nav-notifysetting'].forEach(id=>{
+  ['nav-sec-admin','nav-overview','nav-requests','nav-notifysetting'].forEach(id=>{
     const el=document.getElementById(id);
     if(el) el.style.display = isAdmin ? '' : 'none';
   });
@@ -1275,7 +1275,7 @@ const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
-  const adminOnly = ['overview','alerts','requests','notifysetting','noticeboard'];
+  const adminOnly = ['overview','alerts','requests','notifysetting'];
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
@@ -5138,110 +5138,251 @@ function renderNotifySetting() {
   if (!isAdmin) { setContent('<div style="padding:40px;text-align:center;color:var(--text3)">관리자만 접근할 수 있습니다.</div>'); return; }
 
   setContent(`
-    <div class="card" style="max-width:700px">
-      <div class="card-title">관리자 알람설정</div>
-
-      <!-- 탭 -->
-      <div class="req-filter" style="margin-bottom:20px;flex-wrap:wrap" id="notify-tabs">
-        <button class="filter-btn active" onclick="switchNotifyTab('leave',this)">🏖️ 잔여 연차 알림</button>
-        <button class="filter-btn" onclick="switchNotifyTab('comp',this)">⏰ 잔여 대휴 알림</button>
-        <button class="filter-btn" onclick="switchNotifyTab('etc',this)">📢 기타 알림</button>
-        <button class="filter-btn" onclick="switchNotifyTab('notice',this)">📋 팝업 공지사항</button>
-        <button class="filter-btn" onclick="switchNotifyTab('alerts',this)">🔔 반복 알람 관리</button>
-      </div>
-
-      <!-- 알림 바디 (leave/comp/etc) -->
-      <div id="notify-body">
-        <div style="font-size:11px;color:var(--accent);font-weight:500;margin-bottom:12px">※ jmsemicon.co.kr 로 바로 발송됩니다</div>
-        <div class="field" style="margin-bottom:12px">
-          <label>제목</label>
-          <input id="notify-title" placeholder="알림 제목을 입력하세요">
-        </div>
-        <div class="field" style="margin-bottom:12px">
-          <label>내용1 <span style="font-size:11px;color:var(--text3)">(관리자 작성)</span></label>
-          <textarea id="notify-content1" rows="4" placeholder="전달할 내용을 입력하세요"
-            style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical"></textarea>
-        </div>
-        <div id="notify-content2-wrap" style="margin-bottom:12px">
-          <div class="field">
-            <label>내용2 <span style="font-size:11px;color:var(--text3)">(개인별 잔여 현황 자동 연동)</span></label>
-            <div id="notify-content2-preview" style="background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--text2)">
-              예) 홍길동님의 잔여 연차: <strong>5일 (40h)</strong>
-            </div>
-          </div>
-        </div>
-        <div style="margin-bottom:16px">${makeTargetSelector('notify-target')}</div>
-        <div style="margin-bottom:16px">
-          <div style="font-size:13px;font-weight:600;margin-bottom:8px">전송 방식</div>
-          <div style="display:flex;gap:16px;margin-bottom:10px">
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="radio" name="notify-send-type" value="immediate" checked onchange="toggleSchedule(this.value)" style="width:15px;height:15px"> 바로 전송
-            </label>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-              <input type="radio" name="notify-send-type" value="schedule" onchange="toggleSchedule(this.value)" style="width:15px;height:15px"> 예약 전송
-            </label>
-          </div>
-          <div id="schedule-wrap" style="display:none">
-            <div class="form-grid">
-              <div class="field"><label>예약 날짜</label><input type="date" id="notify-schedule-date" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
-              <div class="field"><label>예약 시간</label><input type="time" id="notify-schedule-time" value="09:00" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
-            </div>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;justify-content:flex-end">
-          <button class="btn btn-primary" onclick="sendNotifyEmail()">📨 전송</button>
-        </div>
-      </div>
-
-      <!-- 탭별 추가 콘텐츠 -->
-      <div id="notify-extra-content"></div>
+    <div class="req-filter" style="margin-bottom:16px" id="notify-main-tabs">
+      <button class="filter-btn active" onclick="switchNotifyMainTab('popup',this)">🔔 팝업 알림</button>
+      <button class="filter-btn" onclick="switchNotifyMainTab('mail',this)">📧 메일 알림</button>
     </div>
 
-    <!-- 예약 전송 내역 -->
-    <div class="card" id="notify-schedule-card" style="max-width:700px;margin-top:16px">
-      <div class="card-title">예약 전송 내역</div>
-      <div id="notify-schedule-list">${renderNotifyScheduleList()}</div>
+    <!-- ── 팝업 알림 탭 ── -->
+    <div id="notify-popup-panel">
+      <div class="req-filter" style="margin-bottom:16px" id="notify-popup-tabs">
+        <button class="filter-btn active" onclick="switchPopupTab('notice',this)">📋 공지사항</button>
+        <button class="filter-btn" onclick="switchPopupTab('alerts',this)">🔁 반복 알람</button>
+      </div>
+      <div id="notify-popup-body">${renderNoticeManage()}</div>
+    </div>
+
+    <!-- ── 메일 알림 탭 ── -->
+    <div id="notify-mail-panel" style="display:none">
+      <div class="req-filter" style="margin-bottom:16px" id="notify-mail-tabs">
+        <button class="filter-btn active" onclick="switchMailTab('remain',this)">📊 잔여 알림</button>
+        <button class="filter-btn" onclick="switchMailTab('etc',this)">✍️ 기타 알림</button>
+      </div>
+      <div id="notify-mail-body">${renderRemainNotify()}</div>
     </div>
   `);
 }
 
-let _notifyTab = 'leave';
-function switchNotifyTab(tab, btn) {
-  _notifyTab = tab;
-  document.querySelectorAll('#notify-tabs .filter-btn').forEach(b => b.classList.remove('active'));
+let _notifyMainTab = 'popup';
+function switchNotifyMainTab(tab, btn) {
+  _notifyMainTab = tab;
+  document.querySelectorAll('#notify-main-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
+  document.getElementById('notify-popup-panel').style.display = tab==='popup'?'':'none';
+  document.getElementById('notify-mail-panel').style.display = tab==='mail'?'':'none';
+}
 
-  const notifyBody  = document.getElementById('notify-body');
-  const extraContent = document.getElementById('notify-extra-content');
-  const scheduleCard = document.getElementById('notify-schedule-card');
-  const wrap = document.getElementById('notify-content2-wrap');
-  const preview = document.getElementById('notify-content2-preview');
+let _popupTab = 'notice';
+function switchPopupTab(tab, btn) {
+  _popupTab = tab;
+  document.querySelectorAll('#notify-popup-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const body = document.getElementById('notify-popup-body');
+  if (tab==='notice') body.innerHTML = renderNoticeManage();
+  else if (tab==='alerts') body.innerHTML = renderAlertsInline();
+}
 
-  if (tab === 'notice') {
-    if (notifyBody) notifyBody.style.display = 'none';
-    if (scheduleCard) scheduleCard.style.display = 'none';
-    if (extraContent) extraContent.innerHTML = renderNoticeManage();
-  } else if (tab === 'alerts') {
-    if (notifyBody) notifyBody.style.display = 'none';
-    if (scheduleCard) scheduleCard.style.display = 'none';
-    if (extraContent) extraContent.innerHTML = renderAlertsInline();
-  } else {
-    if (notifyBody) notifyBody.style.display = '';
-    if (scheduleCard) scheduleCard.style.display = '';
-    if (extraContent) extraContent.innerHTML = '';
-    // 탭 전환 시 제목/내용 초기화 (7~8번)
-    const titleEl = document.getElementById('notify-title');
-    const content1El = document.getElementById('notify-content1');
-    if (titleEl) titleEl.value = '';
-    if (content1El) content1El.value = '';
-    // 내용2 표시 여부
-    if (wrap) wrap.style.display = tab === 'etc' ? 'none' : '';
-    // 내용2 미리보기 탭별 업데이트
-    if (preview) {
-      if (tab === 'leave') preview.innerHTML = '예) 홍길동님의 잔여 연차: <strong>5일 (40h)</strong>';
-      else if (tab === 'comp') preview.innerHTML = '예) 홍길동님의 잔여 대체휴무: <strong>16h</strong>';
+let _mailTab = 'remain';
+function switchMailTab(tab, btn) {
+  _mailTab = tab;
+  document.querySelectorAll('#notify-mail-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  const body = document.getElementById('notify-mail-body');
+  if (tab==='remain') body.innerHTML = renderRemainNotify();
+  else if (tab==='etc') body.innerHTML = renderEtcNotify();
+}
+
+function renderRemainNotify() {
+  const scheduleList = renderNotifyScheduleList();
+  return `
+    <div class="card" style="max-width:700px;margin-bottom:16px">
+      <div class="card-title">📊 잔여 알림</div>
+      <div style="font-size:11px;color:var(--accent);font-weight:500;margin-bottom:12px">※ jmsemicon.co.kr 로 발송됩니다</div>
+      <div class="field" style="margin-bottom:14px">
+        <label>알림 종류</label>
+        <div style="display:flex;gap:20px;margin-top:8px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="remain-type" value="leave" checked style="width:15px;height:15px"> 🏖️ 잔여 연차
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="remain-type" value="comp" style="width:15px;height:15px"> ⏰ 잔여 대휴
+          </label>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>제목</label>
+        <input id="notify-title" placeholder="알림 제목을 입력하세요">
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>내용 <span style="font-size:11px;color:var(--text3)">(관리자 작성)</span></label>
+        <textarea id="notify-content1" rows="3" placeholder="전달할 내용을 입력하세요"
+          style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical"></textarea>
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>개인별 현황 <span style="font-size:11px;color:var(--text3)">(자동 연동)</span></label>
+        <div style="background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--text2)">
+          예) 홍길동님의 잔여 연차: <strong>5일 (40h)</strong>
+        </div>
+      </div>
+      <div style="margin-bottom:16px">${makeTargetSelector('notify-target')}</div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">전송 방식</div>
+        <div style="display:flex;gap:16px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="notify-send-type" value="immediate" checked onchange="toggleSchedule(this.value)" style="width:15px;height:15px"> 바로 전송
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="notify-send-type" value="schedule" onchange="toggleSchedule(this.value)" style="width:15px;height:15px"> 예약 전송
+          </label>
+        </div>
+        <div id="schedule-wrap" style="display:none">
+          <div class="form-grid">
+            <div class="field"><label>예약 날짜</label><input type="date" id="notify-schedule-date" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
+            <div class="field"><label>예약 시간</label><input type="time" id="notify-schedule-time" value="09:00" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-primary" onclick="sendRemainNotify()">📨 전송</button>
+      </div>
+    </div>
+    <div class="card" style="max-width:700px">
+      <div class="card-title">예약 전송 내역</div>
+      <div id="notify-schedule-list">${scheduleList}</div>
+    </div>`;
+}
+
+function renderEtcNotify() {
+  return `
+    <div class="card" style="max-width:700px">
+      <div class="card-title">✍️ 기타 알림</div>
+      <div style="font-size:11px;color:var(--accent);font-weight:500;margin-bottom:12px">※ jmsemicon.co.kr 로 발송됩니다</div>
+      <div class="field" style="margin-bottom:12px">
+        <label>제목</label>
+        <input id="etc-notify-title" placeholder="메일 제목을 입력하세요">
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>내용</label>
+        <textarea id="etc-notify-content" rows="5" placeholder="전달할 내용을 직접 작성하세요"
+          style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical"></textarea>
+      </div>
+      <div style="margin-bottom:16px">${makeTargetSelector('etc-notify-target')}</div>
+      <div style="margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">전송 방식</div>
+        <div style="display:flex;gap:16px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="etc-send-type" value="immediate" checked onchange="toggleEtcSchedule(this.value)" style="width:15px;height:15px"> 바로 전송
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
+            <input type="radio" name="etc-send-type" value="schedule" onchange="toggleEtcSchedule(this.value)" style="width:15px;height:15px"> 예약 전송
+          </label>
+        </div>
+        <div id="etc-schedule-wrap" style="display:none">
+          <div class="form-grid">
+            <div class="field"><label>예약 날짜</label><input type="date" id="etc-schedule-date" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
+            <div class="field"><label>예약 시간</label><input type="time" id="etc-schedule-time" value="09:00" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-primary" onclick="sendEtcNotify()">📨 전송</button>
+      </div>
+    </div>`;
+}
+
+// ── 잔여 알림 전송 ──
+async function sendRemainNotify() {
+  const remainType = document.querySelector('input[name="remain-type"]:checked')?.value || 'leave';
+  const title = document.getElementById('notify-title')?.value?.trim();
+  const content1 = document.getElementById('notify-content1')?.value?.trim();
+  if (!title) { showToast('⚠️ 제목을 입력하세요'); return; }
+  const targets = [...document.querySelectorAll('.notify-target:checked')].map(cb=>cb.value);
+  if (!targets.length) { showToast('⚠️ 대상자를 선택하세요'); return; }
+  const sendType = document.querySelector('input[name="notify-send-type"]:checked')?.value;
+  if (sendType === 'schedule') {
+    const dateVal = document.getElementById('notify-schedule-date')?.value;
+    const timeVal = document.getElementById('notify-schedule-time')?.value || '09:00';
+    if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
+    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const row = { type: remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
+    let saved = null;
+    if (_supa) {
+      const {data,error} = await _supa.from('notify_schedules').insert(row).select().single();
+      if (error) { showToast('⚠️ 예약 실패: '+error.message); return; }
+      saved = data;
     }
+    (db.notifySchedules=db.notifySchedules||[]).push({...row,id:saved?.id,sendAt,targetIds:targets});
+    showToast('✅ '+dateVal+' '+timeVal+' 예약 완료');
+    document.getElementById('notify-schedule-list').innerHTML = renderNotifyScheduleList();
+    return;
   }
+  // 즉시 전송
+  const yr = currentYear;
+  for (const empId of targets) {
+    const e = eid(empId);
+    if (!e || !e.email) continue;
+    let content2 = '';
+    if (remainType === 'leave') {
+      const rem = getLeaveRemain(empId, yr);
+      content2 = e.name+'님의 잔여 연차: '+Math.round(rem/8*10)/10+'일 ('+rem+'h)';
+    } else {
+      const rem = getCompRemain(empId, yr);
+      content2 = e.name+'님의 잔여 대체휴무: '+rem+'h';
+    }
+    await sendEmailViaResend(e.email, title, (content1?content1+'\n\n':'')+content2);
+  }
+  showToast('✅ 발송 완료 ('+targets.length+'명)');
+}
+
+// ── 기타 알림 전송 ──
+async function sendEtcNotify() {
+  const title = document.getElementById('etc-notify-title')?.value?.trim();
+  const content = document.getElementById('etc-notify-content')?.value?.trim();
+  if (!title) { showToast('⚠️ 제목을 입력하세요'); return; }
+  if (!content) { showToast('⚠️ 내용을 입력하세요'); return; }
+  const targets = [...document.querySelectorAll('.etc-notify-target:checked')].map(cb=>cb.value);
+  if (!targets.length) { showToast('⚠️ 대상자를 선택하세요'); return; }
+  const sendType = document.querySelector('input[name="etc-send-type"]:checked')?.value;
+  if (sendType === 'schedule') {
+    const dateVal = document.getElementById('etc-schedule-date')?.value;
+    const timeVal = document.getElementById('etc-schedule-time')?.value || '09:00';
+    if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
+    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const row = { type: 'etc', title, content1: content, target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
+    let saved = null;
+    if (_supa) {
+      const {data,error} = await _supa.from('notify_schedules').insert(row).select().single();
+      if (error) { showToast('⚠️ 예약 실패: '+error.message); return; }
+      saved = data;
+    }
+    (db.notifySchedules=db.notifySchedules||[]).push({...row,id:saved?.id,sendAt,targetIds:targets});
+    showToast('✅ '+dateVal+' '+timeVal+' 예약 완료');
+    return;
+  }
+  // 즉시 전송
+  for (const empId of targets) {
+    const e = eid(empId);
+    if (!e || !e.email) continue;
+    await sendEmailViaResend(e.email, title, content);
+  }
+  showToast('✅ 발송 완료 ('+targets.length+'명)');
+}
+
+function toggleEtcSchedule(val) {
+  const wrap = document.getElementById('etc-schedule-wrap');
+  if (wrap) wrap.style.display = val==='schedule'?'':'none';
+}
+
+// ── sendEmailViaResend 헬퍼 ──
+async function sendEmailViaResend(to, subject, body) {
+  if (!_supa) return;
+  try {
+    await fetch(SUPA_URL+'/functions/v1/notify-admin', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},
+      body: JSON.stringify({to, subject, html: body.replace(/\n/g,'<br>')})
+    });
+  } catch(e) { console.warn('메일 발송 실패:', e); }
 }
 
 function renderAlertsInline() {
