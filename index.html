@@ -285,10 +285,11 @@ const LUNAR_NEW_YEAR = {
 // ══════════════════════════════════════════════
 //  STATE
 // ══════════════════════════════════════════════
-let currentPage = 'overview';
+let currentPage = 'calendar';
 let currentYear = 2026;
 let calYear = 2026, calMonth = new Date().getMonth()+1;
 let reqFilter = 'all', reqTypeFilter = 'all';
+let _keepScroll = false; // 승인/반려 시 스크롤 유지 플래그
 let nextId = 100, nextEventId = 100, nextHealthId = 100;
 
 let db = {
@@ -794,6 +795,8 @@ async function onSignedIn(user) {
     // 데이터 로드
     await loadAllData();
     await loadAdminEmails();
+    // 로그인 후 항상 달력으로 시작
+    currentPage = 'calendar';
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
   } catch(e) {
@@ -2198,8 +2201,6 @@ function renderRequests(){
 }
 function setRF(f){reqFilter=f;renderRequests();}
 function setRTF(f){reqTypeFilter=f;renderRequests();}
-// 스크롤 유지 플래그 (승인/반려 등 현재 페이지 액션 시)
-let _keepScroll = false;
 async function approveReq(id){
   _keepScroll=true;
   const r=db.requests.find(x=>String(x.id)===String(id));
@@ -3775,7 +3776,16 @@ async function saveLeave(){
   const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
   const sel=document.querySelector('input[name="ltype"]:checked');
   const leaveType=sel?sel.value:'연차';
-  const _r = {id:nextId++,type:'leave',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,startDate:s,endDate:getDateVal('f-end')||s,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
+  const empId=document.getElementById('f-emp').value;
+  const e2=getDateVal('f-end')||s;
+  // 중복 체크
+  const overlaps=checkLeaveOverlap(empId,s,e2);
+  if(overlaps.length>0){
+    const info=overlaps.map(o=>'• '+fmt(o.startDate)+(o.endDate&&o.endDate!==o.startDate?' ~ '+fmt(o.endDate):'')+' ('+o.leaveType+', '+(o.status==='pending'?'승인대기':'승인됨')+')').join('\n');
+    alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n'+info+'\n\n중복 저장이 불가합니다.');
+    return;
+  }
+  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
