@@ -1511,7 +1511,7 @@ function topbarEmpSearch(q) {
 }
 
 function openDayDetail(ds) {
-  const evList = (window._calEv && window._calEv[ds]) || [];
+  const evList = [...((window._calEv && window._calEv[ds]) || [])].sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:a.name.localeCompare(b.name,'ko'));
   if (!evList.length) return;
 
   const date = fmt(ds);
@@ -3344,7 +3344,25 @@ function renderCalendar(){
   const first=new Date(y,m-1,1).getDay();
   const last=new Date(y,m,0).getDate();
   const ev={};
-  function addEv(ds,label,cls,status='approved',req=null){if(!ev[ds])ev[ds]=[];ev[ds].push({label,cls,status,req});}
+  // 우선순위: 생일(0) 기념일(1) 건강검진(2) 특근(3) 출장(4) 교육(5) 대휴(6) 연차/반차/외출(7) 기타(8)
+  const EV_PRIORITY = {'ev-bday-birthday':0,'ev-bday-anniv':1,'ev-health':2,'ev-ot-special':3,'ev-trip':4,'ev-ot-edu':5,'ev-comp':6,'ev-leave':7,'ev-ot':3};
+  function evPriority(cls, label) {
+    if(cls==='ev-bday') return label.includes('🎂')?0:label.includes('🏢')?1:1;
+    if(cls==='ev-health') return 2;
+    if(cls==='ev-ot') return label.includes('교육')?5:3;
+    if(cls==='ev-trip') return 4;
+    if(cls==='ev-comp') return 6;
+    if(cls==='ev-leave') return 7;
+    return 8;
+  }
+  function evName(label) {
+    // 라벨에서 이름 추출 (이모지/아이콘 제거)
+    return label.replace(/^[⏳✅❌🎂🎉🏢🏥]/,'').trim().split(' ')[0]||'';
+  }
+  function addEv(ds,label,cls,status='approved',req=null){
+    if(!ev[ds])ev[ds]=[];
+    ev[ds].push({label,cls,status,req,priority:evPriority(cls,label),name:evName(label)});
+  }
   const mStr=`${y}-${String(m).padStart(2,'0')}`;
   // 승인여부 관계없이 canView인 신청 모두 표시
   db.requests.filter(r=>canViewCalendar(r)).forEach(r=>{
@@ -3381,7 +3399,7 @@ function renderCalendar(){
   for(let i=0;i<total;i++){
     const dn=i-first+1;const inM=dn>=1&&dn<=last;
     const ds=inM?`${y}-${String(m).padStart(2,'0')}-${String(dn).padStart(2,'0')}`:'';
-    const dow=i%7;const evList=ds&&ev[ds]?ev[ds]:[];
+    const dow=i%7;const evList=ds&&ev[ds]?[...ev[ds]].sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:a.name.localeCompare(b.name,'ko')):[];
     const clickHandler = inM&&evList.length>0 ? `onclick="openDayDetail('${ds}')"` : '';
     cells+=`<div class="cal-day${!inM?' other-month':''}${ds===todayDateStr?' today':''}${dow===0?' sun':''}" ${clickHandler} style="${inM&&evList.length>0?'cursor:pointer':''}">
       ${inM?`<div class="dn">${dn}</div>`:''}
