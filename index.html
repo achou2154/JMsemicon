@@ -289,6 +289,7 @@ let currentPage = 'calendar';
 let currentYear = 2026;
 let calYear = 2026, calMonth = new Date().getMonth()+1;
 let reqFilter = 'all', reqTypeFilter = 'all';
+let _overviewSort = 'default'; // default | name | joindate | leavedesc | compdesc
 let _keepScroll = false; // 승인/반려 시 스크롤 유지 플래그
 let nextId = 100, nextEventId = 100, nextHealthId = 100;
 
@@ -1359,7 +1360,13 @@ function renderOverview(){
   const todayD=parseLocalDate(todayStr());
 
 
-  const rows=getSortedByPosition().filter(e=>!isHiddenFromPersonal(e)).map(e=>{
+  // 정렬 적용
+  let _empList = getSortedByPosition().filter(e=>!isHiddenFromPersonal(e));
+  if(_overviewSort==='name') _empList=[..._empList].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+  else if(_overviewSort==='joindate') _empList=[..._empList].sort((a,b)=>(a.joinDate||'').localeCompare(b.joinDate||''));
+  else if(_overviewSort==='leavedesc') _empList=[..._empList].sort((a,b)=>getLeaveRemain(b.id,yr)-getLeaveRemain(a.id,yr));
+  else if(_overviewSort==='compdesc') _empList=[..._empList].sort((a,b)=>getCompRemain(b.id,yr)-getCompRemain(a.id,yr));
+  const rows=_empList.map(e=>{
     const a=getAlloc(e.id,yr);
     const lTotal=(+a.total||0)+(+a.carryover||0);
     const lUsed=getLeaveUsed(e.id,yr);
@@ -1457,7 +1464,16 @@ function renderOverview(){
     ${(()=>{const _at=getLeaveAlertThreshold();return _at?`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:12px;color:var(--danger)">⚠️ 이번 달 기준: 잔여 연차 ${_at}% 이상인 직원이 빨간색으로 표시됩니다.</div>`:''})()}
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div class="card-title" style="margin:0">${yr}년 전직원 현황</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div class="card-title" style="margin:0">${yr}년 전직원 현황</div>
+          <div style="display:flex;gap:4px">
+            <button onclick="setOverviewSort('default')" id="osort-default" class="btn btn-sm" style="font-size:11px;${_overviewSort==='default'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}">기본</button>
+            <button onclick="setOverviewSort('name')" id="osort-name" class="btn btn-sm" style="font-size:11px;${_overviewSort==='name'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}">이름▲</button>
+            <button onclick="setOverviewSort('joindate')" id="osort-joindate" class="btn btn-sm" style="font-size:11px;${_overviewSort==='joindate'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}">입사일▲</button>
+            <button onclick="setOverviewSort('leavedesc')" id="osort-leavedesc" class="btn btn-sm" style="font-size:11px;${_overviewSort==='leavedesc'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}">잔여연차▼</button>
+            <button onclick="setOverviewSort('compdesc')" id="osort-compdesc" class="btn btn-sm" style="font-size:11px;${_overviewSort==='compdesc'?'background:var(--accent);color:#fff;border-color:var(--accent)':''}">잔여대휴▼</button>
+          </div>
+        </div>
         <input id="overview-search" placeholder="🔍 직원 검색..." oninput="filterOverviewTable(this.value)"
           style="padding:6px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;width:180px">
       </div>
@@ -1697,6 +1713,10 @@ function adminSearchInput(inputId, tableId) {
   return '<input id="' + inputId + '" type="text" placeholder="🔍 직원 검색"'
     + ' style="padding:4px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;width:130px;outline:none"'
     + ' oninput="filterTableRows(\'' + tableId + '\',this.value)">';
+}
+function setOverviewSort(sort) {
+  _overviewSort = sort;
+  renderOverview();
 }
 function filterOverviewTable(q) {
   const tbody = document.querySelector('#overview-table tbody');
