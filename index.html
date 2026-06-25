@@ -5229,6 +5229,65 @@ function renderAlertsInline() {
 
 function openAddAlertInline() { openAddAlert(); }
 
+function openAddAlert() {
+  openModal(`<div class="modal-title">🔔 반복 알람 추가</div>
+    <div class="form-grid col1" style="margin-bottom:12px">
+      <div class="field"><label>날짜 (MM-DD)</label><input id="f-alert-date" placeholder="예) 06-25" maxlength="5"></div>
+    </div>
+    <div class="form-grid col1" style="margin-bottom:12px">
+      <div class="field"><label>제목</label><input id="f-alert-title" placeholder="알람 제목"></div>
+    </div>
+    <div class="form-grid col1" style="margin-bottom:12px">
+      <div class="field"><label>내용</label><input id="f-alert-content" placeholder="알람 내용"></div>
+    </div>
+    <div class="form-grid col1" style="margin-bottom:12px">
+      <div class="field"><label>색상</label>
+        <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+          ${['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899'].map(c=>
+            `<label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+              <input type="radio" name="alert-color" value="${c}" ${c==='#3b82f6'?'checked':''}>
+              <span style="display:inline-block;width:20px;height:20px;border-radius:50%;background:${c}"></span>
+            </label>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveAlert()">저장</button>
+    </div>`);
+}
+
+async function saveAlert() {
+  const date = document.getElementById('f-alert-date')?.value?.trim();
+  const title = document.getElementById('f-alert-title')?.value?.trim();
+  const content = document.getElementById('f-alert-content')?.value?.trim();
+  const color = document.querySelector('input[name="alert-color"]:checked')?.value || '#3b82f6';
+  if (!date || !title) { showToast('⚠️ 날짜와 제목을 입력하세요'); return; }
+  const row = { date, title, content: content||'', color };
+  let saved = null;
+  if (_supa) {
+    const { data, error } = await _supa.from('alerts').insert(row).select().single();
+    if (error) { console.error('saveAlert error:', error); showToast('⚠️ 저장 실패: ' + error.message); return; }
+    saved = data;
+  }
+  if (saved) {
+    (db.alerts = db.alerts || []).push({ ...row, id: saved.id });
+    showToast('✅ 알람 추가됨');
+    closeModal();
+    switchNotifyTab('alerts', document.querySelector('#notify-tabs .filter-btn:nth-child(5)'));
+  }
+}
+
+async function deleteAlert(id) {
+  if (!confirm('알람을 삭제하시겠습니까?')) return;
+  if (_supa) {
+    const { error } = await _supa.from('alerts').delete().eq('id', id);
+    if (error) { showToast('⚠️ 삭제 실패: ' + error.message); return; }
+  }
+  db.alerts = (db.alerts || []).filter(a => String(a.id) !== String(id));
+  showToast('🗑️ 삭제됨');
+}
+
 function toggleSchedule(val) {
   const wrap = document.getElementById('schedule-wrap');
   if (wrap) wrap.style.display = val === 'schedule' ? '' : 'none';
