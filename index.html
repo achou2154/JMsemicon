@@ -3608,7 +3608,8 @@ async function submitReq(){
     const overlaps = checkLeaveOverlap(empId, s, e2);
     if (overlaps.length > 0) {
       const overlapInfo = overlaps.map(o => '• ' + fmt(o.startDate) + (o.endDate&&o.endDate!==o.startDate?' ~ '+fmt(o.endDate):'') + ' (' + o.leaveType + ', ' + (o.status==='pending'?'승인대기':'승인됨') + ')').join('\n');
-      if (!confirm('⚠️ 해당 기간에 이미 신청된 연차가 있습니다:\n\n' + overlapInfo + '\n\n그래도 신청하시겠습니까?')) return;
+      alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n' + overlapInfo + '\n\n중복 저장이 불가합니다.');
+      return;
     }
     Object.assign(r,{startDate:s,endDate:e2,leaveType:ltSel?ltSel.value:'연차',hours:parseInt(document.getElementById('f-hours').value)||8});
   }
@@ -3733,6 +3734,19 @@ function onLtypeChange(){
   else if(sel.value==='외출') hEl.value=1;
   else if(sel.value==='병가') hEl.value=0;
   else if(sel.value==='특별휴가') hEl.value=8;
+}
+function autoCalcEditLeaveHours(){
+  const sel=document.querySelector('input[name="ltype"]:checked');
+  if(sel&&sel.value!=='연차') return;
+  const s=getDateVal('f-start');
+  const e=getDateVal('f-end');
+  if(!s) return;
+  const start=parseLocalDate(s);
+  const end=e?parseLocalDate(e):start;
+  if(!start||!end||end<start) return;
+  const days=Math.round((end-start)/864e5)+1;
+  const hEl=document.getElementById('f-hours');
+  if(hEl) hEl.value=days*8;
 }
 function autoCalcLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
@@ -3889,11 +3903,11 @@ function openEditLeave(id){
       </div>
     </div>
     <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시간</label><input id="f-hours" type="number" value="${r.hours||8}" min="1"></div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
       <div class="field"><label>시작일 *</label>${makeDateInput('f-start', r.startDate||'')}</div>
       <div class="field"><label>종료일</label>${makeDateInput('f-end', r.endDate||'')}</div>
+    </div>
+    <div class="form-grid" style="margin-bottom:12px">
+      <div class="field"><label>시간</label><input id="f-hours" type="number" value="${r.hours||8}" min="1"></div>
     </div>
     <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason" value="${r.reason||''}"></div></div>
     <div class="modal-footer">
@@ -3901,6 +3915,13 @@ function openEditLeave(id){
       <button class="btn" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="updateLeave(${id})">저장</button>
     </div>`);
+  // 날짜 변경 시 시간 자동계산 이벤트 등록
+  setTimeout(()=>{
+    ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(fid=>{
+      const el=document.getElementById(fid);
+      if(el) el.addEventListener('input', autoCalcEditLeaveHours);
+    });
+  }, 100);
 }
 async function updateLeave(id){
   const r=db.requests.find(x=>String(x.id)===String(id)); if(!r) return;
