@@ -802,6 +802,7 @@ async function onSignedIn(user) {
     currentPage = 'calendar';
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
+    setTimeout(requestNotifyPermission, 1000);
   } catch(e) {
     console.error('onSignedIn 오류:', e);
     // 오류나도 앱은 표시
@@ -3404,7 +3405,8 @@ function renderCalendar(){
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status,r);});
   });
-  db.events.forEach(ev2=>{
+  // ── 달력 내 생일/기념일 표시 비활성화 (요청에 따라 숨김 처리, 기능은 보존) ──
+  if (false) { db.events.forEach(ev2=>{
     const ds=getEventDate(ev2,y);
     if(ds&&ds.startsWith(mStr)) {
       const emp4 = eid(ev2.empId);
@@ -3415,7 +3417,7 @@ function renderCalendar(){
       const evLabel = (ev2.empId===0||ev2.empId===null||ev2.empId===undefined) ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
       addEv(ds,evLabel,'ev-bday');
     }
-  });
+  }); }
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
@@ -3493,7 +3495,7 @@ function renderCalendar(){
       <div class="legend-item"><div class="legend-dot" style="background:var(--ot-bg);border:1px solid var(--ot)"></div>특근</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--trip-bg);border:1px solid var(--trip)"></div>출장</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--comp-bg);border:1px solid var(--comp)"></div>대체휴무</div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--bday-bg);border:1px solid var(--bday)"></div>생일/기념일</div>
+      <!-- 생일/기념일 범례 숨김 처리 (기능 보존) -->
       <div class="legend-item"><div class="legend-dot" style="background:var(--health-bg);border:1px solid var(--health)"></div>건강검진</div>
     </div>
     <div class="cal-grid">
@@ -4378,6 +4380,26 @@ function getActiveAlerts() {
   });
 }
 
+// ── 윈도우(브라우저) 알림 ──
+function requestNotifyPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+function showBrowserNotification(title, body, onClick) {
+  if (!('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body: body || '',
+      icon: 'https://achou2154.github.io/JMsemicon/favicon.ico',
+      tag: 'jm-hr-' + Date.now()
+    });
+    if (onClick) n.onclick = () => { window.focus(); onClick(); n.close(); };
+  } catch(e) { console.warn('브라우저 알림 실패:', e); }
+}
+
 function checkAndShowAlerts() {
   // 공지사항 팝업
   setTimeout(checkAndShowNotice, 1000);
@@ -4450,6 +4472,10 @@ function updateBdayAlarmBar() {
 }
 
 function showAlertPopup(alerts) {
+  // 브라우저 알림 (탭 열려있을 때)
+  if (alerts.length) {
+    showBrowserNotification('🔔 ' + alerts[0].title, alerts.length>1?(alerts[0].content.slice(0,60)+' 외 '+(alerts.length-1)+'건'):alerts[0].content.slice(0,80));
+  }
   const alertContent = alerts.map(a => `
     <div style="border:2px solid ${a.color||'#c0392b'};border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:12px;background:#fff9f9">
       <div style="font-size:15px;font-weight:700;color:${a.color||'#c0392b'};margin-bottom:8px">⚠️ ${a.title}</div>
@@ -4716,6 +4742,8 @@ function checkAndShowNotice() {
   if (!popupBg) return;
   popupBg.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center';
   popupBg._noticeId = notice.id;
+  // 브라우저 알림
+  showBrowserNotification('📢 ' + notice.title, notice.content.slice(0,80), () => go('notifysetting'));
 }
 
 function closeNoticePopup() {
