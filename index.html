@@ -856,6 +856,15 @@ function statusBadge(s){
   return badge(s,'neutral');
 }
 // 날짜 포맷: 2026-03-15 → 26.03.15 (연도 뒤 2자리)
+function fmtDateTime(ds) {
+  if (!ds) return '';
+  if (ds.length >= 16) {
+    const date = fmt(ds.slice(0,10));
+    const time = ds.slice(11,16);
+    return date + '<br><span style="color:var(--text3);font-size:10px">' + time + ' KST</span>';
+  }
+  return fmt(ds);
+}
 function fmt(d){
   if(!d) return '';
   const s=String(d);
@@ -1209,6 +1218,12 @@ function toLocalDateStr(date){
   const m=String(date.getMonth()+1).padStart(2,'0');
   const d=String(date.getDate()).padStart(2,'0');
   return `${y}-${m}-${d}`;
+}
+function nowKST() {
+  // 한국 시각 (UTC+9) 기준 현재 시각 문자열 반환 (YYYY-MM-DD HH:MM)
+  const d = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+  const iso = d.toISOString();
+  return iso.slice(0,10) + ' ' + iso.slice(11,16);
 }
 function todayStr(){
   return toLocalDateStr(new Date());
@@ -2170,7 +2185,7 @@ function renderRequests(){
     (isAdmin || (currentEmp && String(r.empId)===String(currentEmp.id))));
   if(reqFilter!=='all')list=list.filter(r=>r.status===reqFilter);
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
-  list=list.slice().sort((a,b)=>b.id-a.id);
+  list=list.slice().sort((a,b)=>(b.reqDate||'').localeCompare(a.reqDate||'')||b.id-a.id);
   // 건강검진 신청 목록 (관리자만)
   const healthRows=isAdmin?db.health.filter(h=>String(h.year)===String(yr))
     .slice().sort((a,b)=>b.id-a.id).map(h=>{
@@ -2208,7 +2223,7 @@ function renderRequests(){
       <td>${e?e.dept:''}</td><td>${tl}</td>
       <td style="max-width:200px;font-size:12px">${det}</td>
       <td style="font-size:12px;color:var(--text2);max-width:120px">${r.reason||''}</td>
-      <td>${fmt(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
+      <td style="font-size:11px;white-space:nowrap">${fmtDateTime(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canA?`<button class="btn btn-sm btn-ok" onclick="approveReq(${r.id})">승인</button> <button class="btn btn-sm btn-danger" onclick="rejectReq(${r.id})">반려</button>`:''}
         ${canE&&r.status!=='pending'&&isAdmin?`<button class="btn btn-sm" onclick="delReq(${r.id})">삭제</button>`:''}
@@ -2777,7 +2792,7 @@ async function saveOutside(empId) {
   const reason = document.getElementById('out-reason')?.value?.trim();
   if (!s) { showToast('시작일을 입력하세요'); return; }
   if (!reason) { showToast('사유를 입력하세요'); return; }
-  const _r = {id:nextId++,type:'outside',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason,reqDate:todayStr()};
+  const _r = {id:nextId++,type:'outside',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason,reqDate:nowKST()};
   const _saved = await sbInsert('requests', {type:'outside',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason,req_date:todayStr()});
   if (_saved) {
     _r.id = _saved.id;
@@ -2819,7 +2834,7 @@ async function saveEducation(empId) {
   if (!title) { showToast('교육명을 입력하세요'); return; }
   const _eduStartTime=document.getElementById('edu-start-time')?.value||'';
   const _eduEndTime=document.getElementById('edu-end-time')?.value||'';
-  const _r = {id:nextId++,type:'education',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason:`[${title}] ${reason}`.trim(),reqDate:todayStr(),startTime:_eduStartTime,endTime:_eduEndTime};
+  const _r = {id:nextId++,type:'education',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason:`[${title}] ${reason}`.trim(),reqDate:nowKST(),startTime:_eduStartTime,endTime:_eduEndTime};
   const _saved = await sbInsert('requests', {type:'education',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason:_r.reason,req_date:todayStr(),start_time:_eduStartTime,end_time:_eduEndTime});
   if (_saved) {
     _r.id = _saved.id;
@@ -3638,7 +3653,7 @@ async function submitReq(){
   const empId=document.getElementById('f-emp').value;
   const reason=document.getElementById('f-reason')?.value||'';
   const td2=todayStr();
-  let r={id:nextId++,type:t,empId,status:'approved',year:currentYear,reason,reqDate:td2};
+  let r={id:nextId++,type:t,empId,status:'approved',year:currentYear,reason,reqDate:nowKST()};
   if(t==='leave'){
     const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
     const e2=getDateVal('f-end')||s;
@@ -3711,7 +3726,7 @@ function checkLeaveOverlap(empId, startDate, endDate) {
 function reqToDb(r) {
   return {
     type:r.type, emp_id:r.empId, status:'pending', year:r.year,
-    reason:r.reason||'', req_date:r.reqDate||todayStr(),
+    reason:r.reason||'', req_date:r.reqDate||nowKST(),
     start_date:r.startDate||null, end_date:r.endDate||null,
     leave_type:r.leaveType||null, hours:r.hours||null,
     date:r.date||null, ot_type:r.otType||null,
@@ -3816,7 +3831,7 @@ async function saveLeave(){
     alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n'+info+'\n\n중복 저장이 불가합니다.');
     return;
   }
-  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
+  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:nowKST()};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
@@ -3866,7 +3881,7 @@ async function saveOT(){
   const hours=parseInt(document.getElementById('f-hours').value)||4;
   const reason=document.getElementById('f-reason')?.value||'';
   const _r={id:nextId++,type:'ot',empId,status:'pending',year:currentYear,date:d,otType,hours,reason,reqDate:todayStr(),useTransport};
-  const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:todayStr(),use_transport:useTransport};
+  const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:nowKST(),use_transport:useTransport};
   let _saved=null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
@@ -3886,8 +3901,8 @@ async function saveComp(){const s=getDateVal('f-start');if(!s){alert('날짜 입
   if(!checkDateOrder(s,s)) return;
   const _compDups=checkCompOverlap(empId,s);
   if(_compDups.length>0){alert('⚠️ 중복 신청\n\n'+fmt(s)+'에 이미 대체휴무가 신청되어 있습니다.\n('+(_compDups[0].status==='pending'?'승인대기':'승인됨')+')\n\n중복 저장이 불가합니다.');return;}
-  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason')?.value||'',reqDate:todayStr()};
-  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:s,hours:_r.hours,reason:_r.reason,req_date:_r.reqDate};
+  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason')?.value||'',reqDate:nowKST()};
+  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:s,hours:_r.hours,reason:_r.reason,req_date:nowKST()};
   let _saved = null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
@@ -3932,7 +3947,7 @@ async function saveTrip(kind){
   const allowance=parseInt(document.getElementById('f-allowance')?.value)||0;
   const _startTime=document.getElementById('f-start-time')?.value||'';
   const _endTime=document.getElementById('f-end-time')?.value||'';
-  const _r = {id:nextId++,type:'trip',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,tripKind:kind,startDate:s,endDate:_tripEnd,dest:document.getElementById('f-dest')?.value||'',allowance,reason:document.getElementById('f-reason').value||'',reqDate:todayStr(),startTime:_startTime,endTime:_endTime};
+  const _r = {id:nextId++,type:'trip',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,tripKind:kind,startDate:s,endDate:_tripEnd,dest:document.getElementById('f-dest')?.value||'',allowance,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
