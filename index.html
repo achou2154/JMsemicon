@@ -236,7 +236,8 @@ tbody tr:hover td{background:var(--surface2)}
       <!-- 직원 검색 (관리자만, 특정 시트에서만 표시) -->
       <input id="topbar-emp-search" placeholder="🔍 직원 검색..." oninput="topbarEmpSearch(this.value)"
         style="display:none;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px;width:150px">
-
+      <!-- 기념일 작은 알림 -->
+      <div id="bday-alarm-bar" style="display:none;background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:11px;color:var(--bday);cursor:pointer;white-space:nowrap;max-width:200px;overflow:hidden;text-overflow:ellipsis" onclick="go('bday')"></div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
     </div>
   </div>
@@ -400,7 +401,8 @@ function normalizeReq(r) {
     date:r.date||'', otType:r.ot_type||'', useTransport:r.use_transport||false,
     dest:r.dest||'', tripKind:r.trip_kind||'', allowance:r.allowance||0,
     transReqPending:r.trans_req_pending||false,
-    startTime:r.start_time||'', endTime:r.end_time||'' };
+    startTime:r.start_time||'', endTime:r.end_time||'',
+    attachmentUrl:r.attachment_url||'' };
 }
 function normalizeEv(r) {
   return { id:r.id, empId:r.emp_id??null, type:r.type, name:r.name,
@@ -802,7 +804,6 @@ async function onSignedIn(user) {
     currentPage = 'calendar';
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
-    setTimeout(requestNotifyPermission, 1000);
   } catch(e) {
     console.error('onSignedIn 오류:', e);
     // 오류나도 앱은 표시
@@ -856,15 +857,6 @@ function statusBadge(s){
   return badge(s,'neutral');
 }
 // 날짜 포맷: 2026-03-15 → 26.03.15 (연도 뒤 2자리)
-function fmtDateTime(ds) {
-  if (!ds) return '';
-  if (ds.length >= 16) {
-    const date = fmt(ds.slice(0,10));
-    const time = ds.slice(11,16);
-    return date + '<br><span style="color:var(--text3);font-size:10px">' + time + ' KST</span>';
-  }
-  return fmt(ds);
-}
 function fmt(d){
   if(!d) return '';
   const s=String(d);
@@ -923,15 +915,6 @@ function dateSegKey(e, el, prevId, nextId){
   }
 }
 
-// 시작일 > 종료일 체크 헬퍼
-function checkDateOrder(startDate, endDate, label='') {
-  if (!startDate || !endDate) return true;
-  if (endDate < startDate) {
-    alert('⚠️ 날짜 오류' + (label ? ' (' + label + ')' : '') + '\n\n종료일이 시작일보다 이전입니다.\n\n시작일: ' + fmt(startDate) + '\n종료일: ' + fmt(endDate) + '\n\n날짜를 다시 확인해 주세요.');
-    return false;
-  }
-  return true;
-}
 function getDateVal(id){
   const y=(document.getElementById(id+'-y')||{}).value||'';
   const m=(document.getElementById(id+'-m')||{}).value||'';
@@ -1218,12 +1201,6 @@ function toLocalDateStr(date){
   const m=String(date.getMonth()+1).padStart(2,'0');
   const d=String(date.getDate()).padStart(2,'0');
   return `${y}-${m}-${d}`;
-}
-function nowKST() {
-  // 한국 시각 (UTC+9) 기준 현재 시각 문자열 반환 (YYYY-MM-DD HH:MM)
-  const d = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
-  const iso = d.toISOString();
-  return iso.slice(0,10) + ' ' + iso.slice(11,16);
 }
 function todayStr(){
   return toLocalDateStr(new Date());
@@ -2185,7 +2162,7 @@ function renderRequests(){
     (isAdmin || (currentEmp && String(r.empId)===String(currentEmp.id))));
   if(reqFilter!=='all')list=list.filter(r=>r.status===reqFilter);
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
-  list=list.slice().sort((a,b)=>(b.reqDate||'').localeCompare(a.reqDate||'')||b.id-a.id);
+  list=list.slice().sort((a,b)=>b.id-a.id);
   // 건강검진 신청 목록 (관리자만)
   const healthRows=isAdmin?db.health.filter(h=>String(h.year)===String(yr))
     .slice().sort((a,b)=>b.id-a.id).map(h=>{
@@ -2210,7 +2187,7 @@ function renderRequests(){
   const rows=list.map(r=>{
     const e=eid(r.empId);
     let tl='',det='';
-    if(r.type==='leave'){tl=badge('연차','leave');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''} / ${r.leaveType} (${r.hours}h)`;}
+    if(r.type==='leave'){tl=badge('연차','leave');det=`${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''} / ${r.leaveType} (${r.hours}h)${r.attachmentUrl?` <a href='${r.attachmentUrl}' target='_blank' style='color:var(--accent);font-size:11px'>📎첨부</a>`:''}`;}
     else if(r.type==='ot'){tl=r.transReqPending?badge('교통비전환신청','warn'):badge('특근','ot');det=`${fmt(r.date)} / ${r.otType} ${r.hours}h${r.transReqPending?' → 교통비 ₩'+((+r.hours)*TRANSPORT_RATE).toLocaleString()+' 전환신청':' → 대휴 '+calcComp(r.hours,r.otType)+'h'}`;}
     else if(r.type==='trip'){tl=badge('출장','trip');det=`${fmt(r.startDate)} ~ ${fmt(r.endDate)} / ${r.dest}`;}
     else if(r.type==='comp'){tl=badge('대체휴무','comp');det=`${fmt(r.startDate)} / ${r.hours}h`;}
@@ -2223,7 +2200,7 @@ function renderRequests(){
       <td>${e?e.dept:''}</td><td>${tl}</td>
       <td style="max-width:200px;font-size:12px">${det}</td>
       <td style="font-size:12px;color:var(--text2);max-width:120px">${r.reason||''}</td>
-      <td style="font-size:11px;white-space:nowrap">${fmtDateTime(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
+      <td>${fmt(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canA?`<button class="btn btn-sm btn-ok" onclick="approveReq(${r.id})">승인</button> <button class="btn btn-sm btn-danger" onclick="rejectReq(${r.id})">반려</button>`:''}
         ${canE&&r.status!=='pending'&&isAdmin?`<button class="btn btn-sm" onclick="delReq(${r.id})">삭제</button>`:''}
@@ -2350,6 +2327,7 @@ function renderLeave(){
       <td>${fmt(r.startDate)}</td><td>${fmt(r.endDate||r.startDate)}</td>
       <td>${['병가','특별휴가'].includes(r.leaveType)?'<span style="color:var(--text3);font-size:12px">차감없음</span>':`${r.hours}h (${Math.round((+r.hours)/8*10)/10}일)`}</td>
       <td style="font-size:12px;color:var(--text2)">${r.reason}</td>
+      <td>${r.attachmentUrl?`<a href="${r.attachmentUrl}" target="_blank" style="font-size:12px;color:var(--accent)" title="첨부파일 보기">📎</a>`:'—'}</td>
       <td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canEdit(r)?`<button class="btn btn-sm" onclick="openEditLeave(${r.id})">✏️ 수정</button>`:''}
@@ -2443,8 +2421,8 @@ function renderLeave(){
         </div>
       </div>
       <div class="table-wrap"><table id="leave-table">
-        <thead><tr><th>직원</th><th>부서</th><th>구분</th><th>시작일</th><th>종료일</th><th>시간</th><th>사유</th><th>상태</th><th></th></tr></thead>
-        <tbody>${leaveRows||emptyRow(9)}</tbody>
+        <thead><tr><th>직원</th><th>부서</th><th>구분</th><th>시작일</th><th>종료일</th><th>시간</th><th>사유</th><th>첨부</th><th>상태</th><th></th></tr></thead>
+        <tbody>${leaveRows||emptyRow(10)}</tbody>
       </table></div>
     </div>
   `);
@@ -2788,11 +2766,10 @@ function openAddOutside(empId) {
 async function saveOutside(empId) {
   const s = getDateVal('out-start');
   const e2 = getDateVal('out-end') || s;
-  if(!checkDateOrder(s,e2,'외출')) return;
   const reason = document.getElementById('out-reason')?.value?.trim();
   if (!s) { showToast('시작일을 입력하세요'); return; }
   if (!reason) { showToast('사유를 입력하세요'); return; }
-  const _r = {id:nextId++,type:'outside',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason,reqDate:nowKST()};
+  const _r = {id:nextId++,type:'outside',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason,reqDate:todayStr()};
   const _saved = await sbInsert('requests', {type:'outside',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason,req_date:todayStr()});
   if (_saved) {
     _r.id = _saved.id;
@@ -2828,13 +2805,12 @@ async function saveEducation(empId) {
   const title = document.getElementById('edu-title')?.value?.trim();
   const s = getDateVal('edu-start');
   const e2 = getDateVal('edu-end') || s;
-  if(!checkDateOrder(s,e2,'교육')) return;
   const reason = document.getElementById('edu-reason')?.value?.trim() || '';
   if (!s) { showToast('시작일을 입력하세요'); return; }
   if (!title) { showToast('교육명을 입력하세요'); return; }
   const _eduStartTime=document.getElementById('edu-start-time')?.value||'';
   const _eduEndTime=document.getElementById('edu-end-time')?.value||'';
-  const _r = {id:nextId++,type:'education',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason:`[${title}] ${reason}`.trim(),reqDate:nowKST(),startTime:_eduStartTime,endTime:_eduEndTime};
+  const _r = {id:nextId++,type:'education',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,reason:`[${title}] ${reason}`.trim(),reqDate:todayStr(),startTime:_eduStartTime,endTime:_eduEndTime};
   const _saved = await sbInsert('requests', {type:'education',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,reason:_r.reason,req_date:todayStr(),start_time:_eduStartTime,end_time:_eduEndTime});
   if (_saved) {
     _r.id = _saved.id;
@@ -3420,8 +3396,7 @@ function renderCalendar(){
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status,r);});
   });
-  // ── 달력 내 생일/기념일 표시 비활성화 (요청에 따라 숨김 처리, 기능은 보존) ──
-  if (false) { db.events.forEach(ev2=>{
+  db.events.forEach(ev2=>{
     const ds=getEventDate(ev2,y);
     if(ds&&ds.startsWith(mStr)) {
       const emp4 = eid(ev2.empId);
@@ -3432,7 +3407,7 @@ function renderCalendar(){
       const evLabel = (ev2.empId===0||ev2.empId===null||ev2.empId===undefined) ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
       addEv(ds,evLabel,'ev-bday');
     }
-  }); }
+  });
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
@@ -3493,7 +3468,51 @@ function renderCalendar(){
       ${mkCard('오늘의 특근', otToday, '#fdf4ff', '#d8b4fe', '#7e22ce')}
     </div>` : '';
 
-  const upcoming30Html = ''; // 30일 이내 예정 제거됨
+  // 30일 이내 예정 이벤트 (생일/기념일)
+  const todayD2 = parseLocalDate(todayStr());
+  // db.events 기준 (올해 지났으면 내년으로)
+  const upcoming30 = [];
+  db.events.forEach(ev2 => {
+    let ds2 = getEventDate(ev2, todayD2.getFullYear());
+    if (!ds2) return;
+    let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    if (diff2 < 0) {
+      ds2 = getEventDate(ev2, todayD2.getFullYear() + 1);
+      if (!ds2) return;
+      diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    }
+    if (diff2 < 0 || diff2 > 30) return;
+    upcoming30.push({ ...ev2, ds: ds2, diff: diff2 });
+  });
+  // 직원 birthdate 직접 보완 (events 테이블에 없는 경우)
+  const evEmpIds30 = new Set(upcoming30.map(ev => String(ev.empId)));
+  db.employees.filter(e => e.birthdate && !e.isExternal).forEach(e => {
+    if (evEmpIds30.has(String(e.id))) return;
+    const parts = e.birthdate.split('-'); if (parts.length < 3) return;
+    const m2 = parseInt(parts[1]), d2 = parseInt(parts[2]);
+    let ds2 = `${todayD2.getFullYear()}-${String(m2).padStart(2,'0')}-${String(d2).padStart(2,'0')}`;
+    let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
+    if (diff2 < 0) { ds2 = `${todayD2.getFullYear()+1}-${String(m2).padStart(2,'0')}-${String(d2).padStart(2,'0')}`; diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5); }
+    if (diff2 < 0 || diff2 > 30) return;
+    upcoming30.push({ id:'bd_'+e.id, empId:e.id, type:'birthday', name:e.name+' 생일', month:m2, day:d2, calType:e.birthdateLunar?'lunar':'solar', ds:ds2, diff:diff2 });
+  });
+  upcoming30.sort((a,b) => a.diff - b.diff);
+
+  const upcoming30Html = upcoming30.length ? `
+    <div style="background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px">
+      <div style="font-size:12px;font-weight:600;color:var(--bday);margin-bottom:6px">🗓️ 30일 이내 예정</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:88px;overflow-y:auto">
+        ${upcoming30.map(ev2=>{
+          const emp30=eid(ev2.empId);
+          const isW30=emp30&&((emp30.anniversaryType==='birthday'&&ev2.type==='birthday')||(emp30.anniversaryType==='anniversary'&&ev2.type==='anniversary'));
+          return`<span style="background:#fff;border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:12px;display:flex;align-items:center;gap:4px;overflow:hidden">
+            <span>${ev2.type==='birthday'?'🎂':'🎉'}</span>
+            <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ev2.name}</strong>${isW30?'⭐':''}
+            ${ev2.diff===0?'<span style="color:var(--danger);font-weight:700;white-space:nowrap">오늘!</span>':`<span style="color:var(--text2);white-space:nowrap">D-${ev2.diff}</span>`}
+          </span>`;}).join('')}
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-top:4px">⭐ 복리후생 지원</div>
+    </div>` : '';
 
   const months=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
   setContent(`<div class="card">
@@ -3510,7 +3529,7 @@ function renderCalendar(){
       <div class="legend-item"><div class="legend-dot" style="background:var(--ot-bg);border:1px solid var(--ot)"></div>특근</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--trip-bg);border:1px solid var(--trip)"></div>출장</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--comp-bg);border:1px solid var(--comp)"></div>대체휴무</div>
-      <!-- 생일/기념일 범례 숨김 처리 (기능 보존) -->
+      <div class="legend-item"><div class="legend-dot" style="background:var(--bday-bg);border:1px solid var(--bday)"></div>생일/기념일</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--health-bg);border:1px solid var(--health)"></div>건강검진</div>
     </div>
     <div class="cal-grid">
@@ -3653,11 +3672,10 @@ async function submitReq(){
   const empId=document.getElementById('f-emp').value;
   const reason=document.getElementById('f-reason')?.value||'';
   const td2=todayStr();
-  let r={id:nextId++,type:t,empId,status:'approved',year:currentYear,reason,reqDate:nowKST()};
+  let r={id:nextId++,type:t,empId,status:'approved',year:currentYear,reason,reqDate:td2};
   if(t==='leave'){
     const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
     const e2=getDateVal('f-end')||s;
-    if(!checkDateOrder(s,e2,'연차')) return;
     const ltSel=document.querySelector('input[name="ltype"]:checked');
     // 중복 체크
     const overlaps = checkLeaveOverlap(empId, s, e2);
@@ -3672,8 +3690,8 @@ async function submitReq(){
     const otDups=checkOTOverlap(empId,date);
     if(otDups.length>0){alert('⚠️ 중복 신청\n\n해당 날짜('+fmt(date)+')에 이미 특근이 신청되어 있습니다.\n('+(otDups[0].status==='pending'?'승인대기':'승인됨')+')\n\n중복 저장이 불가합니다.');return;}
     const otSel=document.querySelector('input[name="otsub"]:checked');Object.assign(r,{date,otType:otSel?otSel.value:'특근',hours:parseInt(document.getElementById('f-hours').value)||4,useTransport:false});}
-  else if(t==='trip'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}const _te=getDateVal('f-end')||s;if(!checkDateOrder(s,_te,'출장')) return;Object.assign(r,{startDate:s,endDate:_te,dest:document.getElementById('f-dest')?.value||''});}
-  else if(t==='comp'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}if(!checkDateOrder(s,s,'대휴')) return;
+  else if(t==='trip'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}Object.assign(r,{startDate:s,endDate:getDateVal('f-end')||s,dest:document.getElementById('f-dest')?.value||''});}
+  else if(t==='comp'){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
     const compDups=checkCompOverlap(empId,s);
     if(compDups.length>0){alert('⚠️ 중복 신청\n\n해당 날짜('+fmt(s)+')에 이미 대체휴무가 신청되어 있습니다.\n('+(compDups[0].status==='pending'?'승인대기':'승인됨')+')\n\n중복 저장이 불가합니다.');return;}
     Object.assign(r,{startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8});}
@@ -3726,70 +3744,210 @@ function checkLeaveOverlap(empId, startDate, endDate) {
 function reqToDb(r) {
   return {
     type:r.type, emp_id:r.empId, status:'pending', year:r.year,
-    reason:r.reason||'', req_date:r.reqDate||nowKST(),
+    reason:r.reason||'', req_date:r.reqDate||todayStr(),
     start_date:r.startDate||null, end_date:r.endDate||null,
     leave_type:r.leaveType||null, hours:r.hours||null,
     date:r.date||null, ot_type:r.otType||null,
     use_transport:r.useTransport||false,
     dest:r.dest||null, trip_kind:r.tripKind||null, allowance:r.allowance||0,
-    start_time:r.startTime||null, end_time:r.endTime||null
+    start_time:r.startTime||null, end_time:r.endTime||null,
+    attachment_url:r.attachmentUrl||null
   };
 }
 
 async function openAddLeave(empId){
+  const nowK = new Date(Date.now()+9*3600*1000);
+  const todayISO = nowK.toISOString().slice(0,10);
+  const hh = String(nowK.getUTCHours()).padStart(2,'0');
+  const mm = String(nowK.getUTCMinutes()).padStart(2,'0');
+  const hh1 = String((nowK.getUTCHours()+1)%24).padStart(2,'0');
   openModal(`<div class="modal-title">연차 신청</div>
-    <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field">
-        <label>구분</label>
-         <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-annual" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차 (8h)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-half" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차 (4h)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-special" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가
-           </label>
-         </div>
-        <div style="margin-top:8px;padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.7">
-          ※ 병가: 동일 질병으로 인한 7일 이상의 결근 &nbsp;|&nbsp; ※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출
+    <div style="max-height:75vh;overflow-y:auto;padding-right:4px">
+
+    <!-- 직원 -->
+    <div class="field" style="margin-bottom:12px"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div>
+
+    <!-- 구분 -->
+    <div class="field" style="margin-bottom:8px">
+      <label>구분</label>
+      <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>
+      </div>
+    </div>
+
+    <!-- 노란 안내박스 -->
+    <div style="padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.8;margin-bottom:12px">
+      ※ 병가: 동일 질병으로 인한 7일 이상의 결근<br>※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출
+    </div>
+
+    <!-- 일시 -->
+    <div style="margin-bottom:12px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">
+        <label style="font-size:13px;font-weight:600;min-width:32px">일시</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <label style="font-size:12px;color:var(--text2)">총 시간</label>
+          <input id="f-hours" type="number" value="8" min="0" step="0.5"
+            style="width:64px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;text-align:center"
+            oninput="onLeaveHoursInput()">
+          <label style="font-size:12px;color:var(--text2)">시간</label>
+        </div>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
+          <input type="checkbox" id="f-allday" checked onchange="onAlldayChange()" style="width:15px;height:15px"> 종일
+        </label>
+      </div>
+
+      <!-- 시작일시 -->
+      <div style="display:grid;grid-template-columns:48px 1fr 120px;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:12px;color:var(--text2);font-weight:500">시작일</span>
+        <div id="leave-start-date-wrap">${makeDateInput('f-start', todayISO, true)}</div>
+        <div id="leave-start-time-wrap" style="display:none">
+          <input id="f-start-time" type="time" value="${hh}:${mm}"
+            style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"
+            oninput="onLeaveTimeChange()">
+        </div>
+      </div>
+
+      <!-- 종료일시 -->
+      <div style="display:grid;grid-template-columns:48px 1fr 120px;align-items:center;gap:8px">
+        <span style="font-size:12px;color:var(--text2);font-weight:500">종료일</span>
+        <div id="leave-end-date-wrap">${makeDateInput('f-end', todayISO, true)}</div>
+        <div id="leave-end-time-wrap" style="display:none">
+          <input id="f-end-time" type="time" value="${hh1}:${mm}"
+            style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px"
+            oninput="onLeaveTimeChange()">
         </div>
       </div>
     </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시간 <span style="font-size:10px;color:var(--text3)">(날짜 입력 시 자동계산)</span></label><input id="f-hours" type="number" value="8" min="1"></div>
+
+    <!-- 사유 -->
+    <div class="field" style="margin-bottom:12px"><label>사유</label><input id="f-reason" placeholder="사유를 입력하세요 (선택)"></div>
+
+    <!-- 첨부파일 -->
+    <div class="field" style="margin-bottom:4px">
+      <label>첨부파일 <span style="font-size:10px;color:var(--text3)">(최대 1개, 10MB)</span></label>
+      <div id="leave-file-drop"
+        style="border:2px dashed var(--border2);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;background:var(--bg);font-size:13px;color:var(--text3)"
+        onclick="document.getElementById('leave-file-input').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
+        ondragleave="this.style.borderColor='var(--border2)'"
+        ondrop="onLeaveFileDrop(event)">
+        <div style="font-size:22px;margin-bottom:4px">📎</div>
+        첨부할 파일을 마우스로 끌어 놓으세요
+      </div>
+      <input id="leave-file-input" type="file" style="display:none" onchange="onLeaveFileSelect(this)">
+      <div id="leave-file-name" style="font-size:12px;color:var(--accent);margin-top:4px"></div>
     </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시작일 *</label>${makeDateInput('f-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('f-end','',true)}</div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
+
+    </div><!-- /scroll wrap -->
     <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>`);
+
   setTimeout(()=>{
+    // 날짜 변경 시 시간 자동계산 리스너
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
-      if(el) el.addEventListener('input',autoCalcLeaveHours);
+      if(el) el.addEventListener('input', autoCalcLeaveHours);
     });
+    // 연차 기본값: 종일 체크, 시각 숨김
+    onLtypeChange();
   },100);
+}
+
+// 종일 체크박스 변경
+function onAlldayChange(){
+  const allday = document.getElementById('f-allday')?.checked;
+  const sTimeWrap = document.getElementById('leave-start-time-wrap');
+  const eTimeWrap = document.getElementById('leave-end-time-wrap');
+  if(sTimeWrap) sTimeWrap.style.display = allday?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display = allday?'none':'';
+  if(!allday) onLeaveTimeChange();
+}
+
+// 시각 입력 시 총 시간 자동계산
+function onLeaveTimeChange(){
+  const s = document.getElementById('f-start-time')?.value;
+  const e = document.getElementById('f-end-time')?.value;
+  if(!s||!e) return;
+  const [sh,sm]=s.split(':').map(Number);
+  const [eh,em]=e.split(':').map(Number);
+  const diff=(eh*60+em)-(sh*60+sm);
+  if(diff>0){
+    const hEl=document.getElementById('f-hours');
+    if(hEl) hEl.value=Math.round(diff/60*10)/10;
+  }
+}
+
+// 총 시간 직접 입력 시 처리 (검증만)
+function onLeaveHoursInput(){
+  // 필요 시 추가 처리
+}
+
+// 파일 첨부 처리
+function onLeaveFileDrop(e){
+  e.preventDefault();
+  document.getElementById('leave-file-drop').style.borderColor='var(--border2)';
+  const file=e.dataTransfer.files[0];
+  if(file) setLeaveFile(file);
+}
+function onLeaveFileSelect(input){
+  const file=input.files[0];
+  if(file) setLeaveFile(file);
+}
+function setLeaveFile(file){
+  if(file.size>10*1024*1024){showToast('⚠️ 10MB 이하 파일만 첨부 가능');return;}
+  window._leaveAttachFile=file;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML=`📎 ${file.name} <span style="color:var(--text3)">(${(file.size/1024).toFixed(1)}KB)</span>
+    <button style="margin-left:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearLeaveFile()">✕</button>`;
+}
+function clearLeaveFile(){
+  window._leaveAttachFile=null;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML='';
+  const inp=document.getElementById('leave-file-input');
+  if(inp) inp.value='';
 }
 function onLtypeChange(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   if(!sel) return;
   const hEl=document.getElementById('f-hours');
+  const alldayEl=document.getElementById('f-allday');
+  const sTimeWrap=document.getElementById('leave-start-time-wrap');
+  const eTimeWrap=document.getElementById('leave-end-time-wrap');
+
+  // 연차/병가/특별휴가: 종일 체크 + 시각 숨김 + 시간 자동입력
+  const fullDayTypes=['연차','병가','특별휴가'];
+  const isFullDay=fullDayTypes.includes(sel.value);
+
+  if(alldayEl){
+    alldayEl.checked=isFullDay;
+  }
+  if(sTimeWrap) sTimeWrap.style.display=isFullDay?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display=isFullDay?'none':'';
+
+  // 시각 활성화 시 현재 시각 기본값 세팅
+  if(!isFullDay){
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT&&!sT.value) sT.value=hh+':'+mm;
+    if(eT&&!eT.value) eT.value=hh1+':'+mm;
+  }
+
   if(!hEl) return;
   if(sel.value==='연차') hEl.value=8;
   else if(sel.value==='반차') hEl.value=4;
-  else if(sel.value==='외출') hEl.value=1;
+  else if(sel.value==='외출') { if(!isFullDay) onLeaveTimeChange(); else hEl.value=1; }
   else if(sel.value==='병가') hEl.value=0;
   else if(sel.value==='특별휴가') hEl.value=8;
+
+  if(!isFullDay) onLeaveTimeChange();
 }
 function autoCalcEditLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
@@ -3823,7 +3981,6 @@ async function saveLeave(){
   const leaveType=sel?sel.value:'연차';
   const empId=document.getElementById('f-emp').value;
   const e2=getDateVal('f-end')||s;
-  if(!checkDateOrder(s,e2,'연차')) return;
   // 중복 체크
   const overlaps=checkLeaveOverlap(empId,s,e2);
   if(overlaps.length>0){
@@ -3831,12 +3988,26 @@ async function saveLeave(){
     alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n'+info+'\n\n중복 저장이 불가합니다.');
     return;
   }
-  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:nowKST()};
+  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
+    // 첨부파일 업로드 → URL 저장
+    if(window._leaveAttachFile && _supa){
+      try {
+        const fn='leave_'+_saved.id+'_'+encodeURIComponent(window._leaveAttachFile.name);
+        const {data:upData, error:upErr} = await _supa.storage.from('attachments').upload(fn, window._leaveAttachFile);
+        if(!upErr){
+          const {data:{publicUrl}} = _supa.storage.from('attachments').getPublicUrl(fn);
+          _r.attachmentUrl = publicUrl||fn;
+          await sbUpdate('requests', _saved.id, {attachment_url: _r.attachmentUrl});
+        } else { console.warn('첨부파일 업로드 실패:', upErr); }
+        window._leaveAttachFile=null;
+      } catch(e){ console.warn('첨부파일 업로드 오류:', e); }
+    }
     db.requests.unshift(_r);
-    saveAll(); showToast('✅ 신청 완료'); await notifyAdmin(_r);
+    saveAll();
+    showToast('✅ 신청 완료'); await notifyAdmin(_r);
   } else { showToast('⚠️ 저장 실패'); }
   closeModal();
   renderLeave();
@@ -3881,7 +4052,7 @@ async function saveOT(){
   const hours=parseInt(document.getElementById('f-hours').value)||4;
   const reason=document.getElementById('f-reason')?.value||'';
   const _r={id:nextId++,type:'ot',empId,status:'pending',year:currentYear,date:d,otType,hours,reason,reqDate:todayStr(),useTransport};
-  const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:nowKST(),use_transport:useTransport};
+  const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:todayStr(),use_transport:useTransport};
   let _saved=null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
@@ -3898,11 +4069,10 @@ async function openAddComp(empId){openModal(`<div class="modal-title">대체휴�
 async function saveComp(){const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
   const empId=document.getElementById('f-emp').value;
   if(!empId){showToast('⚠️ 직원 정보 없음');return;}
-  if(!checkDateOrder(s,s)) return;
   const _compDups=checkCompOverlap(empId,s);
   if(_compDups.length>0){alert('⚠️ 중복 신청\n\n'+fmt(s)+'에 이미 대체휴무가 신청되어 있습니다.\n('+(_compDups[0].status==='pending'?'승인대기':'승인됨')+')\n\n중복 저장이 불가합니다.');return;}
-  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason')?.value||'',reqDate:nowKST()};
-  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:s,hours:_r.hours,reason:_r.reason,req_date:nowKST()};
+  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:s,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason')?.value||'',reqDate:todayStr()};
+  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:s,hours:_r.hours,reason:_r.reason,req_date:_r.reqDate};
   let _saved = null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
@@ -3942,12 +4112,10 @@ async function openAddTrip(kind,empId){
 async function saveTrip(kind){
   kind=kind||'domestic';
   const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
-  const _tripEnd=getDateVal('f-end')||s;
-  if(!checkDateOrder(s,_tripEnd,'출장')) return;
   const allowance=parseInt(document.getElementById('f-allowance')?.value)||0;
   const _startTime=document.getElementById('f-start-time')?.value||'';
   const _endTime=document.getElementById('f-end-time')?.value||'';
-  const _r = {id:nextId++,type:'trip',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,tripKind:kind,startDate:s,endDate:_tripEnd,dest:document.getElementById('f-dest')?.value||'',allowance,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
+  const _r = {id:nextId++,type:'trip',empId:document.getElementById('f-emp').value,status:'pending',year:currentYear,tripKind:kind,startDate:s,endDate:getDateVal('f-end')||s,dest:document.getElementById('f-dest')?.value||'',allowance,reason:document.getElementById('f-reason').value||'',reqDate:todayStr(),startTime:_startTime,endTime:_endTime};
   const _saved = await sbInsert('requests', reqToDb(_r));
   if (_saved) {
     _r.id = _saved.id;
@@ -4001,8 +4169,6 @@ function openEditLeave(id){
 async function updateLeave(id){
   const r=db.requests.find(x=>String(x.id)===String(id)); if(!r) return;
   const s=getDateVal('f-start'); if(!s){alert('날짜 입력');return;}
-  const _ule=getDateVal('f-end')||s;
-  if(!checkDateOrder(s,_ule,'연차 수정')) return;
   const sel=document.querySelector('input[name="ltype"]:checked');
   r.empId=document.getElementById('f-emp').value;
   r.leaveType=sel?sel.value:'연차';
@@ -4372,8 +4538,8 @@ function getCompCarryoverEffective(empId, year) {
 const DEFAULT_ALERTS = [
   { id: 'alert_jan31', date: '01-31', title: '연차 및 대체휴무 사용 촉진 안내',
     content: '1월 31일 기준으로 잔여 연차 및 대체휴무 사용을 촉진합니다.\n미사용 연차·대체휴무는 다음해 3월 1일에 자동 소멸됩니다.\n적극적으로 활용하시기 바랍니다.', color: '#c0392b' },
-  { id: 'alert_jul01', date: '07-01', title: '연차 및 대체휴무 사용 촉진 안내',
-    content: '7월 1일 기준으로 잔여 연차 및 대체휴무 사용을 촉진합니다.\n미사용 연차·대체휴무는 다음해 3월 1일에 자동 소멸됩니다.\n하반기 계획을 수립하여 적극 활용하시기 바랍니다.', color: '#c0392b' },
+  { id: 'alert_jun30', date: '06-30', title: '연차 및 대체휴무 사용 촉진 안내',
+    content: '6월 30일 기준으로 잔여 연차 및 대체휴무 사용을 촉진합니다.\n미사용 연차·대체휴무는 다음해 3월 1일에 자동 소멸됩니다.\n하반기 계획을 수립하여 적극 활용하시기 바랍니다.', color: '#c0392b' },
 ];
 
 function getActiveAlerts() {
@@ -4395,26 +4561,6 @@ function getActiveAlerts() {
   });
 }
 
-// ── 윈도우(브라우저) 알림 ──
-function requestNotifyPermission() {
-  if (!('Notification' in window)) return;
-  if (Notification.permission === 'default') {
-    Notification.requestPermission();
-  }
-}
-function showBrowserNotification(title, body, onClick) {
-  if (!('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  try {
-    const n = new Notification(title, {
-      body: body || '',
-      icon: 'https://achou2154.github.io/JMsemicon/favicon.ico',
-      tag: 'jm-hr-' + Date.now()
-    });
-    if (onClick) n.onclick = () => { window.focus(); onClick(); n.close(); };
-  } catch(e) { console.warn('브라우저 알림 실패:', e); }
-}
-
 function checkAndShowAlerts() {
   // 공지사항 팝업
   setTimeout(checkAndShowNotice, 1000);
@@ -4424,11 +4570,12 @@ function checkAndShowAlerts() {
   updateNoticeAlarmBar();
   // 생일/기념일 상단 알람 바 (우측)
   updateBdayAlarmBar();
-  // 팝업 알람 (직원 개인별 오늘 안보기 체크)
+  // 팝업 알람
   const alerts = getActiveAlerts();
+  const shownKey = 'hr_alerts_shown_' + todayStr();
+  if (localStorage.getItem(shownKey)) return;
   if (alerts.length === 0) return;
-  const dismissKey = 'hr_alerts_dismiss_' + (currentEmp?currentEmp.id:'all') + '_' + todayStr();
-  if (localStorage.getItem(dismissKey)) return;
+  localStorage.setItem(shownKey, '1');
   showAlertPopup(alerts);
 }
 
@@ -4454,10 +4601,7 @@ function updateNoticeAlarmBar() {
   if (pendingSchedules.length && isAdmin) items.push(`🔔 예약알람 ${pendingSchedules.length}건`);
 
   if (items.length) {
-    // 공지 제목 명시
-    const noticeTitles = activeNotices.map(n=>n.title).join(', ');
-    txt.innerHTML = (noticeTitles ? `📢 <strong>${noticeTitles}</strong>` : items.join(' | '))
-      + ' &nbsp;<span style="background:var(--accent);color:#fff;border-radius:10px;padding:1px 8px;font-size:11px;cursor:pointer" onclick="checkAndShowNotice()">상세 확인</span>';
+    txt.textContent = items.join('  |  ') + '  ▶ 클릭하여 확인';
     bar.style.display = '';
   } else {
     bar.style.display = 'none';
@@ -4487,34 +4631,19 @@ function updateBdayAlarmBar() {
 }
 
 function showAlertPopup(alerts) {
-  // 브라우저 알림 (탭 열려있을 때)
-  if (alerts.length) {
-    showBrowserNotification('🔔 ' + alerts[0].title, alerts.length>1?(alerts[0].content.slice(0,60)+' 외 '+(alerts.length-1)+'건'):alerts[0].content.slice(0,80));
-  }
-  const alertContent = alerts.map(a => `
+  const content = alerts.map(a => `
     <div style="border:2px solid ${a.color||'#c0392b'};border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:12px;background:#fff9f9">
-      <div style="font-size:15px;font-weight:700;color:${a.color||'#c0392b'};margin-bottom:8px">⚠️ ${a.title}</div>
+      <div style="font-size:15px;font-weight:700;color:${a.color||'#c0392b'};margin-bottom:8px">
+        ⚠️ ${a.title}
+      </div>
       <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.7">${a.content}</div>
     </div>`).join('');
   openModal(`
     <div class="modal-title" style="color:#c0392b;font-size:17px">🔔 알림</div>
-    ${alertContent}
-    <div class="modal-footer" style="justify-content:space-between;align-items:center">
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer">
-        <input type="checkbox" id="alert-dismiss-today" style="width:14px;height:14px">
-        오늘 다시 보지 않고 닫기
-      </label>
-      <button class="btn btn-primary" onclick="closeAlertPopup()">닫기</button>
-    </div>
+    ${content}
+    <div style="font-size:12px;color:var(--text3);margin-bottom:8px;text-align:center">오늘 하루 이 알림을 다시 표시하지 않습니다.</div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">확인</button></div>
   `);
-}
-function closeAlertPopup() {
-  const cb = document.getElementById('alert-dismiss-today');
-  if (cb && cb.checked) {
-    const dismissKey = 'hr_alerts_dismiss_' + (currentEmp?currentEmp.id:'all') + '_' + todayStr();
-    localStorage.setItem(dismissKey, '1');
-  }
-  closeModal();
 }
 
 
@@ -4757,8 +4886,6 @@ function checkAndShowNotice() {
   if (!popupBg) return;
   popupBg.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center';
   popupBg._noticeId = notice.id;
-  // 브라우저 알림
-  showBrowserNotification('📢 ' + notice.title, notice.content.slice(0,80), () => go('notifysetting'));
 }
 
 function closeNoticePopup() {
