@@ -3396,7 +3396,8 @@ function renderCalendar(){
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status,r);});
   });
-  db.events.forEach(ev2=>{
+  // ── 달력 내 생일/기념일 표시 비활성화 (요청에 따라 숨김 처리, 기능은 보존) ──
+  if (false) { db.events.forEach(ev2=>{
     const ds=getEventDate(ev2,y);
     if(ds&&ds.startsWith(mStr)) {
       const emp4 = eid(ev2.empId);
@@ -3407,7 +3408,7 @@ function renderCalendar(){
       const evLabel = (ev2.empId===0||ev2.empId===null||ev2.empId===undefined) ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
       addEv(ds,evLabel,'ev-bday');
     }
-  });
+  }); }
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
@@ -3472,7 +3473,8 @@ function renderCalendar(){
   const todayD2 = parseLocalDate(todayStr());
   // db.events 기준 (올해 지났으면 내년으로)
   const upcoming30 = [];
-  db.events.forEach(ev2 => {
+  const upcoming30Html = ''; // 30일 이내 예정 비활성화
+  if (false) { db.events.forEach(ev2 => {
     let ds2 = getEventDate(ev2, todayD2.getFullYear());
     if (!ds2) return;
     let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
@@ -3498,7 +3500,8 @@ function renderCalendar(){
   });
   upcoming30.sort((a,b) => a.diff - b.diff);
 
-  const upcoming30Html = upcoming30.length ? `
+  } // end if(false) upcoming30
+  const _upcoming30Html_unused = upcoming30.length ? `
     <div style="background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px">
       <div style="font-size:12px;font-weight:600;color:var(--bday);margin-bottom:6px">🗓️ 30일 이내 예정</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:88px;overflow-y:auto">
@@ -3529,7 +3532,7 @@ function renderCalendar(){
       <div class="legend-item"><div class="legend-dot" style="background:var(--ot-bg);border:1px solid var(--ot)"></div>특근</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--trip-bg);border:1px solid var(--trip)"></div>출장</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--comp-bg);border:1px solid var(--comp)"></div>대체휴무</div>
-      <div class="legend-item"><div class="legend-dot" style="background:var(--bday-bg);border:1px solid var(--bday)"></div>생일/기념일</div>
+      <!-- 생일/기념일 범례 숨김 -->
       <div class="legend-item"><div class="legend-dot" style="background:var(--health-bg);border:1px solid var(--health)"></div>건강검진</div>
     </div>
     <div class="cal-grid">
