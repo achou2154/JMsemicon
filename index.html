@@ -3890,9 +3890,26 @@ function onLeaveTimeChange(){
   }
 }
 
-// 총 시간 직접 입력 시 처리 (검증만)
+// 총 시간 직접 입력 시 → 종료시각 자동계산 (시작시각 + 총시간)
 function onLeaveHoursInput(){
-  // 필요 시 추가 처리
+  const hEl = document.getElementById('f-hours');
+  const sT = document.getElementById('f-start-time');
+  const eT = document.getElementById('f-end-time');
+  if(!hEl || !sT || !eT) return;
+  const hours = parseFloat(hEl.value);
+  if(isNaN(hours) || hours <= 0) return;
+  // 시작 시각이 없으면 현재 시각 기준
+  let startVal = sT.value;
+  if(!startVal){
+    const nowK = new Date(Date.now()+9*3600*1000);
+    startVal = String(nowK.getUTCHours()).padStart(2,'0')+':'+String(nowK.getUTCMinutes()).padStart(2,'0');
+    sT.value = startVal;
+  }
+  const [sh, sm] = startVal.split(':').map(Number);
+  const totalMin = sh*60 + sm + Math.round(hours*60);
+  const eh = String(Math.floor(totalMin/60)%24).padStart(2,'0');
+  const em = String(totalMin%60).padStart(2,'0');
+  eT.value = eh+':'+em;
 }
 
 // 파일 첨부 처리
@@ -3962,18 +3979,16 @@ function onLtypeChange(){
     if(eT) eT.value='18:00';
   }
   else if(sel.value==='외출'){
-    // 외출: 총 시간 미리 안 넣고 시각 계산값으로
+    // 외출: 총시간 1h, 현재시각 ~ +1h
+    hEl.value=1;
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
     const sT=document.getElementById('f-start-time');
     const eT=document.getElementById('f-end-time');
-    if(!sT?.value || !eT?.value){
-      const nowK=new Date(Date.now()+9*3600*1000);
-      const hh=String(nowK.getUTCHours()).padStart(2,'0');
-      const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
-      const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
-      if(sT) sT.value=hh+':'+mm;
-      if(eT) eT.value=hh1+':'+mm;
-    }
-    onLeaveTimeChange();
+    if(sT) sT.value=hh+':'+mm;
+    if(eT) eT.value=hh1+':'+mm;
   }
   else if(sel.value==='병가'){ hEl.value=0; }
   else if(sel.value==='특별휴가'){ hEl.value=8; }
