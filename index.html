@@ -1353,7 +1353,7 @@ function renderOverview(){
   // 전체 잔여연차 합계 (발생-소멸-사용)
   const totalLeaveAlloc=db.employees.filter(e=>!e.isExternal).reduce((s,e)=>s+getLeaveRemain(e.id,yr),0);
   const totalOT=db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
-  const totalComp=db.requests.filter(r=>r.type==='comp'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
+  const totalComp=db.employees.filter(e=>!e.isExternal).reduce((s,e)=>s+getCompEarned(e.id,yr),0);
   const totalCompUsed=db.employees.reduce((s,e)=>s+getCompUsed(e.id,yr),0);
   const totalCompRemain=db.employees.reduce((s,e)=>s+getCompRemain(e.id,yr),0);
   const totalTrips=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.status==='approved').length;
@@ -1448,13 +1448,13 @@ function renderOverview(){
       </div>
       <div class="stat-card ot" style="cursor:pointer" onclick="openOverviewDetail('ot')">
         <div class="stat-label">발생특근</div>
-        <div class="stat-val">${totalOT}h</div>
+        <div class="stat-val">${totalOT} h</div>
         <div class="stat-sub">${Math.round(totalOT/8*10)/10}일</div>
       </div>
       <div class="stat-card comp" style="cursor:pointer" onclick="openOverviewDetail('comp')">
         <div class="stat-label">잔여대휴</div>
-        <div class="stat-val">${totalCompRemain}h</div>
-        <div class="stat-sub">발생 ${totalComp}h / 사용 ${totalCompUsed}h</div>
+        <div class="stat-val">${totalCompRemain} h</div>
+        <div class="stat-sub">발생 ${totalComp} h / 사용 ${totalCompUsed} h</div>
       </div>
       <div class="stat-card trip" style="cursor:pointer" onclick="openOverviewDetail('trip')">
         <div class="stat-label">출장</div>
@@ -3417,18 +3417,7 @@ function renderCalendar(){
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status,r);});
   });
-  db.events.forEach(ev2=>{
-    const ds=getEventDate(ev2,y);
-    if(ds&&ds.startsWith(mStr)) {
-      const emp4 = eid(ev2.empId);
-      const isWelfare4 = emp4 && (
-        (emp4.anniversaryType==='birthday' && ev2.type==='birthday') ||
-        (emp4.anniversaryType==='anniversary' && ev2.type==='anniversary')
-      );
-      const evLabel = (ev2.empId===0||ev2.empId===null||ev2.empId===undefined) ? '🏢 '+ev2.name : (ev2.type==='birthday'?'🎂 ':'🎉 ')+ev2.name+(isWelfare4?' ⭐':'');
-      addEv(ds,evLabel,'ev-bday');
-    }
-  });
+  // 생일/기념일 달력 표시 비활성화 (숨김 처리)
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
       if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
@@ -3494,7 +3483,7 @@ function renderCalendar(){
   const todayD2 = parseLocalDate(todayStr());
   // db.events 기준 (올해 지났으면 내년으로)
   const upcoming30 = [];
-  db.events.forEach(ev2 => {
+  if(false) db.events.forEach(ev2 => {
     let ds2 = getEventDate(ev2, todayD2.getFullYear());
     if (!ds2) return;
     let diff2 = Math.round((parseLocalDate(ds2) - todayD2) / 864e5);
