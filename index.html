@@ -237,7 +237,9 @@ tbody tr:hover td{background:var(--surface2)}
       <input id="topbar-emp-search" placeholder="🔍 직원 검색..." oninput="topbarEmpSearch(this.value)"
         style="display:none;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px;width:150px">
       <!-- 기념일 작은 알림 -->
-      <div id="bday-alarm-bar" style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;padding:3px 12px;font-size:12px;color:#1d4ed8;cursor:pointer;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis" onclick="go('calendar')"></div>
+      <div id="bday-alarm-bar" style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;overflow:hidden;max-width:280px;cursor:pointer;position:relative;height:26px" onclick="go('calendar')">
+        <div id="bday-alarm-inner" style="position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;font-size:12px;color:#1d4ed8;white-space:nowrap;transition:transform 0.4s ease,opacity 0.4s ease"></div>
+      </div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
     </div>
   </div>
@@ -4714,8 +4716,22 @@ let _absenceBarItems = [];
 let _absenceBarIdx = 0;
 let _absenceBarTimer = null;
 
+function _absenceSlide(inner, text, dir) {
+  // dir: 1=왼쪽에서, -1=오른쪽에서
+  inner.style.transition = 'none';
+  inner.style.transform = 'translateX(' + (dir * 100) + '%)';
+  inner.style.opacity = '0';
+  inner.textContent = text;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      inner.style.transition = 'transform 0.4s ease, opacity 0.4s ease';
+      inner.style.transform = 'translateX(0)';
+      inner.style.opacity = '1';
+    });
+  });
+}
+
 function updateBdayAlarmBar() {
-  // 자리비움 항목 수집
   const td = todayStr();
   const typeLabel = {leave:'연차',comp:'대휴',trip:'출장',outside:'외출',education:'교육'};
   _absenceBarItems = db.requests.filter(r =>
@@ -4731,18 +4747,22 @@ function updateBdayAlarmBar() {
   });
 
   const bar = document.getElementById('bday-alarm-bar');
-  if (!bar) return;
+  const inner = document.getElementById('bday-alarm-inner');
+  if (!bar || !inner) return;
   if (!_absenceBarItems.length) { bar.style.display = 'none'; return; }
+
   bar.style.display = 'block';
   _absenceBarIdx = 0;
-  bar.textContent = _absenceBarItems[0];
+  inner.style.transition = 'none';
+  inner.style.transform = 'translateX(0)';
+  inner.style.opacity = '1';
+  inner.textContent = _absenceBarItems[0];
 
-  // 기존 타이머 제거 후 로테이션 시작
   if (_absenceBarTimer) clearInterval(_absenceBarTimer);
   if (_absenceBarItems.length > 1) {
     _absenceBarTimer = setInterval(() => {
       _absenceBarIdx = (_absenceBarIdx + 1) % _absenceBarItems.length;
-      bar.textContent = _absenceBarItems[_absenceBarIdx];
+      _absenceSlide(inner, _absenceBarItems[_absenceBarIdx], 1);
     }, 10000);
   }
 }
