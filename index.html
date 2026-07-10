@@ -2802,26 +2802,39 @@ async function saveOutside(empId) {
 
 // 교육 신청
 function openAddEducation(empId) {
-  const e = eid(empId); if (!e) return;
-  openModal(`
-    <div class="modal-title">📚 교육 신청 — ${e.name}</div>
-    <div class="field" style="margin-bottom:12px"><label>교육명 *</label><input id="edu-title" placeholder="교육명을 입력하세요"></div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시작일 *</label>${makeDateInput('edu-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('edu-end','',true)}</div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시작 시간</label><input id="edu-start-time" type="time" value="09:00" style="padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;width:100%"></div>
-      <div class="field"><label>종료 시간</label><input id="edu-end-time" type="time" value="18:00" style="padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;width:100%"></div>
-    </div>
-    <div class="field" style="margin-bottom:16px"><label>사유/기관</label><input id="edu-reason" placeholder="교육 기관 또는 추가 사유"></div>
-    <div class="modal-footer">
-      <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveEducation(${empId})">신청</button>
-    </div>
-  `);
+  // 관리자: 직원 선택 드롭다운 표시 / 직원: 본인만
+  const _nowK=new Date(Date.now()+9*3600*1000);
+  const _todayISO=_nowK.toISOString().slice(0,10);
+  openModal('<div class="modal-title">📚 교육 신청</div>'
+  +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label>'
+  +(isAdmin
+    ? '<select id="f-edu-emp">'+empOptions(empId)+'</select>'
+    : '<input value="'+(eid(empId)?eid(empId).name+' ('+eid(empId).dept+')':'?')+'" disabled style="background:var(--bg);padding:7px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px;width:100%;color:var(--text2)">'
+      +'<input type="hidden" id="f-edu-emp" value="'+empId+'">')
+  +'</div>'
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">교육명 *</label><input id="edu-title" placeholder="교육명을 입력하세요"></div>'
+  +'<div style="margin-bottom:12px">'
+  +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><label style="font-size:15px;font-weight:700">일시</label></div>'
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px;margin-bottom:6px">'
+  +'<span style="font-size:14px;color:var(--text2);font-weight:600">시작일</span>'
+  +'<div>'+makeDateInput('edu-start',_todayISO,true)+'</div>'
+  +'<input id="edu-start-time" type="time" value="09:00" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"></div>'
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px">'
+  +'<span style="font-size:14px;color:var(--text2);font-weight:600">종료일</span>'
+  +'<div>'+makeDateInput('edu-end',_todayISO,true)+'</div>'
+  +'<input id="edu-end-time" type="time" value="18:00" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"></div></div>'
+  +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">사유/기관</label><input id="edu-reason" placeholder="교육 기관 또는 추가 사유"></div>'
+  +'</div>'
+  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button>'
+  +'<button class="btn btn-primary" onclick="saveEducationFromModal()">신청</button></div>');
 }
 
+function saveEducationFromModal(){
+  const empId=document.getElementById('f-edu-emp')?.value;
+  if(!empId){showToast('⚠️ 직원을 선택해 주세요');return;}
+  saveEducation(empId);
+}
 async function saveEducation(empId) {
   const title = document.getElementById('edu-title')?.value?.trim();
   const s = getDateVal('edu-start');
@@ -3752,47 +3765,63 @@ function reqToDb(r) {
 }
 
 async function openAddLeave(empId){
-  openModal(`<div class="modal-title">연차 신청</div>
-    <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div>
-    <div class="form-grid col1" style="margin-bottom:12px">
-      <div class="field">
-        <label>구분</label>
-         <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-annual" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차 (8h)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-half" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차 (4h)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가
-           </label>
-           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px">
-             <input type="radio" name="ltype" id="lt-special" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가
-           </label>
-         </div>
-        <div style="margin-top:8px;padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.7">
-          ※ 병가: 동일 질병으로 인한 7일 이상의 결근 &nbsp;|&nbsp; ※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출
-        </div>
-      </div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시간 <span style="font-size:10px;color:var(--text3)">(날짜 입력 시 자동계산)</span></label><input id="f-hours" type="number" value="8" min="1"></div>
-    </div>
-    <div class="form-grid" style="margin-bottom:12px">
-      <div class="field"><label>시작일 *</label>${makeDateInput('f-start','',true)}</div>
-      <div class="field"><label>종료일</label>${makeDateInput('f-end','',true)}</div>
-    </div>
-    <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
-    <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>`);
+  const _nowK=new Date(Date.now()+9*3600*1000);
+  const _todayISO=_nowK.toISOString().slice(0,10);
+  const _hh=String(_nowK.getUTCHours()).padStart(2,'0');
+  const _mm=String(_nowK.getUTCMinutes()).padStart(2,'0');
+  const _hh1=String((_nowK.getUTCHours()+1)%24).padStart(2,'0');
+  window._leaveAttachFile=null;
+  openModal('<div class="modal-title">연차 신청</div>'
+  +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
+  // 직원
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp">'+empOptions(empId)+'</select></div>'
+  // 구분
+  +'<div class="field" style="margin-bottom:8px"><label style="font-weight:700">구분</label>'
+  +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>'
+  +'</div></div>'
+  // 노란 안내박스
+  +'<div style="padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.8;margin-bottom:12px">※ 병가: 동일 질병으로 인한 7일 이상의 결근<br>※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출</div>'
+  // 일시
+  +'<div style="margin-bottom:12px">'
+  +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
+  +'<label style="font-size:13px;font-weight:700;min-width:32px">일시</label>'
+  +'<div style="display:flex;align-items:center;gap:6px"><label style="font-size:12px;color:var(--text2)">총 시간</label>'
+  +'<input id="f-hours" type="number" value="8" min="0" step="0.5" style="width:64px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;text-align:center" oninput="onLeaveHoursInput()"><label style="font-size:12px;color:var(--text2)">시간</label></div>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="checkbox" id="f-allday" checked onchange="onAlldayChange()" style="width:15px;height:15px"> 종일</label>'
+  +'</div>'
+  // 시작일
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px;margin-bottom:6px">'
+  +'<span style="font-size:12px;color:var(--text2);font-weight:500">시작일</span>'
+  +'<div id="leave-start-date-wrap">'+makeDateInput('f-start',_todayISO,true)+'</div>'
+  +'<div id="leave-start-time-wrap" style="display:none"><input id="f-start-time" type="time" value="'+_hh+':'+_mm+'" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="onLeaveTimeChange()"></div>'
+  +'</div>'
+  // 종료일
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px">'
+  +'<span style="font-size:12px;color:var(--text2);font-weight:500">종료일</span>'
+  +'<div id="leave-end-date-wrap">'+makeDateInput('f-end',_todayISO,true)+'</div>'
+  +'<div id="leave-end-time-wrap" style="display:none"><input id="f-end-time" type="time" value="'+_hh1+':'+_mm+'" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="onLeaveTimeChange()"></div>'
+  +'</div></div>'
+  // 사유
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
+  // 첨부파일
+  +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">첨부파일 <span style="font-size:10px;color:var(--text3);font-weight:400">(최대 1개, 10MB)</span></label>'
+  +'<div id="leave-file-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;background:var(--bg);font-size:13px;color:var(--text3)" onclick="openLeaveFileDialog()" ondragover="event.preventDefault();this.style.borderColor=\'var(--accent)\'" ondragleave="this.style.borderColor=\'var(--border2)\'" ondrop="onLeaveFileDrop(event)">첨부할 파일을 마우스로 끌어 놓으세요</div>'
+  +'<input id="leave-file-input" type="file" style="display:none" onchange="onLeaveFileSelect(this)">'
+  +'<div id="leave-file-name" style="font-size:12px;color:var(--accent);margin-top:4px"></div>'
+  +'</div>'
+  +'</div>'
+  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>');
   setTimeout(()=>{
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
       if(el) el.addEventListener('input',autoCalcLeaveHours);
     });
+    onLtypeChange();
   },100);
 }
 // 7. 직원 직접 서류 첨부 업로드
@@ -3894,16 +3923,128 @@ function onLtypeChange(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   if(!sel) return;
   const hEl=document.getElementById('f-hours');
-  if(!hEl) return;
-  // 병가/특별휴가: 총 시간 비활성화
+  const alldayEl=document.getElementById('f-allday');
+  const sTimeWrap=document.getElementById('leave-start-time-wrap');
+  const eTimeWrap=document.getElementById('leave-end-time-wrap');
   const noHourTypes=['병가','특별휴가'];
-  hEl.disabled=noHourTypes.includes(sel.value);
-  hEl.style.opacity=noHourTypes.includes(sel.value)?'0.4':'1';
+  const fullDayTypes=['연차','병가','특별휴가'];
+  const isFullDay=fullDayTypes.includes(sel.value);
+
+  // 병가/특별휴가: 총 시간 비활성화
+  if(hEl){
+    hEl.disabled=noHourTypes.includes(sel.value);
+    hEl.style.opacity=noHourTypes.includes(sel.value)?'0.4':'1';
+  }
+  // 종일 체크박스
+  if(alldayEl) alldayEl.checked=isFullDay;
+  // 시각 입력 표시/숨김
+  if(sTimeWrap) sTimeWrap.style.display=isFullDay?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display=isFullDay?'none':'';
+
+  // 시각 기본값 세팅 (비종일)
+  if(!isFullDay){
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT&&!sT.value) sT.value=hh+':'+mm;
+    if(eT&&!eT.value) eT.value=hh1+':'+mm;
+  }
+
+  if(!hEl) return;
   if(sel.value==='연차') hEl.value=8;
-  else if(sel.value==='반차') hEl.value=4;
-  else if(sel.value==='외출') hEl.value=1;
+  else if(sel.value==='반차'){
+    hEl.value=4;
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value='14:00';
+    if(eT) eT.value='18:00';
+  }
+  else if(sel.value==='외출'){
+    hEl.value=1;
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value=hh+':'+mm;
+    if(eT) eT.value=hh1+':'+mm;
+  }
   else if(sel.value==='병가') hEl.value=0;
   else if(sel.value==='특별휴가') hEl.value=0;
+
+  if(!isFullDay && sel.value!=='외출') onLeaveTimeChange();
+}
+
+function onAlldayChange(){
+  const allday=document.getElementById('f-allday')?.checked;
+  const sTimeWrap=document.getElementById('leave-start-time-wrap');
+  const eTimeWrap=document.getElementById('leave-end-time-wrap');
+  if(sTimeWrap) sTimeWrap.style.display=allday?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display=allday?'none':'';
+  if(!allday){
+    const halfRadio=document.querySelector('input[name="ltype"][value="반차"]');
+    if(halfRadio) halfRadio.checked=true;
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value='14:00';
+    if(eT) eT.value='18:00';
+    const hEl=document.getElementById('f-hours');
+    if(hEl) hEl.value=4;
+  }
+}
+
+function onLeaveTimeChange(){
+  const s=document.getElementById('f-start-time')?.value;
+  const e=document.getElementById('f-end-time')?.value;
+  if(!s||!e) return;
+  const [sh,sm]=s.split(':').map(Number);
+  const [eh,em]=e.split(':').map(Number);
+  const diff=(eh*60+em)-(sh*60+sm);
+  if(diff>0){const hEl=document.getElementById('f-hours');if(hEl)hEl.value=Math.round(diff/60*10)/10;}
+}
+
+function onLeaveHoursInput(){
+  const hEl=document.getElementById('f-hours');
+  const sT=document.getElementById('f-start-time');
+  const eT=document.getElementById('f-end-time');
+  if(!hEl||!sT||!eT) return;
+  const hours=parseFloat(hEl.value);
+  if(isNaN(hours)||hours<=0) return;
+  let sv=sT.value;
+  if(!sv){const nowK=new Date(Date.now()+9*3600*1000);sv=String(nowK.getUTCHours()).padStart(2,'0')+':'+String(nowK.getUTCMinutes()).padStart(2,'0');sT.value=sv;}
+  const [sh,sm]=sv.split(':').map(Number);
+  const tot=sh*60+sm+Math.round(hours*60);
+  eT.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+}
+
+function openLeaveFileDialog(){document.getElementById("leave-file-input").click();}
+function onLeaveFileDrop(e){
+  e.preventDefault();
+  document.getElementById('leave-file-drop').style.borderColor='var(--border2)';
+  const file=e.dataTransfer.files[0];
+  if(file) setLeaveFile(file);
+}
+function onLeaveFileSelect(input){
+  const file=input.files[0];
+  if(file) setLeaveFile(file);
+}
+function setLeaveFile(file){
+  if(file.size>10*1024*1024){showToast('⚠️ 10MB 이하 파일만 첨부 가능');return;}
+  window._leaveAttachFile=file;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML='📎 '+file.name+' <span style="color:var(--text3)">('+Math.round(file.size/1024)+'KB)</span>'
+    +'<button style="margin-left:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearLeaveFile()">✕</button>';
+}
+function clearLeaveFile(){
+  window._leaveAttachFile=null;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML='';
+  const inp=document.getElementById('leave-file-input');
+  if(inp) inp.value='';
 }
 function autoCalcEditLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
@@ -3937,6 +4078,7 @@ async function saveLeave(){
   const leaveType=sel?sel.value:'연차';
   const empId=document.getElementById('f-emp').value;
   const e2=getDateVal('f-end')||s;
+  if(!checkDateOrder(s,e2,'연차')) return;
   // 중복 체크
   const overlaps=checkLeaveOverlap(empId,s,e2);
   if(overlaps.length>0){
@@ -3944,13 +4086,29 @@ async function saveLeave(){
     alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n'+info+'\n\n중복 저장이 불가합니다.');
     return;
   }
-  const _r = {id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:parseInt(document.getElementById('f-hours').value)||8,reason:document.getElementById('f-reason').value||'',reqDate:todayStr()};
-  const _saved = await sbInsert('requests', reqToDb(_r));
-  if (_saved) {
-    _r.id = _saved.id;
+  const _startTime=document.getElementById('f-start-time')?.value||'';
+  const _endTime=document.getElementById('f-end-time')?.value||'';
+  const _hours=parseFloat(document.getElementById('f-hours').value)||8;
+  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
+  const _saved=await sbInsert('requests',reqToDb(_r));
+  if(_saved){
+    _r.id=_saved.id;
+    // 첨부파일 업로드
+    if(window._leaveAttachFile&&_supa){
+      try{
+        const fn='leave_'+_saved.id+'_'+encodeURIComponent(window._leaveAttachFile.name);
+        const {error:upErr}=await _supa.storage.from('attachments').upload(fn,window._leaveAttachFile);
+        if(!upErr){
+          const {data:{publicUrl}}=_supa.storage.from('attachments').getPublicUrl(fn);
+          _r.attachmentUrl=publicUrl||fn;
+          await sbUpdate('requests',_saved.id,{attachment_url:_r.attachmentUrl});
+        }
+        window._leaveAttachFile=null;
+      }catch(e){console.warn('첨부파일 오류:',e);}
+    }
     db.requests.unshift(_r);
-    saveAll(); showToast('✅ 신청 완료'); await notifyAdmin(_r);
-  } else { showToast('⚠️ 저장 실패'); }
+    saveAll();showToast('✅ 신청 완료');await notifyAdmin(_r);
+  }else{showToast('⚠️ 저장 실패');}
   closeModal();
   renderLeave();
 }
