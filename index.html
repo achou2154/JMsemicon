@@ -3509,21 +3509,7 @@ function renderCalendar(){
   });
   upcoming30.sort((a,b) => a.diff - b.diff);
 
-  const upcoming30Html = upcoming30.length ? `
-    <div style="background:var(--bday-bg);border:1px solid #7dd3fc;border-radius:var(--radius);padding:10px 16px;margin-bottom:12px">
-      <div style="font-size:12px;font-weight:600;color:var(--bday);margin-bottom:6px">🗓️ 30일 이내 예정</div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-height:88px;overflow-y:auto">
-        ${upcoming30.map(ev2=>{
-          const emp30=eid(ev2.empId);
-          const isW30=emp30&&((emp30.anniversaryType==='birthday'&&ev2.type==='birthday')||(emp30.anniversaryType==='anniversary'&&ev2.type==='anniversary'));
-          return`<span style="background:#fff;border:1px solid #7dd3fc;border-radius:20px;padding:3px 10px;font-size:12px;display:flex;align-items:center;gap:4px;overflow:hidden">
-            <span>${ev2.type==='birthday'?'🎂':'🎉'}</span>
-            <strong style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ev2.name}</strong>${isW30?'⭐':''}
-            ${ev2.diff===0?'<span style="color:var(--danger);font-weight:700;white-space:nowrap">오늘!</span>':`<span style="color:var(--text2);white-space:nowrap">D-${ev2.diff}</span>`}
-          </span>`;}).join('')}
-      </div>
-      <div style="font-size:10px;color:var(--text3);margin-top:4px">⭐ 복리후생 지원</div>
-    </div>` : '';
+  const upcoming30Html = ''; // 30일 이내 예정 비활성화
 
   const months=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
   setContent(`<div class="card">
