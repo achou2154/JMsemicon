@@ -237,14 +237,8 @@ tbody tr:hover td{background:var(--surface2)}
       <input id="topbar-emp-search" placeholder="🔍 직원 검색..." oninput="topbarEmpSearch(this.value)"
         style="display:none;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px;width:150px">
       <!-- 기념일 작은 알림 -->
-      <div id="bday-alarm-bar" onclick="go('calendar')"
-        style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;
-               max-width:280px;height:26px;overflow:hidden;position:relative;cursor:pointer;flex-shrink:0">
-        <div id="bday-alarm-inner"
-          style="position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;
-                 font-size:12px;color:#1d4ed8;white-space:nowrap;
-                 transition:transform 0.45s cubic-bezier(.4,0,.2,1),opacity 0.45s ease">
-        </div>
+      <div id="bday-alarm-bar" style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;overflow:hidden;max-width:280px;cursor:pointer;position:relative;height:26px" onclick="go('calendar')">
+        <div id="bday-alarm-inner" style="position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;font-size:12px;color:#1d4ed8;white-space:nowrap;transition:transform 0.4s ease,opacity 0.4s ease"></div>
       </div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
     </div>
@@ -2180,7 +2174,7 @@ function renderRequests(){
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
   list=list.slice().sort((a,b)=>b.id-a.id);
   // 건강검진 신청 목록 (관리자만)
-  const healthRows=isAdmin?db.health.filter(h=>!h.year||String(h.year)===String(yr))
+  const healthRows=isAdmin?db.health.filter(h=>String(h.year)===String(yr))
     .slice().sort((a,b)=>b.id-a.id).map(h=>{
       const e=eid(h.empId);
       const main=h.members?.find(m=>m.relation==='본인')||h.members?.[0];
@@ -3082,27 +3076,31 @@ function openHealthApply(empId) {
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
   const existFam = (h?.members||[]).filter(m=>m.relation!=='본인');
-  // 이전 가족 데이터: 다른 연도 health 기록에서 가족 수집
-  const loadableFam = (()=>{
-    const prev = db.health.filter(r=>String(r.empId)===String(empId)&&String(r.year)!==String(yr));
-    if(!prev.length) return existFam.length ? existFam : [];
-    const latest = prev.sort((a,b)=>b.year-a.year)[0];
-    return (latest.members||[]).filter(m=>m.relation!=='본인');
-  })();
-
   const famHtml = existFam.map((m,i)=>`
-    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:4px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <input placeholder="관계" value="${m.relation||''}" id="fam-rel-${i}"
         style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
       <input placeholder="성명" value="${m.name||''}" id="fam-name-${i}"
         style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-      <div id="fam-birth-wrap-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-'+i, m.birthdate||'')}</div>
+      <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
+        value="${m.birthdate?m.birthdate.slice(0,4):''}"
+        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+      <span style="font-size:11px">-</span>
+      <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
+        value="${m.birthdate?parseInt(m.birthdate.slice(5,7)):''}"
+        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+      <span style="font-size:11px">-</span>
+      <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
+        value="${m.birthdate?parseInt(m.birthdate.slice(8,10)):''}"
+        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
       <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>
     </div>`).join('');
 
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
-    <div id="health-form-wrap" data-empid="${empId}" style="display:none"></div>
     <div class="field" style="margin-bottom:12px">
       <label>예약일 *</label>
       <div style="display:flex;gap:4px;align-items:center">
@@ -3123,10 +3121,9 @@ function openHealthApply(empId) {
       </div>
     </div>
     <div style="margin-bottom:12px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px">
         가족 추가
-        <button class="btn btn-sm btn-primary" onclick="addFamRow()">+ 가족 추가</button>
-        ${loadableFam.length?`<button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border-color:#86efac" onclick="loadPrevFam()">📋 이전 가족 불러오기 (${loadableFam.length}명)</button>`:''}
+        <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="addFamRow()">+ 가족 추가</button>
       </div>
       <div id="fam-list">${famHtml}</div>
     </div>
@@ -3150,35 +3147,6 @@ function openHealthApply(empId) {
 }
 
 
-function loadPrevFam() {
-  const list = document.getElementById('fam-list');
-  if (!list) return;
-  // 현재 empId로 이전 가족 찾기 (openHealthApply에서 넘긴 loadableFam 재계산)
-  const empId = list.closest('[data-empid]')?.dataset?.empid || currentEmp?.id;
-  const yr = currentYear;
-  const prev = db.health.filter(r=>String(r.empId)===String(empId)&&String(r.year)!==String(yr));
-  if (!prev.length) { showToast('불러올 가족 정보가 없습니다'); return; }
-  const latest = prev.sort((a,b)=>b.year-a.year)[0];
-  const fams = (latest.members||[]).filter(m=>m.relation!=='본인');
-  if (!fams.length) { showToast('이전 가족 정보가 없습니다'); return; }
-  list.innerHTML = '';
-  fams.forEach((m,i) => {
-    const div = document.createElement('div');
-    div.className = 'fam-row';
-    div.id = 'fam-row-prev-'+i;
-    div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
-    div.innerHTML = `
-      <input placeholder="관계" id="fam-rel-prev-${i}" value="${m.relation||''}"
-        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-      <input placeholder="성명" id="fam-name-prev-${i}" value="${m.name||''}"
-        style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-      <div id="fam-birth-wrap-prev-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-prev-'+i, m.birthdate||'')}</div>
-      <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>`;
-    list.appendChild(div);
-  });
-  showToast('✅ 이전 가족 정보 불러오기 완료 ('+fams.length+'명)');
-}
-
 function toggleHealthReserveDate(isOther) {
   const wrap = document.getElementById('h-reserve-wrap');
   if (wrap) wrap.style.display = isOther ? 'none' : '';
@@ -3198,7 +3166,17 @@ function addFamRow() {
       style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
     <input placeholder="성명" id="fam-name-${i}"
       style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-    <div id="fam-birth-wrap-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-'+i,'')}</div>
+    <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
+      style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+    <span style="font-size:11px">-</span>
+    <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
+      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+    <span style="font-size:11px">-</span>
+    <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
+      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
+      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
     <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>`;
   list.appendChild(div);
 }
@@ -3224,19 +3202,13 @@ async function saveHealthApply(empId) {
   famRows.forEach(row => {
     const relEl = row.querySelector('input[id^="fam-rel"]');
     const nameEl = row.querySelector('input[id^="fam-name"]');
+    const byEl = row.querySelector('input[id^="fam-by"]');
+    const bmEl = row.querySelector('input[id^="fam-bm"]');
+    const bdEl = row.querySelector('input[id^="fam-bd"]');
     const rel = relEl?.value?.trim();
     if (rel) {
-      // makeDateInput 방식 (fam-bd-{i}-y, -m, -d)
-      const bdWrap = row.querySelector('[id^="fam-birth-wrap"]');
-      let birthdate = '';
-      if (bdWrap) {
-        const bdId = bdWrap.id.replace('fam-birth-wrap-','fam-bd-');
-        const yEl = document.getElementById(bdId+'-y');
-        const mEl = document.getElementById(bdId+'-m');
-        const dEl = document.getElementById(bdId+'-d');
-        const by = yEl?.value||''; const bm = String(mEl?.value||'').padStart(2,'0'); const bd = String(dEl?.value||'').padStart(2,'0');
-        if(by&&bm&&bd) birthdate = by+'-'+bm+'-'+bd;
-      }
+      const by = byEl?.value||''; const bm = String(bmEl?.value||'').padStart(2,'0'); const bd = String(bdEl?.value||'').padStart(2,'0');
+      const birthdate = (by&&bm&&bd) ? `${by}-${bm}-${bd}` : '';
       members.push({relation:rel, name:nameEl?.value?.trim()||'', birthdate, confirmed:false, reserveDate:'', checkupDate:'', cost:0});
     }
   });
@@ -3795,69 +3767,57 @@ function reqToDb(r) {
 }
 
 async function openAddLeave(empId){
-  const _nk=new Date(Date.now()+9*3600*1000);
-  const _td=_nk.toISOString().slice(0,10);
-  const _hh=String(_nk.getUTCHours()).padStart(2,'0');
-  const _mm=String(_nk.getUTCMinutes()).padStart(2,'0');
-  const _h1=String((_nk.getUTCHours()+1)%24).padStart(2,'0');
+  const _nowK=new Date(Date.now()+9*3600*1000);
+  const _todayISO=_nowK.toISOString().slice(0,10);
+  const _hh=String(_nowK.getUTCHours()).padStart(2,'0');
+  const _mm=String(_nowK.getUTCMinutes()).padStart(2,'0');
+  const _hh1=String((_nowK.getUTCHours()+1)%24).padStart(2,'0');
   window._leaveAttachFile=null;
-  openModal(
-    '<div class="modal-title">연차 신청</div>'
-    +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
-    // 직원
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label>'
-    +'<select id="f-emp">'+empOptions(empId)+'</select></div>'
-    // 구분
-    +'<div class="field" style="margin-bottom:8px"><label style="font-weight:700">구분</label>'
-    +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차</label>'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차</label>'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>'
-    +'</div></div>'
-    // 안내박스
-    +'<div style="padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.8;margin-bottom:12px">'
-    +'※ 병가: 동일 질병으로 인한 7일 이상의 결근<br>※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출</div>'
-    // 일시 헤더 (총시간+종일)
-    +'<div style="margin-bottom:12px">'
-    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
-    +'<label style="font-size:13px;font-weight:700">일시</label>'
-    +'<div style="display:flex;align-items:center;gap:6px">'
-    +'<label style="font-size:12px;color:var(--text2)">총 시간</label>'
-    +'<input id="f-hours" type="number" value="8" min="0" step="0.5" oninput="onLeaveHoursInput()" style="width:60px;padding:3px 6px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;text-align:center">'
-    +'<label style="font-size:12px;color:var(--text2)">시간</label>'
-    +'</div>'
-    +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">'
-    +'<input type="checkbox" id="f-allday" checked onchange="onAlldayChange()" style="width:15px;height:15px"> 종일</label>'
-    +'</div>'
-    // 시작일
-    +'<div style="display:grid;grid-template-columns:44px 1fr 110px;align-items:center;gap:8px;margin-bottom:6px">'
-    +'<span style="font-size:12px;color:var(--text2);font-weight:600">시작일</span>'
-    +'<div>'+makeDateInput('f-start',_td,true)+'</div>'
-    +'<div id="lv-st-wrap" style="display:none">'
-    +'<input id="f-start-time" type="time" value="'+_hh+':'+_mm+'" oninput="onLeaveTimeChange()" style="width:100%;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">'
-    +'</div></div>'
-    // 종료일
-    +'<div style="display:grid;grid-template-columns:44px 1fr 110px;align-items:center;gap:8px">'
-    +'<span style="font-size:12px;color:var(--text2);font-weight:600">종료일</span>'
-    +'<div>'+makeDateInput('f-end',_td,true)+'</div>'
-    +'<div id="lv-et-wrap" style="display:none">'
-    +'<input id="f-end-time" type="time" value="'+_h1+':'+_mm+'" oninput="onLeaveTimeChange()" style="width:100%;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px">'
-    +'</div></div></div>'
-    // 사유
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label>'
-    +'<input id="f-reason" placeholder="사유를 입력하세요"></div>'
-    // 첨부파일
-    +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">첨부파일 <span style="font-size:10px;color:var(--text3);font-weight:400">(최대 10MB)</span></label>'
-    +'<div id="lv-file-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:14px;text-align:center;cursor:pointer;background:var(--bg);font-size:13px;color:var(--text3)" onclick="document.getElementById(&quot;lv-file-inp&quot;).click()" ondragover="event.preventDefault();this.style.borderColor=&quot;var(--accent)&quot;" ondragleave="this.style.borderColor=&quot;var(--border2)&quot;" ondrop="onLvFileDrop(event)">첨부할 파일을 마우스로 끌어 놓으세요</div>'
-    +'<input id="lv-file-inp" type="file" style="display:none" onchange="onLvFileSelect(this)">'
-    +'<div id="lv-file-name" style="font-size:12px;color:var(--accent);margin-top:4px"></div>'
-    +'</div>'
-    +'</div>'
-    +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button>'
-    +'<button class="btn btn-primary" onclick="saveLeave()">신청</button></div>'
-  );
+  openModal('<div class="modal-title">연차 신청</div>'
+  +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
+  // 직원
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp">'+empOptions(empId)+'</select></div>'
+  // 구분
+  +'<div class="field" style="margin-bottom:8px"><label style="font-weight:700">구분</label>'
+  +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>'
+  +'</div></div>'
+  // 노란 안내박스
+  +'<div style="padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:11px;color:#92400e;line-height:1.8;margin-bottom:12px">※ 병가: 동일 질병으로 인한 7일 이상의 결근<br>※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출</div>'
+  // 일시
+  +'<div style="margin-bottom:12px">'
+  +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
+  +'<label style="font-size:13px;font-weight:700;min-width:32px">일시</label>'
+  +'<div style="display:flex;align-items:center;gap:6px"><label style="font-size:12px;color:var(--text2)">총 시간</label>'
+  +'<input id="f-hours" type="number" value="8" min="0" step="0.5" style="width:64px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;text-align:center" oninput="onLeaveHoursInput()"><label style="font-size:12px;color:var(--text2)">시간</label></div>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px"><input type="checkbox" id="f-allday" checked onchange="onAlldayChange()" style="width:15px;height:15px"> 종일</label>'
+  +'</div>'
+  // 시작일
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px;margin-bottom:6px">'
+  +'<span style="font-size:12px;color:var(--text2);font-weight:500">시작일</span>'
+  +'<div id="leave-start-date-wrap">'+makeDateInput('f-start',_todayISO,true)+'</div>'
+  +'<div id="leave-start-time-wrap" style="display:none"><input id="f-start-time" type="time" value="'+_hh+':'+_mm+'" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="onLeaveTimeChange()"></div>'
+  +'</div>'
+  // 종료일
+  +'<div style="display:grid;grid-template-columns:48px 0.8fr 1.1fr;align-items:center;gap:8px">'
+  +'<span style="font-size:12px;color:var(--text2);font-weight:500">종료일</span>'
+  +'<div id="leave-end-date-wrap">'+makeDateInput('f-end',_todayISO,true)+'</div>'
+  +'<div id="leave-end-time-wrap" style="display:none"><input id="f-end-time" type="time" value="'+_hh1+':'+_mm+'" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px" oninput="onLeaveTimeChange()"></div>'
+  +'</div></div>'
+  // 사유
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
+  // 첨부파일
+  +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">첨부파일 <span style="font-size:10px;color:var(--text3);font-weight:400">(최대 1개, 10MB)</span></label>'
+  +'<div id="leave-file-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;background:var(--bg);font-size:13px;color:var(--text3)" onclick="openLeaveFileDialog()" ondragover="event.preventDefault();this.style.borderColor=\'var(--accent)\'" ondragleave="this.style.borderColor=\'var(--border2)\'" ondrop="onLeaveFileDrop(event)">첨부할 파일을 마우스로 끌어 놓으세요</div>'
+  +'<input id="leave-file-input" type="file" style="display:none" onchange="onLeaveFileSelect(this)">'
+  +'<div id="leave-file-name" style="font-size:12px;color:var(--accent);margin-top:4px"></div>'
+  +'</div>'
+  +'</div>'
+  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>');
   setTimeout(()=>{
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
@@ -3966,71 +3926,128 @@ function onLtypeChange(){
   if(!sel) return;
   const hEl=document.getElementById('f-hours');
   const alldayEl=document.getElementById('f-allday');
-  const stW=document.getElementById('lv-st-wrap');
-  const etW=document.getElementById('lv-et-wrap');
-  const noHour=['병가','특별휴가'];
-  const fullDay=['연차','병가','특별휴가'];
-  const isFull=fullDay.includes(sel.value);
-  if(hEl){ hEl.disabled=noHour.includes(sel.value); hEl.style.opacity=noHour.includes(sel.value)?'0.4':'1'; }
-  if(alldayEl) alldayEl.checked=isFull;
-  if(stW) stW.style.display=isFull?'none':'';
-  if(etW) etW.style.display=isFull?'none':'';
-  if(!isFull){
-    const nk=new Date(Date.now()+9*3600*1000);
-    const hh=String(nk.getUTCHours()).padStart(2,'0');
-    const mm=String(nk.getUTCMinutes()).padStart(2,'0');
-    const h1=String((nk.getUTCHours()+1)%24).padStart(2,'0');
-    const st=document.getElementById('f-start-time');
-    const et=document.getElementById('f-end-time');
-    if(st&&!st.value) st.value=hh+':'+mm;
-    if(et&&!et.value) et.value=h1+':'+mm;
+  const sTimeWrap=document.getElementById('leave-start-time-wrap');
+  const eTimeWrap=document.getElementById('leave-end-time-wrap');
+  const noHourTypes=['병가','특별휴가'];
+  const fullDayTypes=['연차','병가','특별휴가'];
+  const isFullDay=fullDayTypes.includes(sel.value);
+
+  // 병가/특별휴가: 총 시간 비활성화
+  if(hEl){
+    hEl.disabled=noHourTypes.includes(sel.value);
+    hEl.style.opacity=noHourTypes.includes(sel.value)?'0.4':'1';
   }
+  // 종일 체크박스
+  if(alldayEl) alldayEl.checked=isFullDay;
+  // 시각 입력 표시/숨김
+  if(sTimeWrap) sTimeWrap.style.display=isFullDay?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display=isFullDay?'none':'';
+
+  // 시각 기본값 세팅 (비종일)
+  if(!isFullDay){
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT&&!sT.value) sT.value=hh+':'+mm;
+    if(eT&&!eT.value) eT.value=hh1+':'+mm;
+  }
+
   if(!hEl) return;
   if(sel.value==='연차') hEl.value=8;
-  else if(sel.value==='반차'){ hEl.value=4; const st=document.getElementById('f-start-time'),et=document.getElementById('f-end-time'); if(st)st.value='14:00'; if(et)et.value='18:00'; }
-  else if(sel.value==='외출'){ hEl.value=1; const nk=new Date(Date.now()+9*3600*1000),hh=String(nk.getUTCHours()).padStart(2,'0'),mm=String(nk.getUTCMinutes()).padStart(2,'0'),h1=String((nk.getUTCHours()+1)%24).padStart(2,'0'),st=document.getElementById('f-start-time'),et=document.getElementById('f-end-time'); if(st)st.value=hh+':'+mm; if(et)et.value=h1+':'+mm; }
+  else if(sel.value==='반차'){
+    hEl.value=4;
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value='14:00';
+    if(eT) eT.value='18:00';
+  }
+  else if(sel.value==='외출'){
+    hEl.value=1;
+    const nowK=new Date(Date.now()+9*3600*1000);
+    const hh=String(nowK.getUTCHours()).padStart(2,'0');
+    const mm=String(nowK.getUTCMinutes()).padStart(2,'0');
+    const hh1=String((nowK.getUTCHours()+1)%24).padStart(2,'0');
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value=hh+':'+mm;
+    if(eT) eT.value=hh1+':'+mm;
+  }
   else if(sel.value==='병가') hEl.value=0;
   else if(sel.value==='특별휴가') hEl.value=0;
-  if(!isFull&&sel.value!=='외출') onLeaveTimeChange();
+
+  if(!isFullDay && sel.value!=='외출') onLeaveTimeChange();
 }
+
 function onAlldayChange(){
   const allday=document.getElementById('f-allday')?.checked;
-  const stW=document.getElementById('lv-st-wrap'),etW=document.getElementById('lv-et-wrap');
-  if(stW) stW.style.display=allday?'none':'';
-  if(etW) etW.style.display=allday?'none':'';
+  const sTimeWrap=document.getElementById('leave-start-time-wrap');
+  const eTimeWrap=document.getElementById('leave-end-time-wrap');
+  if(sTimeWrap) sTimeWrap.style.display=allday?'none':'';
+  if(eTimeWrap) eTimeWrap.style.display=allday?'none':'';
   if(!allday){
-    const r=document.querySelector('input[name="ltype"][value="반차"]');
-    if(r) r.checked=true;
-    const st=document.getElementById('f-start-time'),et=document.getElementById('f-end-time');
-    if(st)st.value='14:00'; if(et)et.value='18:00';
-    const hEl=document.getElementById('f-hours'); if(hEl)hEl.value=4;
+    const halfRadio=document.querySelector('input[name="ltype"][value="반차"]');
+    if(halfRadio) halfRadio.checked=true;
+    const sT=document.getElementById('f-start-time');
+    const eT=document.getElementById('f-end-time');
+    if(sT) sT.value='14:00';
+    if(eT) eT.value='18:00';
+    const hEl=document.getElementById('f-hours');
+    if(hEl) hEl.value=4;
   }
 }
+
 function onLeaveTimeChange(){
   const s=document.getElementById('f-start-time')?.value;
   const e=document.getElementById('f-end-time')?.value;
   if(!s||!e) return;
-  const [sh,sm]=s.split(':').map(Number),[eh,em]=e.split(':').map(Number);
+  const [sh,sm]=s.split(':').map(Number);
+  const [eh,em]=e.split(':').map(Number);
   const diff=(eh*60+em)-(sh*60+sm);
-  if(diff>0){const h=document.getElementById('f-hours');if(h)h.value=Math.round(diff/60*10)/10;}
+  if(diff>0){const hEl=document.getElementById('f-hours');if(hEl)hEl.value=Math.round(diff/60*10)/10;}
 }
+
 function onLeaveHoursInput(){
-  const h=document.getElementById('f-hours'),st=document.getElementById('f-start-time'),et=document.getElementById('f-end-time');
-  if(!h||!st||!et) return;
-  const hrs=parseFloat(h.value); if(isNaN(hrs)||hrs<=0) return;
-  let sv=st.value; if(!sv){const nk=new Date(Date.now()+9*3600*1000);sv=String(nk.getUTCHours()).padStart(2,'0')+':'+String(nk.getUTCMinutes()).padStart(2,'0');st.value=sv;}
-  const [sh,sm]=sv.split(':').map(Number),tot=sh*60+sm+Math.round(hrs*60);
-  et.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+  const hEl=document.getElementById('f-hours');
+  const sT=document.getElementById('f-start-time');
+  const eT=document.getElementById('f-end-time');
+  if(!hEl||!sT||!eT) return;
+  const hours=parseFloat(hEl.value);
+  if(isNaN(hours)||hours<=0) return;
+  let sv=sT.value;
+  if(!sv){const nowK=new Date(Date.now()+9*3600*1000);sv=String(nowK.getUTCHours()).padStart(2,'0')+':'+String(nowK.getUTCMinutes()).padStart(2,'0');sT.value=sv;}
+  const [sh,sm]=sv.split(':').map(Number);
+  const tot=sh*60+sm+Math.round(hours*60);
+  eT.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
 }
-function onLvFileDrop(e){ e.preventDefault(); document.getElementById('lv-file-drop').style.borderColor='var(--border2)'; const f=e.dataTransfer.files[0]; if(f)setLvFile(f); }
-function onLvFileSelect(inp){ const f=inp.files[0]; if(f)setLvFile(f); }
-function setLvFile(f){
-  if(f.size>10*1024*1024){showToast('⚠️ 10MB 이하만 첨부 가능');return;}
-  window._leaveAttachFile=f;
-  const n=document.getElementById('lv-file-name');
-  if(n) n.innerHTML='📎 '+f.name+' <span style="color:var(--text3)">('+Math.round(f.size/1024)+'KB)</span> <button style="background:none;border:none;color:var(--danger);cursor:pointer" onclick="clrLvFile()">✕</button>';
+
+function openLeaveFileDialog(){document.getElementById("leave-file-input").click();}
+function onLeaveFileDrop(e){
+  e.preventDefault();
+  document.getElementById('leave-file-drop').style.borderColor='var(--border2)';
+  const file=e.dataTransfer.files[0];
+  if(file) setLeaveFile(file);
 }
-function clrLvFile(){ window._leaveAttachFile=null; const n=document.getElementById('lv-file-name'),i=document.getElementById('lv-file-inp'); if(n)n.innerHTML=''; if(i)i.value=''; }
+function onLeaveFileSelect(input){
+  const file=input.files[0];
+  if(file) setLeaveFile(file);
+}
+function setLeaveFile(file){
+  if(file.size>10*1024*1024){showToast('⚠️ 10MB 이하 파일만 첨부 가능');return;}
+  window._leaveAttachFile=file;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML='📎 '+file.name+' <span style="color:var(--text3)">('+Math.round(file.size/1024)+'KB)</span>'
+    +'<button style="margin-left:6px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearLeaveFile()">✕</button>';
+}
+function clearLeaveFile(){
+  window._leaveAttachFile=null;
+  const nameEl=document.getElementById('leave-file-name');
+  if(nameEl) nameEl.innerHTML='';
+  const inp=document.getElementById('leave-file-input');
+  if(inp) inp.value='';
+}
 function autoCalcEditLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   if(sel&&sel.value!=='연차') return;
@@ -4063,6 +4080,7 @@ async function saveLeave(){
   const leaveType=sel?sel.value:'연차';
   const empId=document.getElementById('f-emp').value;
   const e2=getDateVal('f-end')||s;
+  if(!checkDateOrder(s,e2,'연차')) return;
   // 중복 체크
   const overlaps=checkLeaveOverlap(empId,s,e2);
   if(overlaps.length>0){
@@ -4070,20 +4088,25 @@ async function saveLeave(){
     alert('⚠️ 중복 신청\n\n해당 기간에 이미 신청된 연차가 있습니다:\n\n'+info+'\n\n중복 저장이 불가합니다.');
     return;
   }
-  const _st=document.getElementById('f-start-time')?.value||'';
-  const _et=document.getElementById('f-end-time')?.value||'';
-  const _hrs=parseFloat(document.getElementById('f-hours').value)||8;
-  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hrs,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_st,endTime:_et};
+  const _startTime=document.getElementById('f-start-time')?.value||'';
+  const _endTime=document.getElementById('f-end-time')?.value||'';
+  const _hours=parseFloat(document.getElementById('f-hours').value)||8;
+  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
   const _saved=await sbInsert('requests',reqToDb(_r));
   if(_saved){
     _r.id=_saved.id;
+    // 첨부파일 업로드
     if(window._leaveAttachFile&&_supa){
       try{
         const fn='leave_'+_saved.id+'_'+encodeURIComponent(window._leaveAttachFile.name);
-        const {error:ue}=await _supa.storage.from('attachments').upload(fn,window._leaveAttachFile);
-        if(!ue){const {data:{publicUrl}}=_supa.storage.from('attachments').getPublicUrl(fn);_r.attachmentUrl=publicUrl;await sbUpdate('requests',_saved.id,{attachment_url:publicUrl});}
+        const {error:upErr}=await _supa.storage.from('attachments').upload(fn,window._leaveAttachFile);
+        if(!upErr){
+          const {data:{publicUrl}}=_supa.storage.from('attachments').getPublicUrl(fn);
+          _r.attachmentUrl=publicUrl||fn;
+          await sbUpdate('requests',_saved.id,{attachment_url:_r.attachmentUrl});
+        }
         window._leaveAttachFile=null;
-      }catch(e){console.warn('첨부오류',e);}
+      }catch(e){console.warn('첨부파일 오류:',e);}
     }
     db.requests.unshift(_r);
     saveAll();showToast('✅ 신청 완료');await notifyAdmin(_r);
@@ -4693,53 +4716,54 @@ let _absenceBarItems = [];
 let _absenceBarIdx = 0;
 let _absenceBarTimer = null;
 
-let _absenceItems=[], _absenceIdx=0, _absenceTimer=null;
-
-function _slideBar(text){
-  const inner=document.getElementById('bday-alarm-inner');
-  if(!inner) return;
-  inner.style.transition='none';
-  inner.style.transform='translateY(110%)';
-  inner.style.opacity='0';
-  inner.textContent=text;
-  requestAnimationFrame(()=>requestAnimationFrame(()=>{
-    inner.style.transition='transform 0.45s cubic-bezier(.4,0,.2,1),opacity 0.4s ease';
-    inner.style.transform='translateY(0)';
-    inner.style.opacity='1';
-  }));
+function _absenceSlide(inner, text, dir) {
+  // dir: 1=왼쪽에서, -1=오른쪽에서
+  inner.style.transition = 'none';
+  inner.style.transform = 'translateX(' + (dir * 100) + '%)';
+  inner.style.opacity = '0';
+  inner.textContent = text;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      inner.style.transition = 'transform 0.4s ease, opacity 0.4s ease';
+      inner.style.transform = 'translateX(0)';
+      inner.style.opacity = '1';
+    });
+  });
 }
 
-function updateBdayAlarmBar(){
-  const td=todayStr();
-  const lbl={leave:'연차',comp:'대휴',trip:'출장',outside:'외출',education:'교육'};
-  _absenceItems=db.requests.filter(r=>
-    canViewCalendar(r)&&r.status==='approved'&&
-    (r.type==='leave'||r.type==='comp'||r.type==='trip'||r.type==='outside'||r.type==='education')&&
-    r.startDate<=td&&(r.endDate||r.startDate)>=td
-  ).map(r=>{
-    const e=eid(r.empId);
-    return '📌 '+(e?e.name:'?')+' '+(r.type==='leave'?(r.leaveType||'연차'):(lbl[r.type]||r.type));
+function updateBdayAlarmBar() {
+  const td = todayStr();
+  const typeLabel = {leave:'연차',comp:'대휴',trip:'출장',outside:'외출',education:'교육'};
+  _absenceBarItems = db.requests.filter(r =>
+    canViewCalendar(r) && r.status==='approved' && (
+      ((r.type==='leave'||r.type==='comp'||r.type==='trip'||r.type==='outside'||r.type==='education') &&
+       r.startDate<=td && (r.endDate||r.startDate)>=td)
+    )
+  ).map(r => {
+    const e = eid(r.empId);
+    const name = e ? e.name : '?';
+    const label = r.type==='leave' ? (r.leaveType||'연차') : (typeLabel[r.type]||r.type);
+    return '📌 ' + name + ' ' + label;
   });
 
-  const bar=document.getElementById('bday-alarm-bar');
-  const inner=document.getElementById('bday-alarm-inner');
-  if(!bar) return;
+  const bar = document.getElementById('bday-alarm-bar');
+  const inner = document.getElementById('bday-alarm-inner');
+  if (!bar || !inner) return;
+  if (!_absenceBarItems.length) { bar.style.display = 'none'; return; }
 
-  if(!_absenceItems.length){ bar.style.display='none'; return; }
-  bar.style.display='block';
-  _absenceIdx=0;
-  if(inner){
-    inner.style.transition='none';
-    inner.style.transform='translateY(0)';
-    inner.style.opacity='1';
-    inner.textContent=_absenceItems[0];
-  }
-  if(_absenceTimer) clearInterval(_absenceTimer);
-  if(_absenceItems.length>1){
-    _absenceTimer=setInterval(()=>{
-      _absenceIdx=(_absenceIdx+1)%_absenceItems.length;
-      _slideBar(_absenceItems[_absenceIdx]);
-    },10000);
+  bar.style.display = 'block';
+  _absenceBarIdx = 0;
+  inner.style.transition = 'none';
+  inner.style.transform = 'translateX(0)';
+  inner.style.opacity = '1';
+  inner.textContent = _absenceBarItems[0];
+
+  if (_absenceBarTimer) clearInterval(_absenceBarTimer);
+  if (_absenceBarItems.length > 1) {
+    _absenceBarTimer = setInterval(() => {
+      _absenceBarIdx = (_absenceBarIdx + 1) % _absenceBarItems.length;
+      _absenceSlide(inner, _absenceBarItems[_absenceBarIdx], 1);
+    }, 10000);
   }
 }
 
