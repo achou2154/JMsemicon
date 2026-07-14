@@ -2180,7 +2180,7 @@ function renderRequests(){
   if(reqTypeFilter!=='all')list=list.filter(r=>r.type===reqTypeFilter);
   list=list.slice().sort((a,b)=>b.id-a.id);
   // 건강검진 신청 목록 (관리자만)
-  const healthRows=isAdmin?db.health.filter(h=>String(h.year)===String(yr))
+  const healthRows=isAdmin?db.health.filter(h=>!h.year||String(h.year)===String(yr))
     .slice().sort((a,b)=>b.id-a.id).map(h=>{
       const e=eid(h.empId);
       const main=h.members?.find(m=>m.relation==='본인')||h.members?.[0];
@@ -3082,31 +3082,27 @@ function openHealthApply(empId) {
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
   const existFam = (h?.members||[]).filter(m=>m.relation!=='본인');
+  // 이전 가족 데이터: 다른 연도 health 기록에서 가족 수집
+  const loadableFam = (()=>{
+    const prev = db.health.filter(r=>String(r.empId)===String(empId)&&String(r.year)!==String(yr));
+    if(!prev.length) return existFam.length ? existFam : [];
+    const latest = prev.sort((a,b)=>b.year-a.year)[0];
+    return (latest.members||[]).filter(m=>m.relation!=='본인');
+  })();
+
   const famHtml = existFam.map((m,i)=>`
-    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:4px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
+    <div class="fam-row" id="fam-row-${i}" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap">
       <input placeholder="관계" value="${m.relation||''}" id="fam-rel-${i}"
         style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
       <input placeholder="성명" value="${m.name||''}" id="fam-name-${i}"
         style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-      <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
-        value="${m.birthdate?m.birthdate.slice(0,4):''}"
-        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-        oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
-      <span style="font-size:11px">-</span>
-      <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
-        value="${m.birthdate?parseInt(m.birthdate.slice(5,7)):''}"
-        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
-      <span style="font-size:11px">-</span>
-      <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
-        value="${m.birthdate?parseInt(m.birthdate.slice(8,10)):''}"
-        style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-        oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+      <div id="fam-birth-wrap-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-'+i, m.birthdate||'')}</div>
       <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>
     </div>`).join('');
 
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
+    <div id="health-form-wrap" data-empid="${empId}" style="display:none"></div>
     <div class="field" style="margin-bottom:12px">
       <label>예약일 *</label>
       <div style="display:flex;gap:4px;align-items:center">
@@ -3127,9 +3123,10 @@ function openHealthApply(empId) {
       </div>
     </div>
     <div style="margin-bottom:12px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         가족 추가
-        <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="addFamRow()">+ 가족 추가</button>
+        <button class="btn btn-sm btn-primary" onclick="addFamRow()">+ 가족 추가</button>
+        ${loadableFam.length?`<button class="btn btn-sm" style="background:#f0fdf4;color:#166534;border-color:#86efac" onclick="loadPrevFam()">📋 이전 가족 불러오기 (${loadableFam.length}명)</button>`:''}
       </div>
       <div id="fam-list">${famHtml}</div>
     </div>
@@ -3153,6 +3150,35 @@ function openHealthApply(empId) {
 }
 
 
+function loadPrevFam() {
+  const list = document.getElementById('fam-list');
+  if (!list) return;
+  // 현재 empId로 이전 가족 찾기 (openHealthApply에서 넘긴 loadableFam 재계산)
+  const empId = list.closest('[data-empid]')?.dataset?.empid || currentEmp?.id;
+  const yr = currentYear;
+  const prev = db.health.filter(r=>String(r.empId)===String(empId)&&String(r.year)!==String(yr));
+  if (!prev.length) { showToast('불러올 가족 정보가 없습니다'); return; }
+  const latest = prev.sort((a,b)=>b.year-a.year)[0];
+  const fams = (latest.members||[]).filter(m=>m.relation!=='본인');
+  if (!fams.length) { showToast('이전 가족 정보가 없습니다'); return; }
+  list.innerHTML = '';
+  fams.forEach((m,i) => {
+    const div = document.createElement('div');
+    div.className = 'fam-row';
+    div.id = 'fam-row-prev-'+i;
+    div.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap';
+    div.innerHTML = `
+      <input placeholder="관계" id="fam-rel-prev-${i}" value="${m.relation||''}"
+        style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+      <input placeholder="성명" id="fam-name-prev-${i}" value="${m.name||''}"
+        style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
+      <div id="fam-birth-wrap-prev-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-prev-'+i, m.birthdate||'')}</div>
+      <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>`;
+    list.appendChild(div);
+  });
+  showToast('✅ 이전 가족 정보 불러오기 완료 ('+fams.length+'명)');
+}
+
 function toggleHealthReserveDate(isOther) {
   const wrap = document.getElementById('h-reserve-wrap');
   if (wrap) wrap.style.display = isOther ? 'none' : '';
@@ -3172,17 +3198,7 @@ function addFamRow() {
       style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
     <input placeholder="성명" id="fam-name-${i}"
       style="width:64px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px">
-    <input type="number" placeholder="년" id="fam-by-${i}" min="1900" max="2099"
-      style="width:56px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-      oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
-    <span style="font-size:11px">-</span>
-    <input type="number" placeholder="월" id="fam-bm-${i}" min="1" max="12"
-      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
-    <span style="font-size:11px">-</span>
-    <input type="number" placeholder="일" id="fam-bd-${i}" min="1" max="31"
-      style="width:42px;padding:5px 7px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px"
-      oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+    <div id="fam-birth-wrap-${i}" style="display:flex;align-items:center">${makeDateInput('fam-bd-'+i,'')}</div>
     <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>`;
   list.appendChild(div);
 }
@@ -3208,13 +3224,19 @@ async function saveHealthApply(empId) {
   famRows.forEach(row => {
     const relEl = row.querySelector('input[id^="fam-rel"]');
     const nameEl = row.querySelector('input[id^="fam-name"]');
-    const byEl = row.querySelector('input[id^="fam-by"]');
-    const bmEl = row.querySelector('input[id^="fam-bm"]');
-    const bdEl = row.querySelector('input[id^="fam-bd"]');
     const rel = relEl?.value?.trim();
     if (rel) {
-      const by = byEl?.value||''; const bm = String(bmEl?.value||'').padStart(2,'0'); const bd = String(bdEl?.value||'').padStart(2,'0');
-      const birthdate = (by&&bm&&bd) ? `${by}-${bm}-${bd}` : '';
+      // makeDateInput 방식 (fam-bd-{i}-y, -m, -d)
+      const bdWrap = row.querySelector('[id^="fam-birth-wrap"]');
+      let birthdate = '';
+      if (bdWrap) {
+        const bdId = bdWrap.id.replace('fam-birth-wrap-','fam-bd-');
+        const yEl = document.getElementById(bdId+'-y');
+        const mEl = document.getElementById(bdId+'-m');
+        const dEl = document.getElementById(bdId+'-d');
+        const by = yEl?.value||''; const bm = String(mEl?.value||'').padStart(2,'0'); const bd = String(dEl?.value||'').padStart(2,'0');
+        if(by&&bm&&bd) birthdate = by+'-'+bm+'-'+bd;
+      }
       members.push({relation:rel, name:nameEl?.value?.trim()||'', birthdate, confirmed:false, reserveDate:'', checkupDate:'', cost:0});
     }
   });
