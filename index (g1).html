@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>근태 관리 시스템</title>
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; }
+        body { font-family: 'Arial', sans-serif; background-color: var(--bg); margin: 0; padding: 20px; }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h1 { color: #1e293b; }
+        .controls { margin-bottom: 20px; }
+        button { background: var(--primary); color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #e2e8f0; padding: 12px; text-align: left; }
+        th { background-color: #f1f5f9; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>근태 관리 시스템</h1>
+        <div class="controls">
+            <button onclick="refreshData()">데이터 새로고침</button>
+        </div>
+        <div id="app">
+            <table>
+                <thead>
+                    <tr>
+                        <th>이름</th>
+                        <th>유형</th>
+                        <th>날짜</th>
+                        <th>상태</th>
+                    </tr>
+                </thead>
+                <tbody id="data-table-body">
+                    <!-- 데이터가 여기에 렌더링됩니다 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 전역 상태 관리
+        const state = {
+            data: [],
+            isLoading: false
+        };
+
+        // 데이터 로딩 최적화
+        async function loadData() {
+            if (state.isLoading) return;
+            state.isLoading = true;
+            
+            try {
+                // Supabase API 호출 (예시)
+                // const { data, error } = await supabase.from('requests').select('*');
+                // if (error) throw error;
+                
+                // 가상 데이터 시뮬레이션
+                const data = [
+                    { name: '홍길동', type: '연차', date: '2026-07-15', status: '승인' },
+                    { name: '김철수', type: '출장', date: '2026-07-16', status: '대기' }
+                ];
+                
+                state.data = data;
+                render();
+            } catch (err) {
+                console.error("데이터 로딩 실패:", err);
+                alert("데이터를 불러오는 중 오류가 발생했습니다.");
+            } finally {
+                state.isLoading = false;
+            }
+        }
+
+        // DOM 렌더링 최적화 (DocumentFragment 사용)
+        function render() {
+            const tbody = document.getElementById('data-table-body');
+            const fragment = document.createDocumentFragment();
+            
+            tbody.innerHTML = '';
+            
+            state.data.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${item.name}</td><td>${item.type}</td><td>${item.date}</td><td>${item.status}</td>`;
+                fragment.appendChild(tr);
+            });
+            
+            tbody.appendChild(fragment);
+        }
+
+        function refreshData() {
+            loadData();
+        }
+
+        // 초기화
+        window.onload = loadData;
+    </script>
+</body>
+</html>
