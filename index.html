@@ -3529,6 +3529,7 @@ async function notifyHealthChange(empId, members, reserveDate='', action='신청
 
 // ─ 10. 달력 ────────────────────────────────
 function renderCalendar(){
+  updateBdayAlarmBar();
   const y=calYear,m=calMonth;
   const first=new Date(y,m-1,1).getDay();
   const last=new Date(y,m,0).getDate();
