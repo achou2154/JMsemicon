@@ -297,7 +297,7 @@ let _keepScroll = false; // 승인/반려 시 스크롤 유지 플래그
 let nextId = 100, nextEventId = 100, nextHealthId = 100;
 
 let db = {
-  employees: [], leaveAlloc: [], requests: [], events: [], health: [],
+  employees: [], leaveAlloc: [], requests: [], events: [], health: [], attendance: [],
   alerts: [],       // 관리자 설정 알람 [{id, date, title, content, color}]
   inquiries: [],    // 1:1 문의
   inquiryReplies: [], // 1:1 문의 답변
@@ -361,6 +361,10 @@ async function loadAllData() {
     db.requests   = (req.data    || []).map(normalizeReq);
     db.events     = (ev.data     || []).map(normalizeEv);
     db.health     = (health.data || []).map(normalizeHealth);
+    try {
+      const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
+      db.attendance = (att.data || []).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours}));
+    } catch(e){ db.attendance = []; }
     db.alerts     = (alerts.data || []);
     // 부가 테이블 별도 로드 (실패해도 계속 진행)
     try {
@@ -1359,6 +1363,125 @@ function buildYearSel(){
 // ══════════════════════════════════════════════
 
 // ─ 1. 전체 현황 ────────────────────────────
+// ── 출퇴근 기록 업로드 ──
+function openAttendanceUpload(){
+  document.getElementById('att-file-input').click();
+}
+function excelSerialToDate(v){
+  // 엑셀 시리얼 넘버 → YYYY-MM-DD
+  if (typeof v === 'number') {
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    return d.toISOString().slice(0,10);
+  }
+  // 문자열 2026/07/07 또는 2026-07-07
+  const s = String(v).trim().replace(/\//g,'-');
+  const m = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0');
+  return '';
+}
+function excelFracToHM(v){
+  // 엑셀 시간 소수(0~1) → HH:MM, 없으면 미확인
+  if (v===''||v===null||v===undefined) return '미확인';
+  if (typeof v === 'number') {
+    const totalMin = Math.round(v*24*60);
+    const hh=String(Math.floor(totalMin/60)).padStart(2,'0');
+    const mm=String(totalMin%60).padStart(2,'0');
+    return hh+':'+mm;
+  }
+  const s=String(v).trim();
+  return s || '미확인';
+}
+function excelFracToHours(v){
+  if (typeof v === 'number') return Math.round(v*24*100)/100;
+  const n=parseFloat(v); return isNaN(n)?0:n;
+}
+
+async function onAttendanceFileSelect(input){
+  const file = input.files[0];
+  if (!file) return;
+  if (typeof XLSX === 'undefined') {
+    showToast('⚠️ Excel 라이브러리 로딩 중...');
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => onAttendanceFileSelect(input);
+    document.head.appendChild(s);
+    return;
+  }
+  showToast('📤 파일 분석 중...');
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array', cellDates:false});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
+    // 헤더 스킵 (1행)
+    const dataRows = rows.slice(1);
+
+    // 직원명 매칭용 맵 (isExternal 제외)
+    const empByName = {};
+    db.employees.filter(e=>!e.isExternal).forEach(e=>{ empByName[e.name] = e.id; });
+
+    const records = [];
+    let skipped = 0;
+    dataRows.forEach(r=>{
+      const name = (r[5]||'').toString().trim(); // F열
+      const empId = empByName[name];
+      if (!empId) { skipped++; return; }
+      const dateStr = excelSerialToDate(r[6]); // G열
+      if (!dateStr) return;
+      const dayType = (r[7]||'').toString().trim() || '평일'; // H열
+      const clockIn = excelFracToHM(r[8]); // I열
+      const clockOut = excelFracToHM(r[9]); // J열
+      const baseHours = excelFracToHours(r[10]); // K열
+      const otHours = excelFracToHours(r[11]); // L열
+      records.push({empId, date:dateStr, dayType, clockIn, clockOut, baseHours, otHours});
+    });
+
+    if (!records.length) { showToast('⚠️ 매칭되는 직원 데이터가 없습니다'); return; }
+
+    // Supabase upsert (emp_id+date 유니크 가정, 없으면 insert)
+    let saved=0, failed=0;
+    for (const rec of records) {
+      const dbRow = {emp_id:rec.empId, date:rec.date, day_type:rec.dayType, clock_in:rec.clockIn, clock_out:rec.clockOut, base_hours:rec.baseHours, ot_hours:rec.otHours};
+      try {
+        const {error} = await _supa.from('attendance_records').upsert(dbRow, {onConflict:'emp_id,date'});
+        if (error) { failed++; } else { saved++; }
+      } catch(e){ failed++; }
+    }
+
+    // 재로드
+    const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
+    db.attendance = (att.data||[]).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours}));
+
+    showToast('✅ 업로드 완료: '+saved+'건 저장'+(skipped>0?' / 미매칭 '+skipped+'건 제외':''));
+    input.value='';
+    renderOverview();
+  } catch(e) {
+    console.error('출퇴근 업로드 오류:', e);
+    showToast('⚠️ 파일 분석 실패: '+e.message);
+  }
+}
+
+function openAttendanceDetail(empId){
+  const e = eid(empId); if (!e) return;
+  const list = (db.attendance||[]).filter(a=>String(a.empId)===String(empId))
+    .slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const rows = list.map(a=>`<tr>
+    <td>${fmt(a.date)}</td>
+    <td>${a.dayType==='평일'?a.dayType:`<span style="color:var(--danger)">${a.dayType}</span>`}</td>
+    <td>${a.clockIn}</td><td>${a.clockOut}</td>
+    <td>${a.baseHours}h</td>
+    <td>${a.otHours>0?`<strong style="color:var(--ot)">${a.otHours}h</strong>`:'—'}</td>
+  </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">기록 없음</td></tr>';
+  openModal(`
+    <div class="modal-title">📋 ${e.name} 출퇴근 내역 (${list.length}건)</div>
+    <div class="table-wrap" style="max-height:500px;overflow-y:auto">
+      <table><thead><tr><th>날짜</th><th>구분</th><th>출근</th><th>퇴근</th><th>기본</th><th>연장</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+  `, true);
+}
+
 function renderOverview(){
   if(!isAdmin){ go('calendar'); return; }
   const yr=currentYear;
@@ -1416,6 +1539,10 @@ function renderOverview(){
       <td>${e.isExternal?NA:cRem>0?`<span class="badge badge-comp" style="${cRemAlert?'background:var(--danger-bg);color:var(--danger)':''}">${cRem}h${cRemAlert?' ⚠️':''}</span>`:'—'}</td>
       <td>${trips>0?badge(trips+'회','trip'):'—'}</td>
       <td>${trans>0?'₩'+trans.toLocaleString():'—'}</td>
+      <td>${(()=>{
+        const attCnt=(db.attendance||[]).filter(a=>String(a.empId)===String(e.id)).length;
+        return attCnt>0?`<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#93c5fd;font-size:12px" onclick="openAttendanceDetail(${e.id})">📋 확인 (${attCnt})</button>`:'<span style="color:#bbb;font-size:12px">—</span>';
+      })()}</td>
       <td>${(()=>{
         const specials=db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&['병가','특별휴가'].includes(r.leaveType)&&r.status==='approved');
         if(!specials.length) return '—';
@@ -1503,9 +1630,12 @@ function renderOverview(){
           style="padding:6px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;width:180px">
       </div>
       <div class="table-wrap"><table id="overview-table">
-        <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th><th>관련 서류</th></tr></thead>
-        <tbody>${rows||emptyRow(7)}</tbody>
+        <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th>
+          <th>출퇴근 내역 <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;margin-left:2px" onclick="openAttendanceUpload()">📤 업로드</button></th>
+          <th>관련 서류</th></tr></thead>
+        <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
+      <input id="att-file-input" type="file" accept=".xls,.xlsx" style="display:none" onchange="onAttendanceFileSelect(this)">
     </div>
   `);
 }
