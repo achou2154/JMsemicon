@@ -240,8 +240,8 @@ tbody tr:hover td{background:var(--surface2)}
         style="display:none;padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:12px;width:150px">
       <!-- 기념일 작은 알림 -->
       <div id="bday-alarm-bar" onclick="go('calendar')"
-        style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;max-width:280px;height:26px;overflow:hidden;position:relative;cursor:pointer;flex-shrink:0">
-        <div id="bday-alarm-inner" style="position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;font-size:12px;color:#1d4ed8;white-space:nowrap;transition:transform 0.45s cubic-bezier(.4,0,.2,1),opacity 0.4s ease"></div>
+        style="display:none;background:#eff6ff;border:1px solid #93c5fd;border-radius:20px;width:200px;max-width:280px;height:26px;overflow:hidden;position:relative;cursor:pointer;flex-shrink:0">
+        <div id="bday-alarm-inner" style="position:absolute;inset:0;display:flex;align-items:center;padding:0 12px;font-size:12px;color:#1d4ed8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:transform 0.45s cubic-bezier(.4,0,.2,1),opacity 0.4s ease"></div>
       </div>
       <select class="yr" id="yr-sel" onchange="changeYear(+this.value)"></select>
     </div>
@@ -4973,10 +4973,11 @@ function updateBdayAlarmBar() {
     return '📌 ' + name + ' ' + label;
   });
 
-  if (!_absenceBarItems.length) { bar.style.display = 'none'; return; }
-  bar.style.removeProperty('display');
-  bar.style.display = 'flex';
-  bar.style.alignItems = 'center';
+  if (!_absenceBarItems.length) { bar.style.setProperty('display','none','important'); return; }
+  bar.style.setProperty('display','flex','important');
+  bar.style.setProperty('align-items','center','important');
+  bar.style.setProperty('visibility','visible','important');
+  bar.style.setProperty('opacity','1','important');
   _absenceBarIdx = 0;
   inner.style.transition = 'none';
   inner.style.transform = 'translateY(0)';
