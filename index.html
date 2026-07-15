@@ -378,7 +378,7 @@ async function loadAllData() {
       ]);
       db.inquiries      = (inq.data    || []).map(r=>({id:r.id,empId:r.emp_id,title:r.title,content:r.content,status:r.status,createdAt:r.created_at}));
       db.inquiryReplies = (rep.data    || []).map(r=>({id:r.id,inquiryId:r.inquiry_id,empId:r.emp_id,isAdmin:r.is_admin,content:r.content,createdAt:r.created_at}));
-      db.notices        = (noticeRes.data || []).map(r=>({id:r.id,title:r.title,content:r.content,duration:r.duration,targetIds:JSON.parse(r.target_ids||'[]'),startDate:r.start_date,endDate:r.end_date,createdAt:r.created_at}));
+      db.notices        = (noticeRes.data || []).map(r=>({id:r.id,title:r.title,content:r.content,duration:r.duration,targetIds:JSON.parse(r.target_ids||'[]'),startDate:r.start_date,endDate:r.end_date,createdAt:r.created_at,imageData:r.image_data||null}));
       db.notifySchedules = (nsRes.data || []).map(r=>({id:r.id,type:r.type,title:r.title,content1:r.content1,targetIds:JSON.parse(r.target_ids||'[]'),sendAt:r.send_at,sent:r.sent||false}));
     } catch(e2) { console.warn('부가 테이블 로드 실패 (무시):', e2); }
     recalcNextIds();
@@ -5239,6 +5239,7 @@ function checkAndShowNotice() {
   popupContent.innerHTML = `
     <div style="font-size:16px;font-weight:700;margin-bottom:12px;color:var(--accent)">📢 공지사항</div>
     <div style="font-size:15px;font-weight:600;margin-bottom:10px">${notice.title}</div>
+    ${notice.imageData?`<img src="${notice.imageData}" style="max-width:100%;border-radius:var(--radius);margin-bottom:10px">`:''}
     <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;color:var(--text)">${notice.content}</div>
     <div style="font-size:11px;color:var(--text3);margin-top:10px">게시기간: ${fmt(notice.startDate)} ~ ${fmt(notice.endDate)}</div>
   `;
@@ -5279,6 +5280,12 @@ function renderNoticeManage() {
           style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical"></textarea>
       </div>
       <div class="field" style="margin-bottom:16px">
+        <label>이미지 첨부 (선택)</label>
+        <input id="notice-image" type="file" accept="image/*" onchange="onNoticeImageSelect(this)">
+        <div style="font-size:11px;color:var(--danger);margin-top:4px">※ 이미지 용량은 2MB를 초과할 수 없습니다.</div>
+        <div id="notice-image-preview" style="margin-top:6px"></div>
+      </div>
+      <div class="field" style="margin-bottom:16px">
         <label>게시 기간</label>
         <div style="display:flex;gap:12px;margin-top:6px">
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="radio" name="notice-dur" value="1" checked style="width:14px;height:14px"> 하루</label>
@@ -5297,6 +5304,32 @@ function renderNoticeManage() {
     </div>`;
 }
 
+function onNoticeImageSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const maxSize = 2 * 1024 * 1024; // 2MB
+  if (file.size > maxSize) {
+    alert('⚠️ 이미지 용량 초과\n\n선택한 이미지: ' + Math.round(file.size/1024) + 'KB\n최대 허용 용량: 2MB(2048KB)\n\n2MB 이하 이미지를 선택해 주세요.');
+    input.value = '';
+    document.getElementById('notice-image-preview').innerHTML = '';
+    window._noticeImageData = null;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    window._noticeImageData = e.target.result;
+    document.getElementById('notice-image-preview').innerHTML =
+      '<img src="'+e.target.result+'" style="max-width:100%;max-height:150px;border-radius:var(--radius);border:1px solid var(--border2)">'
+      +'<button style="display:block;margin-top:4px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearNoticeImage()">✕ 이미지 제거</button>';
+  };
+  reader.readAsDataURL(file);
+}
+function clearNoticeImage() {
+  window._noticeImageData = null;
+  document.getElementById('notice-image-preview').innerHTML = '';
+  document.getElementById('notice-image').value = '';
+}
+
 async function saveNotice() {
   const title = document.getElementById('notice-title')?.value?.trim();
   const content = document.getElementById('notice-content')?.value?.trim();
@@ -5307,10 +5340,11 @@ async function saveNotice() {
   const start = todayStr();
   const endD = new Date(); endD.setDate(endD.getDate() + dur - 1);
   const end = endD.toISOString().slice(0,10);
-  const row = { title, content, duration: dur, target_ids: JSON.stringify(targets), start_date: start, end_date: end };
+  const row = { title, content, duration: dur, target_ids: JSON.stringify(targets), start_date: start, end_date: end, image_data: window._noticeImageData||null };
   const saved = await sbInsert('notices', row);
   if (saved) {
-    db.notices.unshift({ id: saved.id, title, content, duration: dur, targetIds: targets, startDate: start, endDate: end, createdAt: saved.created_at });
+    db.notices.unshift({ id: saved.id, title, content, duration: dur, targetIds: targets, startDate: start, endDate: end, createdAt: saved.created_at, imageData: row.image_data });
+    window._noticeImageData = null;
     showToast('✅ 공지사항 등록됨');
     // 탭 내 콘텐츠만 갱신 (renderNotifySetting 대신)
     const ec = document.getElementById('notify-extra-content');
@@ -5681,32 +5715,28 @@ function renderNotifySetting() {
   if (!isAdmin) { setContent('<div style="padding:40px;text-align:center;color:var(--text3)">관리자만 접근할 수 있습니다.</div>'); return; }
 
   setContent(`
-    <div class="req-filter" style="margin-bottom:16px" id="notify-main-tabs">
-      <button class="filter-btn active" onclick="switchNotifyMainTab('popup',this)">🔔 팝업 알림</button>
-      <button class="filter-btn" onclick="switchNotifyMainTab('mail',this)">📧 메일 알림</button>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
+      <button class="filter-btn active" id="tab-popup" onclick="switchNotifyMainTab('popup',this)" style="background:var(--accent);color:#fff;border-color:var(--accent)">🔔 팝업 알림</button>
+      <div style="display:flex;gap:6px" id="notify-popup-tabs">
+        <button class="sub-tab-btn active" onclick="switchPopupTab('notice',this)">📋 공지사항</button>
+        <button class="sub-tab-btn" onclick="switchPopupTab('alerts',this)">🔁 반복 알람</button>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
+      <button class="filter-btn" id="tab-mail" onclick="switchNotifyMainTab('mail',this)">📧 메일 알림</button>
+      <div style="display:flex;gap:6px" id="notify-mail-tabs">
+        <button class="sub-tab-btn active" onclick="switchMailTab('remain',this)">📊 잔여 알림</button>
+        <button class="sub-tab-btn" onclick="switchMailTab('etc',this)">✍️ 기타 알림</button>
+      </div>
     </div>
 
     <!-- ── 팝업 알림 탭 ── -->
     <div id="notify-popup-panel">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
-        <span style="font-size:11px;color:#166534;font-weight:600">└ 하위메뉴</span>
-        <div style="display:flex;gap:6px" id="notify-popup-tabs">
-          <button class="sub-tab-btn active" onclick="switchPopupTab('notice',this)">📋 공지사항</button>
-          <button class="sub-tab-btn" onclick="switchPopupTab('alerts',this)">🔁 반복 알람</button>
-        </div>
-      </div>
       <div id="notify-popup-body">${renderNoticeManage()}</div>
     </div>
 
     <!-- ── 메일 알림 탭 ── -->
     <div id="notify-mail-panel" style="display:none">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
-        <span style="font-size:11px;color:#166534;font-weight:600">└ 하위메뉴</span>
-        <div style="display:flex;gap:6px" id="notify-mail-tabs">
-          <button class="sub-tab-btn active" onclick="switchMailTab('remain',this)">📊 잔여 알림</button>
-          <button class="sub-tab-btn" onclick="switchMailTab('etc',this)">✍️ 기타 알림</button>
-        </div>
-      </div>
       <div id="notify-mail-body">${renderRemainNotify()}</div>
     </div>
   `);
@@ -5715,8 +5745,12 @@ function renderNotifySetting() {
 let _notifyMainTab = 'popup';
 function switchNotifyMainTab(tab, btn) {
   _notifyMainTab = tab;
-  document.querySelectorAll('#notify-main-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
+  ['tab-popup','tab-mail'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){ el.classList.remove('active'); el.style.background=''; el.style.color=''; el.style.borderColor=''; }
+  });
   btn.classList.add('active');
+  btn.style.background='var(--accent)'; btn.style.color='#fff'; btn.style.borderColor='var(--accent)';
   document.getElementById('notify-popup-panel').style.display = tab==='popup'?'':'none';
   document.getElementById('notify-mail-panel').style.display = tab==='mail'?'':'none';
 }
@@ -5984,7 +6018,7 @@ function openAddAlert() {
       <div class="field">
         <label>이미지 첨부 (선택)</label>
         <input id="f-alert-image" type="file" accept="image/*" onchange="onAlertImageSelect(this)">
-        <div style="font-size:11px;color:var(--danger);margin-top:4px">※ 이미지 용량은 1MB를 초과할 수 없습니다.</div>
+        <div style="font-size:11px;color:var(--danger);margin-top:4px">※ 이미지 용량은 2MB를 초과할 수 없습니다.</div>
         <div id="alert-image-preview" style="margin-top:6px"></div>
       </div>
     </div>
@@ -5997,9 +6031,9 @@ function openAddAlert() {
 function onAlertImageSelect(input) {
   const file = input.files[0];
   if (!file) return;
-  const maxSize = 1 * 1024 * 1024; // 1MB
+  const maxSize = 2 * 1024 * 1024; // 2MB
   if (file.size > maxSize) {
-    alert('⚠️ 이미지 용량 초과\n\n선택한 이미지: ' + Math.round(file.size/1024) + 'KB\n최대 허용 용량: 1MB(1024KB)\n\n1MB 이하 이미지를 선택해 주세요.');
+    alert('⚠️ 이미지 용량 초과\n\n선택한 이미지: ' + Math.round(file.size/1024) + 'KB\n최대 허용 용량: 2MB(2048KB)\n\n2MB 이하 이미지를 선택해 주세요.');
     input.value = '';
     document.getElementById('alert-image-preview').innerHTML = '';
     window._alertImageData = null;
