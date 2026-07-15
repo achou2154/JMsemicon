@@ -1301,6 +1301,7 @@ function go(page) {
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
+  setTimeout(updateBdayAlarmBar, 50);
   updateMobileTabbar(page);
   closeSidebarIfOpen();
   // 스크롤 최상단 - .main div가 스크롤 컨테이너
@@ -4954,13 +4955,17 @@ function _slideAbsenceBar(text) {
 }
 
 function updateBdayAlarmBar() {
+  const bar = document.getElementById('bday-alarm-bar');
+  const inner = document.getElementById('bday-alarm-inner');
+  // DOM이 아직 준비 안 됐으면 잠시 후 재시도
+  if (!bar || !inner) { setTimeout(updateBdayAlarmBar, 300); return; }
+
   const td = todayStr();
   const typeLabel = {leave:'연차',comp:'대휴',trip:'출장',outside:'외출',education:'교육'};
-  _absenceBarItems = db.requests.filter(r =>
-    canViewCalendar(r) && r.status==='approved' && (
-      ((r.type==='leave'||r.type==='comp'||r.type==='trip'||r.type==='outside'||r.type==='education') &&
-       r.startDate<=td && (r.endDate||r.startDate)>=td)
-    )
+  _absenceBarItems = (db.requests||[]).filter(r =>
+    r && canViewCalendar(r) && r.status==='approved' &&
+    (r.type==='leave'||r.type==='comp'||r.type==='trip'||r.type==='outside'||r.type==='education') &&
+    r.startDate && r.startDate<=td && (r.endDate||r.startDate)>=td
   ).map(r => {
     const e = eid(r.empId);
     const name = e ? e.name : '?';
@@ -4968,18 +4973,15 @@ function updateBdayAlarmBar() {
     return '📌 ' + name + ' ' + label;
   });
 
-  const bar = document.getElementById('bday-alarm-bar');
-  const inner = document.getElementById('bday-alarm-inner');
-  if (!bar) return;
   if (!_absenceBarItems.length) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
+  bar.style.removeProperty('display');
+  bar.style.display = 'flex';
+  bar.style.alignItems = 'center';
   _absenceBarIdx = 0;
-  if (inner) {
-    inner.style.transition = 'none';
-    inner.style.transform = 'translateY(0)';
-    inner.style.opacity = '1';
-    inner.textContent = _absenceBarItems[0];
-  }
+  inner.style.transition = 'none';
+  inner.style.transform = 'translateY(0)';
+  inner.style.opacity = '1';
+  inner.textContent = _absenceBarItems[0];
 
   if (_absenceBarTimer) clearInterval(_absenceBarTimer);
   if (_absenceBarItems.length > 1) {
