@@ -126,6 +126,8 @@ tbody tr:hover td{background:var(--surface2)}
 .req-filter{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
 .filter-btn{padding:5px 12px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);font-size:12px;color:var(--text2)}
 .filter-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.sub-tab-btn{padding:5px 14px;border-radius:16px;border:1px solid #86efac;background:#fff;font-size:12px;color:#166534;cursor:pointer}
+.sub-tab-btn.active{background:#22c55e;color:#fff;border-color:#22c55e;font-weight:600}
 .row-pending td{background:#fffdf5}
 .prog-bar-wrap{background:var(--bg);border-radius:99px;height:6px;width:80px;display:inline-block;vertical-align:middle;overflow:hidden}
 .prog-bar{height:100%;border-radius:99px;background:var(--leave)}
@@ -365,7 +367,7 @@ async function loadAllData() {
       const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
       db.attendance = (att.data || []).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours}));
     } catch(e){ db.attendance = []; }
-    db.alerts     = (alerts.data || []);
+    db.alerts     = (alerts.data || []).map(a=>({...a, imageData:a.image_data||null}));
     // 부가 테이블 별도 로드 (실패해도 계속 진행)
     try {
       const [inq, rep, noticeRes, nsRes] = await Promise.all([
@@ -1631,7 +1633,7 @@ function renderOverview(){
       </div>
       <div class="table-wrap"><table id="overview-table">
         <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th>
-          <th>출퇴근 내역 <button class="btn btn-sm" style="font-size:10px;padding:2px 8px;margin-left:2px" onclick="openAttendanceUpload()">📤 업로드</button></th>
+          <th>출퇴근 내역<br><button class="btn btn-sm" style="font-size:10px;padding:2px 8px;margin-top:3px" onclick="openAttendanceUpload()">📤 업로드</button></th>
           <th>관련 서류</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
@@ -4993,6 +4995,7 @@ function showAlertPopup(alerts) {
       <div style="font-size:15px;font-weight:700;color:${a.color||'#c0392b'};margin-bottom:8px">
         ⚠️ ${a.title}
       </div>
+      ${a.imageData?`<img src="${a.imageData}" style="max-width:100%;border-radius:var(--radius);margin-bottom:8px">`:''}
       <div style="font-size:13px;color:#333;white-space:pre-line;line-height:1.7">${a.content}</div>
     </div>`).join('');
   openModal(`
@@ -5685,18 +5688,24 @@ function renderNotifySetting() {
 
     <!-- ── 팝업 알림 탭 ── -->
     <div id="notify-popup-panel">
-      <div class="req-filter" style="margin-bottom:16px" id="notify-popup-tabs">
-        <button class="filter-btn active" onclick="switchPopupTab('notice',this)">📋 공지사항</button>
-        <button class="filter-btn" onclick="switchPopupTab('alerts',this)">🔁 반복 알람</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
+        <span style="font-size:11px;color:#166534;font-weight:600">└ 하위메뉴</span>
+        <div style="display:flex;gap:6px" id="notify-popup-tabs">
+          <button class="sub-tab-btn active" onclick="switchPopupTab('notice',this)">📋 공지사항</button>
+          <button class="sub-tab-btn" onclick="switchPopupTab('alerts',this)">🔁 반복 알람</button>
+        </div>
       </div>
       <div id="notify-popup-body">${renderNoticeManage()}</div>
     </div>
 
     <!-- ── 메일 알림 탭 ── -->
     <div id="notify-mail-panel" style="display:none">
-      <div class="req-filter" style="margin-bottom:16px" id="notify-mail-tabs">
-        <button class="filter-btn active" onclick="switchMailTab('remain',this)">📊 잔여 알림</button>
-        <button class="filter-btn" onclick="switchMailTab('etc',this)">✍️ 기타 알림</button>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius)">
+        <span style="font-size:11px;color:#166534;font-weight:600">└ 하위메뉴</span>
+        <div style="display:flex;gap:6px" id="notify-mail-tabs">
+          <button class="sub-tab-btn active" onclick="switchMailTab('remain',this)">📊 잔여 알림</button>
+          <button class="sub-tab-btn" onclick="switchMailTab('etc',this)">✍️ 기타 알림</button>
+        </div>
       </div>
       <div id="notify-mail-body">${renderRemainNotify()}</div>
     </div>
@@ -5715,7 +5724,7 @@ function switchNotifyMainTab(tab, btn) {
 let _popupTab = 'notice';
 function switchPopupTab(tab, btn) {
   _popupTab = tab;
-  document.querySelectorAll('#notify-popup-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#notify-popup-tabs .sub-tab-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   const body = document.getElementById('notify-popup-body');
   if (tab==='notice') body.innerHTML = renderNoticeManage();
@@ -5725,7 +5734,7 @@ function switchPopupTab(tab, btn) {
 let _mailTab = 'remain';
 function switchMailTab(tab, btn) {
   _mailTab = tab;
-  document.querySelectorAll('#notify-mail-tabs .filter-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('#notify-mail-tabs .sub-tab-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
   const body = document.getElementById('notify-mail-body');
   if (tab==='remain') body.innerHTML = renderRemainNotify();
@@ -5949,6 +5958,7 @@ function renderAlertsInline() {
 function openAddAlertInline() { openAddAlert(); }
 
 function openAddAlert() {
+  window._alertImageData = null;
   openModal(`<div class="modal-title">🔔 반복 알람 추가</div>
     <div class="form-grid col1" style="margin-bottom:12px">
       <div class="field"><label>날짜 (MM-DD)</label><input id="f-alert-date" placeholder="예) 06-25" maxlength="5"></div>
@@ -5970,10 +5980,44 @@ function openAddAlert() {
         </div>
       </div>
     </div>
+    <div class="form-grid col1" style="margin-bottom:4px">
+      <div class="field">
+        <label>이미지 첨부 (선택)</label>
+        <input id="f-alert-image" type="file" accept="image/*" onchange="onAlertImageSelect(this)">
+        <div style="font-size:11px;color:var(--danger);margin-top:4px">※ 이미지 용량은 1MB를 초과할 수 없습니다.</div>
+        <div id="alert-image-preview" style="margin-top:6px"></div>
+      </div>
+    </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
       <button class="btn btn-primary" onclick="saveAlert()">저장</button>
     </div>`);
+}
+
+function onAlertImageSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const maxSize = 1 * 1024 * 1024; // 1MB
+  if (file.size > maxSize) {
+    alert('⚠️ 이미지 용량 초과\n\n선택한 이미지: ' + Math.round(file.size/1024) + 'KB\n최대 허용 용량: 1MB(1024KB)\n\n1MB 이하 이미지를 선택해 주세요.');
+    input.value = '';
+    document.getElementById('alert-image-preview').innerHTML = '';
+    window._alertImageData = null;
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    window._alertImageData = e.target.result;
+    document.getElementById('alert-image-preview').innerHTML =
+      '<img src="'+e.target.result+'" style="max-width:100%;max-height:150px;border-radius:var(--radius);border:1px solid var(--border2)">'
+      +'<button style="display:block;margin-top:4px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearAlertImage()">✕ 이미지 제거</button>';
+  };
+  reader.readAsDataURL(file);
+}
+function clearAlertImage() {
+  window._alertImageData = null;
+  document.getElementById('alert-image-preview').innerHTML = '';
+  document.getElementById('f-alert-image').value = '';
 }
 
 async function saveAlert() {
@@ -5982,7 +6026,7 @@ async function saveAlert() {
   const content = document.getElementById('f-alert-content')?.value?.trim();
   const color = document.querySelector('input[name="alert-color"]:checked')?.value || '#3b82f6';
   if (!date || !title) { showToast('⚠️ 날짜와 제목을 입력하세요'); return; }
-  const row = { date, title, content: content||'', color };
+  const row = { date, title, content: content||'', color, image_data: window._alertImageData||null };
   let saved = null;
   if (_supa) {
     const { data, error } = await _supa.from('alerts').insert(row).select().single();
@@ -5990,10 +6034,11 @@ async function saveAlert() {
     saved = data;
   }
   if (saved) {
-    (db.alerts = db.alerts || []).push({ ...row, id: saved.id });
+    (db.alerts = db.alerts || []).push({ ...row, id: saved.id, imageData: row.image_data });
+    window._alertImageData = null;
     showToast('✅ 알람 추가됨');
     closeModal();
-    switchNotifyTab('alerts', document.querySelector('#notify-tabs .filter-btn:nth-child(5)'));
+    switchPopupTab('alerts', document.querySelector('#notify-popup-tabs .sub-tab-btn:nth-child(2)'));
   }
 }
 
