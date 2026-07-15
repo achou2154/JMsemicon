@@ -5448,6 +5448,7 @@ function openNoticeDetail(noticeId) {
   if (!n) return;
   openModal(`
     <div class="modal-title">📢 ${n.title}</div>
+    ${n.imageData?`<img src="${n.imageData}" style="max-width:100%;border-radius:var(--radius);margin-bottom:12px">`:''}
     <div style="font-size:14px;line-height:1.8;white-space:pre-wrap;margin-bottom:16px">${n.content}</div>
     <div style="font-size:12px;color:var(--text3)">게시기간: ${fmt(n.startDate)} ~ ${fmt(n.endDate)}</div>
     <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
