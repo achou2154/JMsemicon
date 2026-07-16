@@ -1741,14 +1741,14 @@ function openOverviewDetail(type) {
     // 연차사용 내림차순 + 연차소멸 내역
     const leaveRows = emps.map(e=>{
       const used = getLeaveUsed(e.id,yr);
-      return {e, used};
-    }).filter(x=>x.used>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
-      .map(({e,used})=>`<tr>
+      const remain = getLeaveRemain(e.id,yr);
+      return {e, used, remain};
+    }).filter(x=>x.used>0).sort((a,b)=>b.remain-a.remain)
+      .map(({e,used,remain})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
-        <td>${e.dept}</td>
         <td>${Math.round(used/8*10)/10}일</td>
-        <td>${used}h</td>
-      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
+        <td style="color:var(--leave);font-weight:600">${Math.round(remain/8*10)/10}일</td>
+      </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
 
     const extinctRows = emps.map(e=>{
       const a = getAlloc(e.id,yr);
@@ -1756,19 +1756,18 @@ function openOverviewDetail(type) {
     }).filter(x=>x.ext>0).sort((a,b)=>b.ext-a.ext)
       .map(({e,ext})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
-        <td>${e.dept}</td>
         <td style="color:var(--danger);font-weight:600">${Math.round(ext/8*10)/10}일</td>
         <td style="color:var(--danger)">${ext}h</td>
         <td style="color:var(--text3);font-size:11px">${yr}-03-01</td>
-      </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--text3)">소멸 내역 없음</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">소멸 내역 없음</td></tr>';
 
     openModal(`
       <div class="modal-title">📋 ${yr}년 연차 사용 / 소멸 내역</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-height:500px">
         <div>
-          <div style="font-size:13px;font-weight:700;color:var(--leave);margin-bottom:8px">연차 사용 (내림차순)</div>
+          <div style="font-size:13px;font-weight:700;color:var(--leave);margin-bottom:8px">연차 사용 (잔여연차 내림차순)</div>
           <div style="overflow-y:auto;max-height:440px">
-            <table><thead><tr><th>직원</th><th>부서</th><th>사용(일)</th><th>사용(h)</th></tr></thead>
+            <table><thead><tr><th>직원</th><th>사용(일)</th><th>잔여</th></tr></thead>
             <tbody>${leaveRows}</tbody></table>
           </div>
         </div>
@@ -1776,7 +1775,7 @@ function openOverviewDetail(type) {
           <div style="font-size:11px;color:var(--text3);margin-bottom:6px">※ 근로기준법 제61조(연차유급휴가의 사용 촉진)에 따라 소멸된 연차 내역</div>
           <div style="font-size:13px;font-weight:700;color:var(--danger);margin-bottom:8px">연차 소멸</div>
           <div style="overflow-y:auto;max-height:400px">
-            <table><thead><tr><th>직원</th><th>부서</th><th>소멸(일)</th><th>소멸(h)</th><th>기준일</th></tr></thead>
+            <table><thead><tr><th>직원</th><th>소멸(일)</th><th>소멸(h)</th><th>기준일</th></tr></thead>
             <tbody>${extinctRows}</tbody></table>
           </div>
         </div>
@@ -1789,7 +1788,7 @@ function openOverviewDetail(type) {
       const ots = db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved');
       const total = ots.reduce((s,r)=>s+(+r.hours||0),0);
       return {e, total, ots};
-    }).filter(x=>x.total>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
       .map(({e,total,ots})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td>${e.dept}</td>
@@ -1798,7 +1797,7 @@ function openOverviewDetail(type) {
       </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
 
     openModal(`
-      <div class="modal-title">⚡ ${yr}년 발생특근 내역</div>
+      <div class="modal-title">⚡ ${yr}년 발생특근 내역 (내림차순)</div>
       <div style="max-height:500px;overflow-y:auto">
         <table><thead><tr><th>직원</th><th>부서</th><th>특근(h)</th><th>구분</th></tr></thead>
         <tbody>${rows}</tbody></table>
@@ -1814,15 +1813,15 @@ function openOverviewDetail(type) {
       return {e, earned, used, rem};
     }).filter(x=>x.earned>0||x.used>0);
 
-    const earnedRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    const earnedRows = [...compData].sort((a,b)=>b.earned-a.earned)
       .map(({e,earned})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${earned}h</td></tr>`).join('');
-    const usedRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    const usedRows = [...compData].sort((a,b)=>b.used-a.used)
       .map(({e,used})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${used}h</td></tr>`).join('');
-    const remRows = [...compData].sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    const remRows = [...compData].sort((a,b)=>b.rem-a.rem)
       .map(({e,rem})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td style="${rem>0?'color:var(--comp);font-weight:600':'color:var(--text3)'}">${rem}h</td></tr>`).join('');
 
     openModal(`
-      <div class="modal-title">🔄 ${yr}년 대체휴무 내역</div>
+      <div class="modal-title">🔄 ${yr}년 대체휴무 내역 (내림차순)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;max-height:500px">
         <div><div style="font-size:12px;font-weight:700;color:var(--comp);margin-bottom:6px">발생 대휴</div>
           <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>발생(h)</th></tr></thead><tbody>${earnedRows||'<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>'}</tbody></table></div></div>
@@ -1840,11 +1839,11 @@ function openOverviewDetail(type) {
       const edus = kind==='edu' ? db.requests.filter(r=>r.type==='education'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved') : [];
       const list = kind==='edu' ? edus : trips;
       return {e, cnt: list.length, list};
-    }).filter(x=>x.cnt>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    }).filter(x=>x.cnt>0).sort((a,b)=>b.cnt-a.cnt)
       .map(({e,cnt})=>`<tr><td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td><td>${cnt}건</td></tr>`).join('') || '<tr><td colspan="2" style="text-align:center;color:var(--text3)">없음</td></tr>';
 
     openModal(`
-      <div class="modal-title">✈️ ${yr}년 출장/교육 내역</div>
+      <div class="modal-title">✈️ ${yr}년 출장/교육 내역 (내림차순)</div>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;max-height:500px">
         <div><div style="font-size:12px;font-weight:700;margin-bottom:6px">🌏 해외출장</div>
           <div style="overflow-y:auto;max-height:440px"><table><thead><tr><th>직원</th><th>건수</th></tr></thead><tbody>${mkTripRows('overseas')}</tbody></table></div></div>
@@ -1860,7 +1859,7 @@ function openOverviewDetail(type) {
     const rows = emps.map(e=>{
       const total = getTransTotal(e.id,yr);
       return {e, total};
-    }).filter(x=>x.total>0).sort((a,b)=>(a.e.name||"").localeCompare(b.e.name||"","ko"))
+    }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total)
       .map(({e,total})=>`<tr>
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td>${e.dept}</td>
@@ -1868,7 +1867,7 @@ function openOverviewDetail(type) {
       </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text3)">내역 없음</td></tr>';
 
     openModal(`
-      <div class="modal-title">🚗 ${yr}년 교통비 내역</div>
+      <div class="modal-title">🚗 ${yr}년 교통비 내역 (내림차순)</div>
       <div style="max-height:500px;overflow-y:auto">
         <table><thead><tr><th>직원</th><th>부서</th><th>교통비</th></tr></thead>
         <tbody>${rows}</tbody></table>
