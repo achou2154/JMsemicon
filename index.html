@@ -3567,7 +3567,7 @@ function renderCalendar(){
   // 생일/기념일 달력 표시 비활성화 (숨김 처리)
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
-      if(mem.checkupDate&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
+      if(mem.checkupDate&&!mem.confirmed&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
     });
   });
   window._calEv = {}; // 초기화
