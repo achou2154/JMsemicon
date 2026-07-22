@@ -3897,6 +3897,16 @@ function openModal(html, large=false){
   if(large) box.classList.add('modal-lg');
   else box.classList.remove('modal-lg');
   document.getElementById('modal-bg').classList.add('show');
+  // 사유 입력창에서 Enter 키 → 신청/저장 버튼(btn-primary) 자동 클릭 (연차·특근·대휴·출장·교육 등)
+  box.querySelectorAll('#f-reason, [id^="edu-reason"], [id^="f-reason"]').forEach(inp=>{
+    inp.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){
+        e.preventDefault();
+        const btn = box.querySelector('.modal-footer .btn-primary');
+        if(btn) btn.click();
+      }
+    });
+  });
 }
 function closeModal(){
   document.getElementById('modal-bg').classList.remove('show');
