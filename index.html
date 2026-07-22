@@ -2063,10 +2063,25 @@ function openOverviewDetail(type) {
       </div>`;
     }).join('') || '<div style="text-align:center;color:var(--text3);padding:20px 0">하계휴가 신청 없음</div>';
 
+    // 미신청자 (정직원+계약직, 사외이사 제외)
+    const appliedIds = new Set(Object.keys(grouped));
+    const notApplied = db.employees
+      .filter(e=>!e.isExternal && !appliedIds.has(String(e.id)))
+      .slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+    const notAppliedHtml = notApplied.length
+      ? notApplied.map(e=>`<div style="padding:6px 0;font-size:13px;border-bottom:1px solid var(--border)">${e.name}</div>`).join('')
+      : '<div style="color:var(--text3);font-size:13px;padding:8px 0">없음 (전원 신청 완료)</div>';
+
     openModal(`
       <div class="modal-title">🏖️ ${yr}년 하계휴가 신청 현황</div>
-      <div style="max-height:500px;overflow-y:auto">
-        ${monthSections}
+      <div style="display:flex;gap:16px">
+        <div style="flex:0 0 80%;max-height:500px;overflow-y:auto">
+          ${monthSections}
+        </div>
+        <div style="flex:0 0 18%;max-height:500px;overflow-y:auto;border-left:1px solid var(--border);padding-left:14px">
+          <div style="font-size:13px;font-weight:700;color:var(--text2);margin-bottom:8px">미신청자 (${notApplied.length}명)</div>
+          ${notAppliedHtml}
+        </div>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
     `, true);
