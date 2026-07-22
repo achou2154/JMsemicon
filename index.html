@@ -2028,7 +2028,7 @@ function openOverviewDetail(type) {
         const e = eid(g.empId);
         if(!e) return '';
         const remain = getLeaveRemain(e.id, yr);
-        const isNeg = remain < 0;
+        const isNeg = !e.isExternal && remain < 0;
         const isPast = g.allPast;
         const rowStyle = isPast ? 'background:#f3f4f6;color:var(--text3)' : (isNeg?'background:#fef2f2':'');
         const periods = g.items.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
@@ -2041,7 +2041,7 @@ function openOverviewDetail(type) {
           <td>${e.dept}</td>
           <td>${periods}</td>
           <td>${Math.round(g.totalHours/8*10)/10}일</td>
-          <td style="${!isPast&&isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${!isPast&&isNeg?' ⚠️':''}</td>
+          <td style="${!isPast&&!e.isExternal&&isNeg?'color:var(--danger);font-weight:600':''}">${e.isExternal?'⭐':(Math.round(remain/8*10)/10+'일'+(!isPast&&isNeg?' ⚠️':''))}</td>
           <td>${statusHtml}</td>
         </tr>`;
       }).join('');
