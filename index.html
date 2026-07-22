@@ -2036,21 +2036,29 @@ function openOverviewDetail(type) {
         const statusHtml = isPast ? '<span style="color:var(--text3)">종료</span>'
           : g.hasPending ? statusBadge('pending')
           : statusBadge('approved');
+        // 휴가기간 텍스트가 길수록 폰트 축소 (칸 안에 맞춤)
+        const periodLen = periods.length;
+        const periodFontSize = periodLen > 55 ? 10 : periodLen > 40 ? 11 : periodLen > 28 ? 12 : 13;
         return `<tr style="${rowStyle}">
           <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
           <td>${e.dept}</td>
-          <td>${periods}</td>
+          <td style="font-size:${periodFontSize}px;letter-spacing:${periodLen>40?'-0.4px':'normal'};white-space:normal;word-break:keep-all;line-height:1.4">${periods}</td>
           <td>${Math.round(g.totalHours/8*10)/10}일</td>
           <td style="${!isPast&&!e.isExternal&&isNeg?'color:var(--danger);font-weight:600':''}">${e.isExternal?'⭐':(Math.round(remain/8*10)/10+'일'+(!isPast&&isNeg?' ⚠️':''))}</td>
           <td>${statusHtml}</td>
         </tr>`;
       }).join('');
 
+    const colGroup = `<colgroup>
+      <col style="width:16%"><col style="width:12%"><col style="width:38%">
+      <col style="width:10%"><col style="width:14%"><col style="width:10%">
+    </colgroup>`;
+
     const monthSections = monthKeys.map(mk=>{
       const [my, mm] = mk.split('-');
       return `<div style="margin-bottom:16px">
         <div style="font-size:14px;font-weight:700;color:#c2410c;margin-bottom:6px">${my}년 ${parseInt(mm)}월</div>
-        <table><thead><tr><th>직원</th><th>부서</th><th>휴가기간</th><th>일수</th><th>잔여연차</th><th>상태</th></tr></thead>
+        <table style="width:100%;table-layout:fixed">${colGroup}<thead><tr><th>직원</th><th>부서</th><th>휴가기간</th><th>일수</th><th>잔여연차</th><th>상태</th></tr></thead>
         <tbody>${rowsHtml(byMonth[mk])}</tbody></table>
       </div>`;
     }).join('') || '<div style="text-align:center;color:var(--text3);padding:20px 0">하계휴가 신청 없음</div>';
