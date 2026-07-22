@@ -4219,6 +4219,9 @@ function onLeaveEmpChange(){
   if(isExt){
     const summerRadio = document.querySelector('input[name="ltype"][value="하계휴가"]');
     if(summerRadio){ summerRadio.checked=true; onLtypeChange(); }
+  } else {
+    const annualRadio = document.querySelector('input[name="ltype"][value="연차"]');
+    if(annualRadio){ annualRadio.checked=true; onLtypeChange(); }
   }
 }
 function onLtypeChange(){
