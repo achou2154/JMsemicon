@@ -2691,7 +2691,10 @@ function renderLeave(){
     </div>
     ${isAdmin&&alertThreshold?`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--danger)">⚠️ 이번 달 기준: 잔여 연차 ${alertThreshold}% 이상인 직원이 빨간색으로 표시됩니다.</div>`:''}
     <div class="card">
-      <div class="card-title">개인별 연차 현황 (${yr}년 · 사용률 기준: ${yr}/3/1 ~ ${yr+1}/2/28)</div>
+      <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <span>개인별 연차 현황 (${yr}년 · 사용률 기준: ${yr}/3/1 ~ ${yr+1}/2/28)</span>
+        ${isAdmin?`<button class="btn btn-sm btn-primary" onclick="openAddLeave()">📝 대리 신청</button>`:''}
+      </div>
       <div class="table-wrap"><table>
         <thead><tr><th>직원</th><th>부서</th><th>이월</th><th>부여</th><th>총계</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead>
         <tbody>${sumRows}</tbody>
