@@ -3567,7 +3567,12 @@ function renderCalendar(){
   // 생일/기념일 달력 표시 비활성화 (숨김 처리)
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
     (h.members||[]).forEach(mem=>{
-      if(mem.checkupDate&&!mem.confirmed&&mem.checkupDate.startsWith(mStr))addEv(mem.checkupDate,'🏥 '+ename(h.empId)+' 검진','ev-health');
+      // 예정(reserveDate) 또는 완료(checkupDate) 중 실제 표시할 날짜 하나만 사용
+      const displayDate = mem.confirmed ? (mem.checkupDate||mem.reserveDate) : (mem.reserveDate||mem.checkupDate);
+      if(displayDate&&displayDate.startsWith(mStr)){
+        const statusTxt = mem.confirmed ? '검진완료' : '검진예정';
+        addEv(displayDate,'🏥 '+ename(h.empId)+' '+statusTxt,'ev-health');
+      }
     });
   });
   window._calEv = {}; // 초기화
