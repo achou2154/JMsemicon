@@ -1169,6 +1169,46 @@ function getTransTotal(empId,year){
 // ── 정확한 음력→양력 변환 ──────────────────────────────────
 // 각 연도별 음력 1월 1일의 양력 날짜 + 월별 일수 (29일 또는 30일)
 // 출처: 한국천문연구원 음양력 변환 데이터 기반
+// 대한민국 공휴일 (2026년 기준, 매년 관리자가 갱신 필요 - 대체공휴일 포함)
+const KR_HOLIDAYS_2026 = [
+  '2026-01-01', // 신정
+  '2026-02-16','2026-02-17','2026-02-18', // 설날 연휴
+  '2026-03-01', // 삼일절
+  '2026-03-02', // 삼일절 대체공휴일 (3/1이 일요일)
+  '2026-05-05', // 어린이날
+  '2026-05-24','2026-05-25','2026-05-26', // 석가탄신일(5/24 일)+대체(5/26)
+  '2026-06-06', // 현충일
+  '2026-08-15','2026-08-17', // 광복절(토)+대체공휴일(월)
+  '2026-09-24','2026-09-25','2026-09-26', // 추석 연휴
+  '2026-10-03', // 개천절
+  '2026-10-05', // 개천절 대체공휴일(토->월)
+  '2026-10-09', // 한글날
+  '2026-12-25', // 성탄절
+];
+function isKrHoliday(dateStr) {
+  return KR_HOLIDAYS_2026.includes(dateStr);
+}
+function isWeekendOrHoliday(dateStr) {
+  const d = parseLocalDate(dateStr);
+  if (!d) return false;
+  const dow = d.getDay(); // 0=일, 6=토
+  return dow === 0 || dow === 6 || isKrHoliday(dateStr);
+}
+// 시작일~종료일 사이 실제 근무일수(주말/공휴일 제외) 계산
+function countWorkDays(startStr, endStr) {
+  const start = parseLocalDate(startStr);
+  const end = endStr ? parseLocalDate(endStr) : start;
+  if (!start || !end || end < start) return 0;
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const ds = toLocalDateStr(cur);
+    if (!isWeekendOrHoliday(ds)) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
 const LUNAR_DATA = {
   // 각 연도 음력 1월 1일(양력) + 음력 각 월 일수(29 or 30)
   // 2026: 이미지 및 역산 검증 완료
@@ -1883,6 +1923,7 @@ function openOverviewDetail(type) {
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
     `, true);
   } else if (type === 'summer') {
+    const _todaySummer = todayStr();
     const rows = db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr))
       .slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
       .map(r=>{
@@ -1890,13 +1931,15 @@ function openOverviewDetail(type) {
         if(!e) return '';
         const remain = getLeaveRemain(e.id, yr);
         const isNeg = remain < 0;
-        return `<tr style="${isNeg?'background:#fef2f2':''}">
+        const isPast = (r.endDate||r.startDate) < _todaySummer;
+        const rowStyle = isPast ? 'background:#f3f4f6;color:var(--text3)' : (isNeg?'background:#fef2f2':'');
+        return `<tr style="${rowStyle}">
           <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
           <td>${e.dept}</td>
           <td>${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}</td>
           <td>${Math.round((+r.hours||0)/8*10)/10}일</td>
-          <td style="${isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${isNeg?' ⚠️':''}</td>
-          <td>${statusBadge(r.status)}</td>
+          <td style="${!isPast&&isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${!isPast&&isNeg?' ⚠️':''}</td>
+          <td>${isPast?'<span style="color:var(--text3)">종료</span>':statusBadge(r.status)}</td>
         </tr>`;
       }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">하계휴가 신청 없음</td></tr>';
 
@@ -4231,10 +4274,7 @@ function autoCalcEditLeaveHours(){
   const s=getDateVal('f-start');
   const e=getDateVal('f-end');
   if(!s) return;
-  const start=parseLocalDate(s);
-  const end=e?parseLocalDate(e):start;
-  if(!start||!end||end<start) return;
-  const days=Math.round((end-start)/864e5)+1;
+  const days=countWorkDays(s,e||s);
   const hEl=document.getElementById('f-hours');
   if(hEl) hEl.value=days*8;
 }
@@ -4244,10 +4284,7 @@ function autoCalcLeaveHours(){
   const s=getDateVal('f-start');
   const e=getDateVal('f-end');
   if(!s) return;
-  const start=parseLocalDate(s);
-  const end=e?parseLocalDate(e):start;
-  if(!start||!end||end<start) return;
-  const days=Math.round((end-start)/864e5)+1;
+  const days=countWorkDays(s,e||s);
   const hEl=document.getElementById('f-hours');
   if(hEl) hEl.value=days*8;
 }
