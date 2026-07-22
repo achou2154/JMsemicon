@@ -1938,7 +1938,19 @@ function openOverviewDetail(type) {
       if((r.endDate||r.startDate) >= _todaySummer) grouped[key].allPast = false;
     });
 
-    const rows = Object.values(grouped)
+    // 마지막 날짜(최대 endDate/startDate) 기준 월로 그룹핑
+    Object.values(grouped).forEach(g=>{
+      const lastDate = g.items.map(r=>r.endDate||r.startDate).sort().slice(-1)[0]||'';
+      g.monthKey = lastDate ? lastDate.slice(0,7) : '';
+    });
+    const byMonth = {};
+    Object.values(grouped).forEach(g=>{
+      if(!byMonth[g.monthKey]) byMonth[g.monthKey] = [];
+      byMonth[g.monthKey].push(g);
+    });
+    const monthKeys = Object.keys(byMonth).filter(Boolean).sort();
+
+    const rowsHtml = (list) => list
       .sort((a,b)=>{
         const aMin = a.items.map(r=>r.startDate).sort()[0]||'';
         const bMin = b.items.map(r=>r.startDate).sort()[0]||'';
@@ -1964,13 +1976,21 @@ function openOverviewDetail(type) {
           <td style="${!isPast&&isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${!isPast&&isNeg?' ⚠️':''}</td>
           <td>${statusHtml}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">하계휴가 신청 없음</td></tr>';
+      }).join('');
+
+    const monthSections = monthKeys.map(mk=>{
+      const [my, mm] = mk.split('-');
+      return `<div style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:700;color:#c2410c;margin-bottom:6px">${my}년 ${parseInt(mm)}월</div>
+        <table><thead><tr><th>직원</th><th>부서</th><th>휴가기간</th><th>일수</th><th>잔여연차</th><th>상태</th></tr></thead>
+        <tbody>${rowsHtml(byMonth[mk])}</tbody></table>
+      </div>`;
+    }).join('') || '<div style="text-align:center;color:var(--text3);padding:20px 0">하계휴가 신청 없음</div>';
 
     openModal(`
       <div class="modal-title">🏖️ ${yr}년 하계휴가 신청 현황</div>
       <div style="max-height:500px;overflow-y:auto">
-        <table><thead><tr><th>직원</th><th>부서</th><th>휴가기간</th><th>일수</th><th>잔여연차</th><th>상태</th></tr></thead>
-        <tbody>${rows}</tbody></table>
+        ${monthSections}
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
     `, true);
@@ -4027,7 +4047,7 @@ async function openAddLeave(empId){
   openModal('<div class="modal-title">연차 신청</div>'
   +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
   // 직원
-  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp">'+empOptions(empId)+'</select></div>'
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
   // 구분
   +'<div class="field" style="margin-bottom:8px"><label style="font-weight:700">구분</label>'
   +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
@@ -4075,6 +4095,7 @@ async function openAddLeave(empId){
       const el=document.getElementById(id);
       if(el) el.addEventListener('input',autoCalcLeaveHours);
     });
+    onLeaveEmpChange();
     onLtypeChange();
   },100);
 }
@@ -4173,6 +4194,29 @@ function closeAttachPopup() {
   closeModal();
 }
 
+function onLeaveEmpChange(){
+  const sel = document.getElementById('f-emp');
+  if(!sel) return;
+  const empId = sel.value;
+  const emp = db.employees.find(e=>String(e.id)===String(empId));
+  const isExt = emp && emp.isExternal;
+  // 사외이사/임원은 하계휴가만 신청 가능
+  document.querySelectorAll('input[name="ltype"]').forEach(r=>{
+    const wrap = r.closest('label');
+    if(!wrap) return;
+    if(isExt && r.value!=='하계휴가'){
+      wrap.style.display='none';
+      r.disabled=true;
+    } else {
+      wrap.style.display='';
+      r.disabled=false;
+    }
+  });
+  if(isExt){
+    const summerRadio = document.querySelector('input[name="ltype"][value="하계휴가"]');
+    if(summerRadio){ summerRadio.checked=true; onLtypeChange(); }
+  }
+}
 function onLtypeChange(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   if(!sel) return;
@@ -4325,6 +4369,11 @@ async function saveLeave(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   const leaveType=sel?sel.value:'연차';
   const empId=document.getElementById('f-emp').value;
+  const _empChk = db.employees.find(x=>String(x.id)===String(empId));
+  if(_empChk && _empChk.isExternal && leaveType!=='하계휴가'){
+    showToast('⚠️ 사외이사/임원은 하계휴가만 신청 가능합니다');
+    return;
+  }
   const e2=getDateVal('f-end')||s;
   if(!checkDateOrder(s,e2,'연차')) return;
   // 중복 체크
@@ -4421,7 +4470,7 @@ async function openAddComp(empId){
   openModal(
     '<div class="modal-title">🔄 대체휴무 신청</div>'
     +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp">'+empOptions(empId)+'</select></div>'
+    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
     +'<div style="margin-bottom:12px">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
     +'<label style="font-size:14px;font-weight:700">일시</label>'
@@ -4525,7 +4574,7 @@ async function openAddTrip(kind,empId){
   openModal(
     '<div class="modal-title">'+(isOverseas?'🌏 해외':'🇰🇷 국내')+' 출장 신청</div>'
     +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp">'+empOptions(empId)+'</select></div>'
+    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
     +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">목적지</label><input id="f-dest" placeholder="'+(isOverseas?'예: 일본 도쿄':'예: 부산')+'"></div>'
     +'<div style="margin-bottom:12px">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><label style="font-size:14px;font-weight:700">일시</label></div>'
