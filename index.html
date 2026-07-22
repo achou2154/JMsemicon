@@ -3567,11 +3567,11 @@ function renderCalendar(){
   // 생일/기념일 달력 표시 비활성화 (숨김 처리)
   const _healthSeen = new Set(); // empId+date+relation 중복 방지
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
-    (h.members||[]).forEach(mem=>{
+    (h.members||[]).filter(mem=>!mem.relation||mem.relation==='본인').forEach(mem=>{
       // 예정(reserveDate) 또는 완료(checkupDate) 중 실제 표시할 날짜 하나만 사용
       const displayDate = mem.confirmed ? (mem.checkupDate||mem.reserveDate) : (mem.reserveDate||mem.checkupDate);
       if(displayDate&&displayDate.startsWith(mStr)){
-        const dedupKey = h.empId+'_'+displayDate+'_'+(mem.relation||'본인')+'_'+(mem.confirmed?'done':'pending');
+        const dedupKey = h.empId+'_'+displayDate+'_'+(mem.confirmed?'done':'pending');
         if(_healthSeen.has(dedupKey)) return;
         _healthSeen.add(dedupKey);
         const statusTxt = mem.confirmed ? '검진완료' : '검진예정';
