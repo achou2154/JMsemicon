@@ -1499,6 +1499,7 @@ function renderOverview(){
   const totalCompRemain=db.employees.reduce((s,e)=>s+getCompRemain(e.id,yr),0);
   const totalTrips=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.status==='approved').length;
   const totalTrans=db.employees.reduce((s,e)=>s+getTransTotal(e.id,yr),0);
+  const totalSummer=db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr)&&r.status==='approved').length;
   const todayD=parseLocalDate(todayStr());
 
 
@@ -1585,7 +1586,7 @@ function renderOverview(){
 
   setContent(`
     ${pending?`<div style="background:var(--warn-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:14px;color:var(--ot);display:flex;align-items:center;gap:8px">⚠️ 승인 대기 <strong>${pending}건</strong> <button class="btn btn-sm btn-warn" onclick="go('requests')">확인</button></div>`:''}
-    <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
+    <div class="stats-row" style="grid-template-columns:repeat(6,1fr)">
       <div class="stat-card leave" style="cursor:pointer" onclick="openOverviewDetail('leave')">
         <div class="stat-label">잔여연차</div>
         <div class="stat-val">${Math.round(totalLeaveAlloc/8*10)/10}일</div>
@@ -1610,6 +1611,11 @@ function renderOverview(){
         <div class="stat-label">교통비</div>
         <div class="stat-val">₩${Math.round(totalTrans/10000)}만</div>
         <div class="stat-sub">${totalTrans.toLocaleString()}원</div>
+      </div>
+      <div class="stat-card" style="cursor:pointer;background:#fff7ed" onclick="openOverviewDetail('summer')">
+        <div class="stat-label">🏖️ 하계휴가</div>
+        <div class="stat-val" style="color:#c2410c">${totalSummer}건</div>
+        <div class="stat-sub">신청 현황</div>
       </div>
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -1870,6 +1876,32 @@ function openOverviewDetail(type) {
       <div class="modal-title">🚗 ${yr}년 교통비 내역 (내림차순)</div>
       <div style="max-height:500px;overflow-y:auto">
         <table><thead><tr><th>직원</th><th>부서</th><th>교통비</th></tr></thead>
+        <tbody>${rows}</tbody></table>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    `, true);
+  } else if (type === 'summer') {
+    const rows = db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr))
+      .slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
+      .map(r=>{
+        const e = eid(r.empId);
+        if(!e) return '';
+        const remain = getLeaveRemain(e.id, yr);
+        const isNeg = remain < 0;
+        return `<tr style="${isNeg?'background:#fef2f2':''}">
+          <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
+          <td>${e.dept}</td>
+          <td>${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}</td>
+          <td>${Math.round((+r.hours||0)/8*10)/10}일</td>
+          <td style="${isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${isNeg?' ⚠️':''}</td>
+          <td>${statusBadge(r.status)}</td>
+        </tr>`;
+      }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">하계휴가 신청 없음</td></tr>';
+
+    openModal(`
+      <div class="modal-title">🏖️ ${yr}년 하계휴가 신청 현황</div>
+      <div style="max-height:500px;overflow-y:auto">
+        <table><thead><tr><th>직원</th><th>부서</th><th>휴가기간</th><th>일수</th><th>잔여연차</th><th>상태</th></tr></thead>
         <tbody>${rows}</tbody></table>
       </div>
       <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
@@ -3795,6 +3827,7 @@ function updateReqForm(){
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-special" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>
+         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-summer" value="하계휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 하계휴가</label>
 
       </div>
     </div>
@@ -3926,6 +3959,7 @@ async function openAddLeave(empId){
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="하계휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 하계휴가</label>'
   +'</div></div>'
   // 노란 안내박스
   +'<div style="padding:8px 12px;background:#fef3c7;border-radius:var(--radius);font-size:12px;color:#92400e;line-height:1.8;margin-bottom:12px">※ 병가: 동일 질병으로 인한 7일 이상의 결근<br>※ 특별휴가: 경조사 휴가, 근속 휴가 등 사유 및 관련 서류 필수 제출</div>'
@@ -4070,7 +4104,7 @@ function onLtypeChange(){
   const sTimeWrap=document.getElementById('leave-start-time-wrap');
   const eTimeWrap=document.getElementById('leave-end-time-wrap');
   const noHourTypes=['병가','특별휴가'];
-  const fullDayTypes=['연차','병가','특별휴가'];
+  const fullDayTypes=['연차','병가','특별휴가','하계휴가'];
   const isFullDay=fullDayTypes.includes(sel.value);
 
   // 병가/특별휴가: 총 시간 비활성화
@@ -4097,7 +4131,7 @@ function onLtypeChange(){
   }
 
   if(!hEl) return;
-  if(sel.value==='연차') hEl.value=8;
+  if(sel.value==='연차'||sel.value==='하계휴가') hEl.value=8;
   else if(sel.value==='반차'){
     hEl.value=4;
     const sT=document.getElementById('f-start-time');
@@ -4191,7 +4225,7 @@ function clearLeaveFile(){
 }
 function autoCalcEditLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
-  if(sel&&sel.value!=='연차') return;
+  if(sel&&sel.value!=='연차'&&sel.value!=='하계휴가') return;
   const s=getDateVal('f-start');
   const e=getDateVal('f-end');
   if(!s) return;
@@ -4204,7 +4238,7 @@ function autoCalcEditLeaveHours(){
 }
 function autoCalcLeaveHours(){
   const sel=document.querySelector('input[name="ltype"]:checked');
-  if(sel&&sel.value!=='연차') return;
+  if(sel&&sel.value!=='연차'&&sel.value!=='하계휴가') return;
   const s=getDateVal('f-start');
   const e=getDateVal('f-end');
   if(!s) return;
@@ -4476,6 +4510,7 @@ function openEditLeave(id){
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="외출" ${ltVal==='외출'||ltVal==='시간연차'?'checked':''} onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="병가" ${ltVal==='병가'?'checked':''} onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="특별휴가" ${ltVal==='특별휴가'?'checked':''} onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="하계휴가" ${ltVal==='하계휴가'?'checked':''} onchange="onLtypeChange()" style="width:15px;height:15px"> 하계휴가</label>
         </div>
       </div>
     </div>
