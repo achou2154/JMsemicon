@@ -946,12 +946,13 @@ function empOptions(sel=''){
   }
   return db.employees
     .filter(e=>!e.isExternal)
+    .slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})</option>`)
     .join('');
 }
 // 전체 직원 (사외이사 포함, 건강검진·생일 등)
 function empOptionsAll(sel=''){
-  return db.employees
+  return db.employees.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})${e.isExternal?' [사외이사]':''}</option>`)
     .join('');
 }
