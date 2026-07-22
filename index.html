@@ -1925,22 +1925,44 @@ function openOverviewDetail(type) {
     `, true);
   } else if (type === 'summer') {
     const _todaySummer = todayStr();
-    const rows = db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr))
-      .slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
-      .map(r=>{
-        const e = eid(r.empId);
+    const summerReqs = db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr));
+    // 직원별 그룹핑
+    const grouped = {};
+    summerReqs.forEach(r=>{
+      const key = String(r.empId);
+      if(!grouped[key]) grouped[key] = { empId:r.empId, items:[], totalHours:0, hasPending:false, hasApproved:false, allPast:true };
+      grouped[key].items.push(r);
+      grouped[key].totalHours += (+r.hours||0);
+      if(r.status==='pending') grouped[key].hasPending = true;
+      if(r.status==='approved') grouped[key].hasApproved = true;
+      if((r.endDate||r.startDate) >= _todaySummer) grouped[key].allPast = false;
+    });
+
+    const rows = Object.values(grouped)
+      .sort((a,b)=>{
+        const aMin = a.items.map(r=>r.startDate).sort()[0]||'';
+        const bMin = b.items.map(r=>r.startDate).sort()[0]||'';
+        return aMin.localeCompare(bMin);
+      })
+      .map(g=>{
+        const e = eid(g.empId);
         if(!e) return '';
         const remain = getLeaveRemain(e.id, yr);
         const isNeg = remain < 0;
-        const isPast = (r.endDate||r.startDate) < _todaySummer;
+        const isPast = g.allPast;
         const rowStyle = isPast ? 'background:#f3f4f6;color:var(--text3)' : (isNeg?'background:#fef2f2':'');
+        const periods = g.items.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
+          .map(r=>fmt(r.startDate)+(r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):'')).join(', ');
+        const statusHtml = isPast ? '<span style="color:var(--text3)">종료</span>'
+          : g.hasPending ? statusBadge('pending')
+          : statusBadge('approved');
         return `<tr style="${rowStyle}">
           <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
           <td>${e.dept}</td>
-          <td>${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?' ~ '+fmt(r.endDate):''}</td>
-          <td>${Math.round((+r.hours||0)/8*10)/10}일</td>
+          <td>${periods}</td>
+          <td>${Math.round(g.totalHours/8*10)/10}일</td>
           <td style="${!isPast&&isNeg?'color:var(--danger);font-weight:600':''}">${Math.round(remain/8*10)/10}일${!isPast&&isNeg?' ⚠️':''}</td>
-          <td>${isPast?'<span style="color:var(--text3)">종료</span>':statusBadge(r.status)}</td>
+          <td>${statusHtml}</td>
         </tr>`;
       }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">하계휴가 신청 없음</td></tr>';
 
