@@ -397,6 +397,7 @@ function normalizeEmp(r) {
   return { id:r.id, user_id:r.user_id, name:r.name, dept:r.dept,
     position:r.position, phone:r.phone, email:r.email,
     joinDate:r.join_date||'', isExternal:r.is_external||false,
+    employmentType:r.employment_type||(r.is_external?'사외이사':'정직원'),
     birthdate:r.birthdate||'', birthdateLunar:r.birthdate_lunar||false,
     address:r.address||'', avatarUrl:r.avatar_url||'',
     anniversaryType:r.anniversary_type||'birthday' };
@@ -2039,7 +2040,7 @@ function renderRoster(){
   const sorted = getSortedByPosition();
   const rows=sorted.map((e,idx)=>{
     const a=getAlloc(e.id,yr);
-    const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#666;border:1px solid #ddd;margin-left:5px;font-size:11px">⭐</span>`:'';
+    const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#666;border:1px solid #ddd;margin-left:5px;font-size:11px">⭐ 사외이사</span>`:(e.employmentType==='계약직'?`<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;margin-left:5px;font-size:11px">계약직</span>`:'');
     return`<tr data-id="${e.id}" ${e.isExternal?'style="background:#fafafa"':''}>
       <td style="color:var(--text3);font-size:13px;width:30px">${idx+1}</td>
       <td><div class="name-cell">${av(e.id)}
@@ -2240,9 +2241,12 @@ function openEmpInfo(empId) {
           </div>
         </div>
         <div class="field">
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;margin-top:6px">
-            <input type="checkbox" id="ei-external" ${e.isExternal?'checked':''} style="width:14px;height:14px"> 사외이사/임원
-          </label>
+          <label style="font-size:14px;margin-bottom:4px;display:block">고용 구분</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="정직원" ${(!e.isExternal&&e.employmentType!=='계약직')?'checked':''} style="width:14px;height:14px"> 정직원</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="계약직" ${e.employmentType==='계약직'?'checked':''} style="width:14px;height:14px"> 계약직</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="사외이사" ${e.isExternal?'checked':''} style="width:14px;height:14px"> 사외이사/임원</label>
+          </div>
         </div>
       </div>
 
@@ -2356,7 +2360,8 @@ async function saveEmpInfo(empId) {
   const birthdateLunar = calSel ? calSel.value === 'lunar' : false;
   const annexSel = document.querySelector('input[name="ei-anniv"]:checked');
   const anniversaryType = annexSel ? annexSel.value : 'birthday';
-  const isExternal = document.getElementById('ei-external')?.checked || false;
+  const empType = document.querySelector('input[name="ei-emptype"]:checked')?.value || '정직원';
+  const isExternal = empType === '사외이사';
 
   await sbUpdate('employees', empId, {
     name, dept, position: pos, phone, email,
@@ -2364,9 +2369,10 @@ async function saveEmpInfo(empId) {
     birthdate: birthdate || null,
     birthdate_lunar: birthdateLunar,
     anniversary_type: anniversaryType,
-    is_external: isExternal
+    is_external: isExternal,
+    employment_type: empType
   });
-  Object.assign(e, { name, dept, position: pos, phone, email, joinDate, birthdate, birthdateLunar, anniversaryType, isExternal });
+  Object.assign(e, { name, dept, position: pos, phone, email, joinDate, birthdate, birthdateLunar, anniversaryType, isExternal, employmentType: empType });
   // 생일 이벤트 자동 동기화
   await syncBirthdayEvent(e); // 생일 없으면 기존 이벤트 삭제
   saveAll(); showToast('✅ 저장되었습니다'); closeModal(); renderRoster();
@@ -3808,11 +3814,14 @@ function openAddEmp(){
       <div class="field"><label>${currentYear}년 연차(일)</label><input id="f-leave" type="number" value="15" min="0"></div>
     </div>
     <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>이월 연차(일)</label><input id="f-carry" type="number" value="0" min="0"></div></div>
-    <div style="background:var(--bg);border:1px solid var(--border2);border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
-        <input type="checkbox" id="f-external" style="width:16px;height:16px">
-        <span>사외이사 / 임원 — <strong>연차·특근 관리 제외</strong> (직원명부·종합내역에만 표시)</span>
-      </label>
+    <div class="field" style="margin-bottom:12px">
+      <label>고용 구분</label>
+      <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="정직원" checked style="width:15px;height:15px"> 정직원</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="계약직" style="width:15px;height:15px"> 계약직</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="사외이사" style="width:15px;height:15px"> 사외이사/임원</label>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 사외이사/임원 선택 시 연차·특근 관리에서 제외되며 직원명부·종합내역에만 표시됩니다.</div>
     </div>
     <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveEmp()">저장</button></div>`);
 }
@@ -3820,13 +3829,14 @@ async function saveEmp(){
   const name=document.getElementById('f-name').value.trim();
   if(!name){alert('이름을 입력하세요');return;}
   const id=nextId++;
-  const isExternal=document.getElementById('f-external')?.checked||false;
+  const empType=document.querySelector('input[name="f-emptype"]:checked')?.value||'정직원';
+  const isExternal=empType==='사외이사';
   const birth=getDateVal('f-birth')||'';
   const calSel=document.querySelector('input[name="f-cal"]:checked');
   const birthdateLunar=calSel?calSel.value==='lunar':false;
   const annexSel=document.querySelector('input[name="f-anniv"]:checked');
   const anniversaryType=annexSel?annexSel.value:'birthday';
-  const emp={id,name,dept:document.getElementById('f-dept').value||'',position:document.getElementById('f-pos').value||'',phone:document.getElementById('f-phone').value||'',email:document.getElementById('f-email').value||'',joinDate:getDateVal('f-join')||'',isExternal,birthdate:birth,birthdateLunar,anniversaryType,address:'',avatarUrl:''};
+  const emp={id,name,dept:document.getElementById('f-dept').value||'',position:document.getElementById('f-pos').value||'',phone:document.getElementById('f-phone').value||'',email:document.getElementById('f-email').value||'',joinDate:getDateVal('f-join')||'',isExternal,employmentType:empType,birthdate:birth,birthdateLunar,anniversaryType,address:'',avatarUrl:''};
   db.employees.push(emp);
   if(!isExternal){
     db.leaveAlloc.push({empId:id,year:currentYear,total:(parseFloat(document.getElementById('f-leave').value)||15)*8,carryover:(parseFloat(document.getElementById('f-carry').value)||0)*8});
@@ -3844,7 +3854,7 @@ async function saveEmp(){
       if (matched) userId = matched.id;
     }
   }
-  const empRow={name:emp.name,dept:emp.dept,position:emp.position,phone:emp.phone,email:emp.email,join_date:emp.joinDate||null,is_external:emp.isExternal||false,birthdate:birth||null,birthdate_lunar:birthdateLunar,anniversary_type:anniversaryType,user_id:userId||null};
+  const empRow={name:emp.name,dept:emp.dept,position:emp.position,phone:emp.phone,email:emp.email,join_date:emp.joinDate||null,is_external:emp.isExternal||false,employment_type:empType,birthdate:birth||null,birthdate_lunar:birthdateLunar,anniversary_type:anniversaryType,user_id:userId||null};
   const saved=await sbInsert('employees',empRow);
   if(saved){emp.id=saved.id;db.employees[db.employees.length-1].id=saved.id;}
   // 생일 events 자동 등록
