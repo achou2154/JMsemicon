@@ -2926,8 +2926,21 @@ function renderOT(){
       ${(!e.isExternal&&(isAdmin||(currentEmp&&String(e.id)===String(currentEmp.id))))?`<td style="white-space:nowrap"><button class="btn btn-sm btn-primary" style="margin-right:4px" onclick="openAddOT(${e.id})">+특근</button><button class="btn btn-sm" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc" onclick="openAddComp(${e.id})">+대휴</button></td>`:(isAdmin?'<td></td>':'')}
     </tr>`;
   }).join('');
+  const totalOTHours0 = db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved'&&canView(r)).reduce((s,r)=>s+(+r.hours||0),0);
+  const totalCompRemain0 = otEmps.filter(e=>!e.isExternal).reduce((s,e)=>s+getCompValidRemain(e.id,yr),0);
   setContent(`
     <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 대체휴무 사용기한: 발생일로부터 1년</div>
+    <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
+      <div class="stat-card ot" style="position:relative">
+        <div class="stat-label">⏰ 특근</div><div class="stat-val">${totalOTHours0}h</div>
+        <button class="btn btn-primary btn-sm" style="position:absolute;top:10px;right:10px;font-size:12px" onclick="openAddOT()">+ 신청</button>
+      </div>
+      <div class="stat-card comp" style="position:relative">
+        <div class="stat-label">🔄 잔여 대휴</div><div class="stat-val">${totalCompRemain0}h</div>
+        <button class="btn btn-sm" style="position:absolute;top:10px;right:10px;font-size:12px;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc" onclick="openAddComp()">+ 신청</button>
+      </div>
+      <div class="stat-card"><div class="stat-label">👥 대상 인원</div><div class="stat-val">${otEmps.filter(e=>!e.isExternal).length}명</div></div>
+    </div>
     <div class="card"><div class="card-title">개인별 특근/대휴 현황 (${yr}년)</div>
       <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>특근</th><th>발생 대휴</th><th>이월 대휴</th><th>사용 대휴</th><th>잔여 대휴</th><th>교통비 전환</th>${(isAdmin||(currentEmp&&otEmps.some(e=>String(e.id)===String(currentEmp.id)&&!e.isExternal)))?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
     </div>
