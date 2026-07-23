@@ -483,7 +483,9 @@ async function loadAdminEmails() {
 }
 
 async function notifyAdmin(req) {
-  if (!_supa || !adminEmails.length) return;
+  if (!_supa) return;
+  await loadAdminEmails(); // 매번 최신 음소거 상태 반영
+  if (!adminEmails.length) return;
   const typeMap = { leave:'연차', ot:'특근', comp:'대체휴무', trip:'출장', outside:'외근', education:'교육' };
   const typeName = typeMap[req.type] || req.type;
   let detail = '';
@@ -3739,7 +3741,9 @@ async function approveHealth(empId) {
 }
 
 async function notifyHealthChange(empId, members, reserveDate='', action='신청') {
-  if (!_supa || !adminEmails.length) return;
+  if (!_supa) return;
+  await loadAdminEmails(); // 매번 최신 음소거 상태 반영
+  if (!adminEmails.length) return;
   const e = eid(empId);
   if (!e) return;
   const main = members.find(m => m.relation === '본인') || members[0];
