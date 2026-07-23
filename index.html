@@ -4212,6 +4212,8 @@ async function openAddLeave(empId){
   +'<div id="leave-end-date-wrap">'+makeDateInput('f-end',_todayISO,true)+'</div>'
   +'<div id="leave-end-time-wrap" style="display:none"><input id="f-end-time" type="time" value="'+_hh1+':'+_mm+'" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px" oninput="onLeaveTimeChange()"></div>'
   +'</div></div>'
+  // 예상 잔여연차
+  +'<div id="leave-remain-preview" style="background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#166534"></div>'
   // 사유
   +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
   // 첨부파일
@@ -4226,7 +4228,12 @@ async function openAddLeave(empId){
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
       if(el) el.addEventListener('input',autoCalcLeaveHours);
+      if(el) el.addEventListener('input',updateLeaveRemainPreview);
     });
+    document.getElementById('f-hours')?.addEventListener('input',updateLeaveRemainPreview);
+    document.getElementById('f-emp')?.addEventListener('change',updateLeaveRemainPreview);
+    document.querySelectorAll('input[name="ltype"]').forEach(r=>r.addEventListener('change',updateLeaveRemainPreview));
+    updateLeaveRemainPreview();
     onLeaveEmpChange();
     onLtypeChange();
   },100);
@@ -4326,6 +4333,27 @@ function closeAttachPopup() {
   closeModal();
 }
 
+function updateLeaveRemainPreview(){
+  const box = document.getElementById('leave-remain-preview');
+  if(!box) return;
+  const empId = document.getElementById('f-emp')?.value;
+  if(!empId){ box.innerHTML=''; return; }
+  const sel = document.querySelector('input[name="ltype"]:checked');
+  const leaveType = sel?sel.value:'연차';
+  const hours = parseFloat(document.getElementById('f-hours')?.value)||0;
+  const emp = db.employees.find(e=>String(e.id)===String(empId));
+  if(emp && emp.isExternal){ box.innerHTML=''; return; }
+  const yr = currentYear;
+  const currentRemain = getLeaveRemain(empId, yr);
+  // 병가/특별휴가는 연차 차감 없음
+  const deduct = ['병가','특별휴가'].includes(leaveType) ? 0 : hours;
+  const afterRemain = currentRemain - deduct;
+  const afterNeg = afterRemain < 0;
+  box.innerHTML = '현재 잔여연차 <strong>'+Math.round(currentRemain/8*10)/10+'일</strong>'
+    + (deduct>0
+      ? ' → 신청 후 예상 잔여 <strong style="'+(afterNeg?'color:var(--danger)':'')+'">'+Math.round(afterRemain/8*10)/10+'일</strong>'+(afterNeg?' ⚠️ 잔여 부족':'')
+      : ' <span style="color:var(--text3)">(이 신청은 연차 차감 없음)</span>');
+}
 function onLeaveEmpChange(){
   const sel = document.getElementById('f-emp');
   if(!sel) return;
@@ -4410,6 +4438,7 @@ function onLtypeChange(){
   else if(sel.value==='특별휴가') hEl.value=0;
 
   if(!isFullDay && sel.value!=='외출') onLeaveTimeChange();
+  updateLeaveRemainPreview();
 }
 
 function onAlldayChange(){
@@ -4428,6 +4457,7 @@ function onAlldayChange(){
     const hEl=document.getElementById('f-hours');
     if(hEl) hEl.value=4;
   }
+  updateLeaveRemainPreview();
 }
 
 function onLeaveTimeChange(){
@@ -4438,20 +4468,22 @@ function onLeaveTimeChange(){
   const [eh,em]=e.split(':').map(Number);
   const diff=(eh*60+em)-(sh*60+sm);
   if(diff>0){const hEl=document.getElementById('f-hours');if(hEl)hEl.value=Math.round(diff/60*10)/10;}
+  updateLeaveRemainPreview();
 }
 
 function onLeaveHoursInput(){
   const hEl=document.getElementById('f-hours');
   const sT=document.getElementById('f-start-time');
   const eT=document.getElementById('f-end-time');
-  if(!hEl||!sT||!eT) return;
+  if(!hEl||!sT||!eT){ updateLeaveRemainPreview(); return; }
   const hours=parseFloat(hEl.value);
-  if(isNaN(hours)||hours<=0) return;
+  if(isNaN(hours)||hours<=0){ updateLeaveRemainPreview(); return; }
   let sv=sT.value;
   if(!sv){const nowK=new Date(Date.now()+9*3600*1000);sv=String(nowK.getUTCHours()).padStart(2,'0')+':'+String(nowK.getUTCMinutes()).padStart(2,'0');sT.value=sv;}
   const [sh,sm]=sv.split(':').map(Number);
   const tot=sh*60+sm+Math.round(hours*60);
   eT.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+  updateLeaveRemainPreview();
 }
 
 function openLeaveFileDialog(){document.getElementById("leave-file-input").click();}
@@ -4563,15 +4595,42 @@ async function openAddOT(empId){openModal(`<div class="modal-title">특근 신�
 </div></div>
     <div class="field"><label>날짜 *</label>${makeDateInput('f-date')}</div>
   </div>
-  <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4"></div></div>
+  <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="f-hours" type="number" min="1" max="24" value="4" oninput="updateOTRemainPreview()"></div></div>
   <div style="background:var(--ot-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 14px;margin-bottom:12px">
     <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
-      <input type="checkbox" id="f-transport" style="width:16px;height:16px">
+      <input type="checkbox" id="f-transport" onchange="updateOTRemainPreview()" style="width:16px;height:16px">
       <span>🚗 교통비로 지급받기 (₩15,000/h) — <strong>선택 시 대체휴무 미발생</strong></span>
     </label>
   </div>
+  <div id="ot-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>
   <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
-  <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div>`);}
+  <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div>`);
+  setTimeout(()=>{
+    document.querySelectorAll('input[name="otsub2"]').forEach(r=>r.addEventListener('change',updateOTRemainPreview));
+    document.getElementById('f-emp')?.addEventListener('change',updateOTRemainPreview);
+    updateOTRemainPreview();
+  },50);
+}
+function updateOTRemainPreview(){
+  const box=document.getElementById('ot-remain-preview');
+  if(!box) return;
+  const empId=document.getElementById('f-emp')?.value;
+  if(!empId){ box.innerHTML=''; return; }
+  const hours=parseFloat(document.getElementById('f-hours')?.value)||0;
+  const useTransport=document.getElementById('f-transport')?.checked||false;
+  const otSel=document.querySelector('input[name="otsub2"]:checked');
+  const otType=otSel?otSel.value:'특근';
+  const yr=currentYear;
+  const currentRemain=getCompRemain(empId,yr);
+  if(useTransport){
+    box.innerHTML='현재 잔여대휴 <strong>'+currentRemain+'h</strong> <span style="color:var(--text3)">(교통비 전환 선택 시 대휴 미발생)</span>';
+    return;
+  }
+  const mult=otType==='주말연장'?2.0:1.5;
+  const earned=Math.round(hours*mult*10)/10;
+  const afterRemain=Math.round((currentRemain+earned)*10)/10;
+  box.innerHTML='현재 잔여대휴 <strong>'+currentRemain+'h</strong> → 승인 시 예상 잔여 <strong>'+afterRemain+'h</strong> (+'+earned+'h 발생)';
+}
 async function saveOT(){
   const d=getDateVal('f-date');if(!d){alert('날짜 입력');return;}
   const empId=document.getElementById('f-emp').value;
@@ -4626,6 +4685,7 @@ async function openAddComp(empId){
     +'<div>'+makeDateInput('f-end',_td,true)+'</div>'
     +'<div id="comp-et-wrap" style="display:none"><input id="f-end-time" type="time" value="'+_hh+':'+_mm+'" oninput="onCompTimeChange()" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px"></div>'
     +'</div></div>'
+    +'<div id="comp-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>'
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
     +'</div>'
     +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>'
@@ -4634,8 +4694,24 @@ async function openAddComp(empId){
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
       if(el) el.addEventListener('input', autoCalcCompHours);
+      if(el) el.addEventListener('input', updateCompRemainPreview);
     });
+    document.getElementById('f-hours')?.addEventListener('input', updateCompRemainPreview);
+    document.getElementById('f-emp')?.addEventListener('change', updateCompRemainPreview);
+    updateCompRemainPreview();
   },100);
+}
+function updateCompRemainPreview(){
+  const box=document.getElementById('comp-remain-preview');
+  if(!box) return;
+  const empId=document.getElementById('f-emp')?.value;
+  if(!empId){ box.innerHTML=''; return; }
+  const hours=parseFloat(document.getElementById('f-hours')?.value)||0;
+  const yr=currentYear;
+  const currentRemain=getCompRemain(empId,yr);
+  const afterRemain=Math.round((currentRemain-hours)*10)/10;
+  const isNeg=afterRemain<0;
+  box.innerHTML='현재 잔여대휴 <strong>'+currentRemain+'h</strong> → 신청 후 예상 잔여 <strong style="'+(isNeg?'color:var(--danger)':'')+'">'+afterRemain+'h</strong>'+(isNeg?' ⚠️ 잔여 부족':'');
 }
 
 function onCompAlldayChange(){
@@ -4644,6 +4720,7 @@ function onCompAlldayChange(){
   if(stW) stW.style.display=allday?'none':'';
   if(etW) etW.style.display=allday?'none':'';
   if(allday){ const h=document.getElementById('f-hours'); if(h) h.value=8; }
+  updateCompRemainPreview();
 }
 function onCompTimeChange(){
   const s=document.getElementById('f-start-time')?.value;
@@ -4652,14 +4729,16 @@ function onCompTimeChange(){
   const [sh,sm]=s.split(':').map(Number),[eh,em]=e.split(':').map(Number);
   const diff=(eh*60+em)-(sh*60+sm);
   if(diff>0){const h=document.getElementById('f-hours');if(h)h.value=Math.round(diff/60*10)/10;}
+  updateCompRemainPreview();
 }
 function onCompHoursInput(){
   const h=document.getElementById('f-hours'),st=document.getElementById('f-start-time'),et=document.getElementById('f-end-time');
-  if(!h||!st||!et) return;
-  const hrs=parseFloat(h.value); if(isNaN(hrs)||hrs<=0) return;
+  if(!h||!st||!et){ updateCompRemainPreview(); return; }
+  const hrs=parseFloat(h.value); if(isNaN(hrs)||hrs<=0){ updateCompRemainPreview(); return; }
   let sv=st.value; if(!sv){const nk=new Date(Date.now()+9*3600*1000);sv=String(nk.getUTCHours()).padStart(2,'0')+':'+String(nk.getUTCMinutes()).padStart(2,'0');st.value=sv;}
   const [sh,sm]=sv.split(':').map(Number),tot=sh*60+sm+Math.round(hrs*60);
   et.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+  updateCompRemainPreview();
 }
 function autoCalcCompHours(){
   const allday=document.getElementById('f-comp-allday')?.checked;
