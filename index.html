@@ -1434,12 +1434,13 @@ function go(page) {
     const match = onclick.match(/go\('([^']+)'\)/);
     el.classList.toggle('active', match ? match[1]===page : false);
   });
-  // 직원에게 관리자 전용 nav 숨기기 (overview, alerts만)
+  // 직원에게 관리자 전용 nav 숨기기 (overview, alerts만) / 교통비 관리는 항상 숨김
   document.querySelectorAll('.nav-item').forEach(el=>{
     const onclick = el.getAttribute('onclick')||'';
     const match = onclick.match(/go\('([^']+)'\)/);
     const pg = match ? match[1] : '';
-    if(!isAdmin && adminOnly.includes(pg)) el.style.display='none';
+    if(pg==='transport') el.style.display='none';
+    else if(!isAdmin && adminOnly.includes(pg)) el.style.display='none';
     else el.style.display='';
   });
   // 관리자 알람설정은 별도 처리
