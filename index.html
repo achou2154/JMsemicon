@@ -203,7 +203,8 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
-    <button class="nav-item" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
+    <!-- 교통비 관리 메뉴 숨김 처리 (요청에 따라, 기능은 보존) -->
+    <button id="nav-transport" class="nav-item" style="display:none" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>생일 / 기념일</button>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
@@ -1412,6 +1413,8 @@ function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
   const adminOnly = ['overview','alerts','requests','notifysetting'];
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
+  // 교통비 관리는 전직원(관리자 포함) 숨김 처리
+  if(page==='transport') { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   setTimeout(updateBdayAlarmBar, 50);
