@@ -2604,6 +2604,8 @@ function renderRequests(){
         ${['all','pending','approved','rejected'].map(f=>`<button class="filter-btn ${reqFilter===f?'active':''}" onclick="setRF('${f}')">${{all:'전체',pending:'대기',approved:'승인',rejected:'반려'}[f]}</button>`).join('')}
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="req-search" placeholder="🔍 직원 검색..." oninput="filterTableRows('req-table', this.value)"
+          style="padding:6px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;width:180px">
         <select onchange="setRTF(this.value)" style="padding:5px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;background:var(--surface);color:var(--text)">
           ${['all','leave','ot','comp','trip','outside','education'].map(t=>`<option value="${t}" ${reqTypeFilter===t?'selected':''}>${{all:'전체 유형',leave:'연차',ot:'특근',comp:'대체휴무',trip:'출장',outside:'외근',education:'교육'}[t]}</option>`).join('')}
         </select>
@@ -2611,7 +2613,7 @@ function renderRequests(){
       </div>
     </div>
     <div class="card">
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table id="req-table">
         <thead><tr><th>직원</th><th>부서</th><th>유형</th><th>내용</th><th>사유</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
