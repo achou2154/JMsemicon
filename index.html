@@ -5749,7 +5749,7 @@ function renderNoticeManage() {
         <button class="btn btn-sm btn-danger" onclick="deleteNotice(${n.id})">삭제</button>
       </div>
     </div>`;
-  const _allNotices = db.notices||[];
+  const _allNotices = (db.notices||[]).slice().sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
   const _pendingNotices = _allNotices.filter(n=>n.repeatConfig || n.endDate>=_todayN);
   const _doneNotices = _allNotices.filter(n=>!n.repeatConfig && n.endDate<_todayN);
   const noticeScheduleList = _pendingNotices.map(_noticeRow).join('') || '<div style="color:var(--text3);font-size:14px;padding:12px 0">예약/게시중인 공지사항이 없습니다</div>';
@@ -5804,9 +5804,9 @@ function renderNoticeManage() {
       </div>
       <div style="border-top:1px solid var(--border);padding-top:16px">
         <div style="font-size:14px;font-weight:600;margin-bottom:8px">📌 예약/게시중 리스트</div>
-        <div id="notice-list">${noticeScheduleList}</div>
+        <div id="notice-list" style="max-height:290px;overflow-y:auto">${noticeScheduleList}</div>
         <div style="font-size:14px;font-weight:600;margin:20px 0 8px">✅ 완료 리스트</div>
-        <div id="notice-done-list">${noticeDoneList}</div>
+        <div id="notice-done-list" style="max-height:290px;overflow-y:auto">${noticeDoneList}</div>
       </div>
     </div>`;
 }
@@ -6514,11 +6514,11 @@ function renderRemainNotify() {
     </div>
     <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">📌 예약 리스트</div>
-      <div id="notify-schedule-list">${scheduleList}</div>
+      <div id="notify-schedule-list" style="max-height:290px;overflow-y:auto">${scheduleList}</div>
     </div>
     <div class="card" style="max-width:700px">
       <div class="card-title">✅ 완료 리스트</div>
-      <div id="notify-done-list">${doneList}</div>
+      <div id="notify-done-list" style="max-height:290px;overflow-y:auto">${doneList}</div>
     </div>`;
 }
 
@@ -6583,11 +6583,11 @@ function renderRemainPopupNotify() {
     </div>
     <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">📌 예약 리스트</div>
-      <div id="popup-remain-schedule-list">${renderPopupRemainScheduleList()}</div>
+      <div id="popup-remain-schedule-list" style="max-height:290px;overflow-y:auto">${renderPopupRemainScheduleList()}</div>
     </div>
     <div class="card" style="max-width:700px">
       <div class="card-title">✅ 완료 리스트</div>
-      <div id="popup-remain-done-list">${renderPopupRemainDoneList()}</div>
+      <div id="popup-remain-done-list" style="max-height:290px;overflow-y:auto">${renderPopupRemainDoneList()}</div>
     </div>`;
 }
 
@@ -6597,7 +6597,8 @@ function togglePopupSchedule(val) {
 }
 
 function renderPopupRemainScheduleList() {
-  const list = (db.notifySchedules||[]).filter(s=>!s.sent && (s.type==='popup-leave'||s.type==='popup-comp'));
+  const list = (db.notifySchedules||[]).filter(s=>!s.sent && (s.type==='popup-leave'||s.type==='popup-comp'))
+    .slice().sort((a,b)=>(b.sendAt||'').localeCompare(a.sendAt||''));
   if (!list.length) return '<div style="color:var(--text3);font-size:14px;padding:12px 0">예약된 잔여 알림이 없습니다</div>';
   return list.map(s=>`
     <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
@@ -6611,7 +6612,8 @@ function renderPopupRemainScheduleList() {
     </div>`).join('');
 }
 function renderPopupRemainDoneList() {
-  const list = (db.notifySchedules||[]).filter(s=>s.sent && (s.type==='popup-leave'||s.type==='popup-comp'));
+  const list = (db.notifySchedules||[]).filter(s=>s.sent && (s.type==='popup-leave'||s.type==='popup-comp'))
+    .slice().sort((a,b)=>(b.sendAt||'').localeCompare(a.sendAt||''));
   if (!list.length) return '<div style="color:var(--text3);font-size:14px;padding:12px 0">완료된 잔여 알림이 없습니다</div>';
   return list.map(s=>`
     <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
@@ -6716,11 +6718,11 @@ function renderEtcNotify() {
     </div>
     <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">📌 예약 리스트</div>
-      <div id="etc-schedule-list">${renderNotifyScheduleList('etc')}</div>
+      <div id="etc-schedule-list" style="max-height:290px;overflow-y:auto">${renderNotifyScheduleList('etc')}</div>
     </div>
     <div class="card" style="max-width:700px">
       <div class="card-title">✅ 완료 리스트</div>
-      <div id="etc-done-list">${renderNotifyDoneList('etc')}</div>
+      <div id="etc-done-list" style="max-height:290px;overflow-y:auto">${renderNotifyDoneList('etc')}</div>
     </div>`;
 }
 
@@ -6974,7 +6976,8 @@ function renderNotifyScheduleList(typeFilter) {
     if (typeFilter==='etc') return t==='etc';
     return true;
   };
-  const scheduled = (db.notifySchedules || []).filter(s => !s.sent && s.sendAt && matchType(s.type));
+  const scheduled = (db.notifySchedules || []).filter(s => !s.sent && s.sendAt && matchType(s.type))
+    .slice().sort((a,b)=>(b.sendAt||'').localeCompare(a.sendAt||''));
   if (!scheduled.length) return '<div style="text-align:center;padding:16px;color:var(--text3);font-size:14px">예약된 알림이 없습니다</div>';
   return scheduled.map(s => `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -6995,7 +6998,8 @@ function renderNotifyDoneList(typeFilter) {
     if (typeFilter==='etc') return t==='etc';
     return true;
   };
-  const done = (db.notifySchedules || []).filter(s => s.sent && matchType(s.type));
+  const done = (db.notifySchedules || []).filter(s => s.sent && matchType(s.type))
+    .slice().sort((a,b)=>(b.sendAt||'').localeCompare(a.sendAt||''));
   if (!done.length) return '<div style="text-align:center;padding:16px;color:var(--text3);font-size:14px">완료된 알림이 없습니다</div>';
   return done.map(s => `
     <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
