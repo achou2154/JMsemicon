@@ -3449,13 +3449,38 @@ function renderHealth(){
     </tr>`;
   }).join('');
 
+  // 비용 집계 계산 (관리자만)
+  let costGrandTotal = 0;
+  let costDeptMap = {};
+  if (isAdmin) {
+    db.employees.filter(e=>!e.isExternal).forEach(e=>{
+      if(!costDeptMap[e.dept])costDeptMap[e.dept]={total:0,applied:0,empCost:0,famCost:0};
+      costDeptMap[e.dept].total++;
+      const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
+      if(h&&h.members?.length){
+        costDeptMap[e.dept].applied++;
+        const main=h.members.find(m=>m.relation==='본인');
+        const fam=h.members.filter(m=>m.relation!=='본인');
+        costDeptMap[e.dept].empCost+=(+main?.cost||calcHealthCost(e.birthdate));
+        fam.forEach(m=>costDeptMap[e.dept].famCost+=(+m.cost||calcHealthCost(m.birthdate)));
+      }
+    });
+    costGrandTotal = Object.values(costDeptMap).reduce((s,d)=>s+d.empCost+d.famCost,0);
+  }
+  window._healthCostDeptMap = costDeptMap;
+
   setContent(`
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:12px">
+    <div style="display:grid;grid-template-columns:repeat(${isAdmin?6:5},1fr);gap:8px;margin-bottom:12px">
       <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:12px">총 수검대상</div><div class="stat-val">${totalAll}명</div><div class="stat-sub" style="font-size:11px">직원${empTotal}+가족${famTotal}</div></div>
       <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:12px">직원 수검완료</div><div class="stat-val">${empDone}명</div><div class="stat-sub" style="font-size:11px">${empTotal}명 중 ${pctEmp}%</div></div>
       <div class="stat-card" style="padding:10px 12px"><div class="stat-label" style="font-size:12px">가족 수검완료</div><div class="stat-val">${famDone}명</div><div class="stat-sub" style="font-size:11px">전체 ${famTotal}명</div></div>
       <div class="stat-card" style="padding:10px 12px;background:#fef9ec"><div class="stat-label" style="font-size:12px">타기관 검진</div><div class="stat-val" style="color:#92400e">${otherClinicCount}명</div><div class="stat-sub" style="font-size:11px">별도 집계</div></div>
       <div class="stat-card health" style="padding:10px 12px"><div class="stat-label" style="font-size:12px">전체 완료율</div><div class="stat-val">${pctAll}%</div><div class="stat-sub" style="font-size:11px">${doneAll}/${totalAll}명</div></div>
+      ${isAdmin?`<div class="stat-card" style="padding:10px 12px;background:#fdf4ff;cursor:pointer;position:relative" onclick="openHealthCostDetail()" title="클릭하면 비용 집계 내역을 확인할 수 있습니다">
+        <div class="stat-label" style="font-size:12px">💰 비용 집계 내역</div>
+        <div class="stat-val" style="color:#7e22ce;font-size:18px">₩${Math.round(costGrandTotal/10000)}만</div>
+        <div class="stat-sub" style="font-size:11px">${costGrandTotal.toLocaleString()}원</div>
+      </div>`:''}
     </div>
     <div class="card">
       <div class="card-title">${yr}년 건강검진 현황</div>
@@ -3471,37 +3496,27 @@ function renderHealth(){
     <div class="info-bar" style="background:var(--health-bg);border:1px solid #5eead4;color:var(--health);margin-top:4px">
       🏥 예약일 신청 → 관리자 승인 → 수검 완료 입력 순서로 진행됩니다
     </div>
-    ${isAdmin ? `
-    <div class="card" style="margin-top:10px">
-      <div class="card-title">💰 건강검진 비용 집계 (${yr}년)</div>
-      <div class="table-wrap"><table>
-        <thead><tr><th>부서</th><th>직원수</th><th>신청자</th><th>본인 비용</th><th>가족 비용</th><th>합계</th></tr></thead>
-        <tbody>${(()=>{
-          const dMap={};
-          db.employees.filter(e=>!e.isExternal).forEach(e=>{
-            if(!dMap[e.dept])dMap[e.dept]={total:0,applied:0,empCost:0,famCost:0};
-            dMap[e.dept].total++;
-            const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
-            if(h&&h.members?.length){
-              dMap[e.dept].applied++;
-              const main=h.members.find(m=>m.relation==='본인');
-              const fam=h.members.filter(m=>m.relation!=='본인');
-              dMap[e.dept].empCost+=(+main?.cost||calcHealthCost(e.birthdate));
-              fam.forEach(m=>dMap[e.dept].famCost+=(+m.cost||calcHealthCost(m.birthdate)));
-            }
-          });
-          const rows=Object.entries(dMap).map(([dept,d])=>`<tr>
-            <td>${dept}</td><td>${d.total}명</td><td>${d.applied}명</td>
-            <td>₩${d.empCost.toLocaleString()}</td>
-            <td>₩${d.famCost.toLocaleString()}</td>
-            <td><strong>₩${(d.empCost+d.famCost).toLocaleString()}</strong></td>
-          </tr>`).join('');
-          const tot=Object.values(dMap).reduce((s,d)=>({emp:s.emp+d.empCost,fam:s.fam+d.famCost}),{emp:0,fam:0});
-          return rows+`<tr style="background:var(--bg);font-weight:600"><td colspan="3">합계</td><td>₩${tot.emp.toLocaleString()}</td><td>₩${tot.fam.toLocaleString()}</td><td>₩${(tot.emp+tot.fam).toLocaleString()}</td></tr>`;
-        })()}</tbody>
-      </table></div>
-    </div>` : ''}
   `);
+}
+
+function openHealthCostDetail() {
+  const yr = currentYear;
+  const dMap = window._healthCostDeptMap || {};
+  const rows = Object.entries(dMap).map(([dept,d])=>`<tr>
+    <td>${dept}</td><td>${d.total}명</td><td>${d.applied}명</td>
+    <td>₩${d.empCost.toLocaleString()}</td>
+    <td>₩${d.famCost.toLocaleString()}</td>
+    <td><strong>₩${(d.empCost+d.famCost).toLocaleString()}</strong></td>
+  </tr>`).join('');
+  const tot = Object.values(dMap).reduce((s,d)=>({emp:s.emp+d.empCost,fam:s.fam+d.famCost}),{emp:0,fam:0});
+  openModal(`
+    <div class="modal-title">💰 건강검진 비용 집계 (${yr}년)</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>부서</th><th>직원수</th><th>신청자</th><th>본인 비용</th><th>가족 비용</th><th>합계</th></tr></thead>
+      <tbody>${rows}<tr style="background:var(--bg);font-weight:600"><td colspan="3">합계</td><td>₩${tot.emp.toLocaleString()}</td><td>₩${tot.fam.toLocaleString()}</td><td>₩${(tot.emp+tot.fam).toLocaleString()}</td></tr></tbody>
+    </table></div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+  `, true);
 }
 
 // 건강검진 예약 신청 팝업 (예약일만 입력)
@@ -3522,37 +3537,38 @@ function openHealthApply(empId) {
       <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>
     </div>`).join('');
 
+  const isOtherInit = h?.members?.[0]?.otherClinic || false;
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
-    <div class="field" style="margin-bottom:12px">
+    <div id="h-reserve-wrap" class="field" style="margin-bottom:12px${isOtherInit?';opacity:0.4':''}">
       <label>예약일 *</label>
       <div style="display:flex;gap:4px;align-items:center">
         <input type="number" id="h-res-year" placeholder="년(4자리)" min="2024" max="2099"
-          value="${h?.reserveDate?h.reserveDate.slice(0,4):''}"
+          value="${h?.reserveDate?h.reserveDate.slice(0,4):''}" ${isOtherInit?'disabled':''}
           style="width:90px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"
           oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
         <span>-</span>
         <input type="number" id="h-res-month" placeholder="월" min="1" max="12"
-          value="${h?.reserveDate?parseInt(h.reserveDate.slice(5,7)):''}"
+          value="${h?.reserveDate?parseInt(h.reserveDate.slice(5,7)):''}" ${isOtherInit?'disabled':''}
           style="width:60px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"
           oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
         <span>-</span>
         <input type="number" id="h-res-day" placeholder="일" min="1" max="31"
-          value="${h?.reserveDate?parseInt(h.reserveDate.slice(8,10)):''}"
+          value="${h?.reserveDate?parseInt(h.reserveDate.slice(8,10)):''}" ${isOtherInit?'disabled':''}
           style="width:60px;padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"
           oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
       </div>
     </div>
-    <div style="margin-bottom:12px">
+    <div id="h-fam-wrap" style="margin-bottom:12px${isOtherInit?';opacity:0.4':''}">
       <div style="font-size:14px;font-weight:600;margin-bottom:8px">
         가족 추가
-        <button class="btn btn-sm btn-primary" style="margin-left:8px" onclick="addFamRow()">+ 가족 추가</button>
+        <button class="btn btn-sm btn-primary" id="h-fam-add-btn" style="margin-left:8px" onclick="addFamRow()" ${isOtherInit?'disabled':''}>+ 가족 추가</button>
       </div>
       <div id="fam-list">${famHtml}</div>
     </div>
     <div style="margin-bottom:12px">
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px">
-        <input type="checkbox" id="h-other-clinic" ${h?.members?.[0]?.otherClinic?'checked':''} style="width:15px;height:15px">
+        <input type="checkbox" id="h-other-clinic" ${isOtherInit?'checked':''} onchange="toggleHealthReserveDate(this.checked)" style="width:15px;height:15px">
         타기관 검진
       </label>
       <div style="font-size:12px;color:var(--text3);margin-top:4px;margin-left:23px">
@@ -3560,7 +3576,7 @@ function openHealthApply(empId) {
       </div>
     </div>
     <div style="background:var(--bg);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--text2);margin-bottom:16px">
-      💡 예약일 입력 후 저장하면 관리자 승인을 받습니다.
+      💡 <span id="h-notice-text">예약일 입력 후 저장하면 관리자 승인을 받습니다.</span>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
@@ -3572,7 +3588,23 @@ function openHealthApply(empId) {
 
 function toggleHealthReserveDate(isOther) {
   const wrap = document.getElementById('h-reserve-wrap');
-  if (wrap) wrap.style.display = isOther ? 'none' : '';
+  const famWrap = document.getElementById('h-fam-wrap');
+  const famBtn = document.getElementById('h-fam-add-btn');
+  const noticeText = document.getElementById('h-notice-text');
+  if (wrap) {
+    wrap.style.opacity = isOther ? '0.4' : '1';
+    wrap.querySelectorAll('input').forEach(inp => inp.disabled = isOther);
+  }
+  if (famWrap) {
+    famWrap.style.opacity = isOther ? '0.4' : '1';
+    famWrap.querySelectorAll('input').forEach(inp => inp.disabled = isOther);
+  }
+  if (famBtn) famBtn.disabled = isOther;
+  if (noticeText) {
+    noticeText.textContent = isOther
+      ? '타기관 검진은 예약일 없이 저장하면 바로 관리자 승인을 받습니다.'
+      : '예약일 입력 후 저장하면 관리자 승인을 받습니다.';
+  }
 }
 
 function addFamRow() {
