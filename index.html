@@ -1188,7 +1188,26 @@ function getAlloc(empId, year) {
 function getLeaveUsed(empId, year) {
   return db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&r.leaveType!=='병가'&&r.leaveType!=='특별휴가').reduce((s,r)=>s+(+r.hours||0),0);
 }
+// 양감 계약직: 입사일 기준 법정연차(만1년 후 15일~) 별도 적용
+const YANGGAM_CONTRACT = {
+  '이연화': '2025-06-10',
+  '임서진': '2026-06-11'
+};
+function isYanggamContract(empId) {
+  const e = db.employees.find(x=>String(x.id)===String(empId));
+  return !!(e && YANGGAM_CONTRACT[e.name]);
+}
+function getYanggamJoinDate(empId) {
+  const e = db.employees.find(x=>String(x.id)===String(empId));
+  return e ? YANGGAM_CONTRACT[e.name] : null;
+}
 function getLeaveRemain(empId, year) {
+  if (isYanggamContract(empId)) {
+    const joinDate = getYanggamJoinDate(empId);
+    const legalDays = calcLegalLeave(joinDate); // 입사일 기준 법정연차(일)
+    const totalHours = legalDays * 8;
+    return totalHours - getLeaveUsed(empId, year);
+  }
   const a=getAlloc(empId,year);
   return (+a.total||0)+(+a.carryover||0)-(+a.extinct||0)-getLeaveUsed(empId,year);
 }
@@ -1642,7 +1661,8 @@ function renderOverview(){
     const lTotal2=(+_alloc2.total||0)+(+_alloc2.carryover||0);
     const remPct=lTotal2>0?Math.round(lRem/lTotal2*100):0;
     // 잔여율 기준으로 경고 (잔여가 많이 남아있으면 경고, 연차가 있는 직원만)
-    const lRemAlert=isAdmin && lTotal2>0 && (() => {
+    const isYanggam = isYanggamContract(e.id);
+    const lRemAlert=isAdmin && !isYanggam && lTotal2>0 && (() => {
       const threshold = getLeaveAlertThreshold();
       if (threshold === null) return false;
       return remPct >= threshold;
@@ -1650,8 +1670,9 @@ function renderOverview(){
     const cRemAlert=cRem>=40;
     const NA=`<span style="font-size:13px;color:#bbb">임원</span>`;
     const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:11px;margin-left:5px">⭐</span>`:'';
+    const yanggamBadge=isYanggam?`<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-size:11px;margin-left:5px">양감 계약직</span>`:'';
     return`<tr ${e.isExternal?'style="background:#fafafa"':''}>
-      <td><div class="name-cell">${av(e.id)}<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openEmpProfile(${e.id})">${e.name}</span>${extBadge}</div></td>
+      <td><div class="name-cell">${av(e.id)}<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openEmpProfile(${e.id})">${e.name}</span>${extBadge}${yanggamBadge}</div></td>
       <td>${e.dept}</td>
       <td>${e.isExternal?NA:badge(Math.round(lUsed/8*10)/10+'일','leave')}</td>
       <td>${e.isExternal?NA:`<div style="display:flex;align-items:center;gap:6px">
@@ -2737,27 +2758,30 @@ function renderLeave(){
     ? getSortedByPosition().filter(e=>!isHiddenFromPersonal(e))
     : getSortedByPosition().filter(e=>!isHiddenFromPersonal(e) && currentEmp && String(e.id)===String(currentEmp.id));
   const sumRows=leaveEmps.map(e=>{
+    const isYanggam = isYanggamContract(e.id);
+    const yanggamJoin = isYanggam ? getYanggamJoinDate(e.id) : e.joinDate;
     const a=getAlloc(e.id,yr);
-    const legalDays = calcLegalLeave(e.joinDate); // 법정 연차
-    const total=(+a.total||0)+(+a.carryover||0);
-    const extinct=(+a.extinct||0);
+    const legalDays = calcLegalLeave(yanggamJoin); // 법정 연차 (양감계약직은 전용 입사일 기준)
+    const total = isYanggam ? legalDays*8 : (+a.total||0)+(+a.carryover||0);
+    const extinct = isYanggam ? 0 : (+a.extinct||0);
     const used=getLeaveUsed(e.id,yr);
-    const rem=total-extinct-used;
+    const rem = isYanggam ? getLeaveRemain(e.id,yr) : total-extinct-used;
     const pct=getLeavePctInPeriod(e.id,yr); // 3/1 기준 사용률
     const remDays=Math.round(rem/8*10)/10;
-    // 11번: 잔여 경고 (관리자에게만, 잔여% 기준)
+    // 11번: 잔여 경고 (관리자에게만, 잔여% 기준) - 양감계약직은 제외
     const remPct = total > 0 ? Math.round(rem/total*100) : 0;
-    // 잔여율 기준 경고 (잔여가 많이 남아있으면 경고)
-    const remAlert = isAdmin && (() => {
+    const remAlert = isAdmin && !isYanggam && (() => {
       const threshold = getLeaveAlertThreshold();
       if (threshold === null) return false;
       return remPct >= threshold;
     })();
     const NA=`<span style="font-size:13px;color:#bbb">임원</span>`;
+    const yanggamBadge=isYanggam?`<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;font-size:11px;margin-left:5px">양감 계약직</span>`:'';
     return`<tr ${e.isExternal?'style="background:#fafafa"':''}>
       <td><div class="name-cell">${av(e.id)}
         <span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="${e.isExternal?'':isAdmin?`openLeaveAdmin(${e.id})`:`openAddLeave(${e.id})`}">${e.name}</span>
         ${e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#888;border:1px solid #ddd;font-size:11px;margin-left:5px">⭐</span>`:''}
+        ${yanggamBadge}
       </div></td>
       <td>${e.dept}</td>
       <td>${e.isExternal?NA:`${(+a.carryover||0)/8}일`}</td>
