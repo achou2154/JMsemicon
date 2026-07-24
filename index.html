@@ -5712,32 +5712,48 @@ function closeNoticePopup() {
 // ══════════════════════════════════════════════
 function renderNoticeManage() {
   const _todayN = todayStr();
-  const noticeList = (db.notices||[]).map(n => {
+  const _noticeRepeatDesc = (n) => {
+    const rc = n.repeatConfig;
+    if (rc.unit==='weekly') return WEEKDAY_KR[rc.weekday]+'요일마다';
+    if (rc.unit==='monthly') return rc.day+'일마다';
+    if (rc.unit==='yearly') return rc.mode==='date' ? rc.month+'월 '+rc.day+'일마다' : rc.month+'월 '+['첫째','둘째','셋째','넷째','마지막'][rc.week-1]+'주 '+WEEKDAY_KR[rc.weekday]+'요일';
+    return '';
+  };
+  const _noticeRow = (n) => {
     const isScheduled = n.startDate > _todayN;
-    const isEnded = n.endDate < _todayN;
     const statusTag = n.repeatConfig
       ? `<span style="background:#e0e7ff;color:#4338ca;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px">🔁 반복</span>`
       : isScheduled
       ? `<span style="background:#fef3c7;color:#92400e;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px">⏰ 예약중</span>`
-      : isEnded
-      ? `<span style="background:#f3f4f6;color:var(--text3);font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px">종료</span>`
       : `<span style="background:#dcfce7;color:#166534;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px">게시중</span>`;
-    const repeatDesc = n.repeatConfig ? (()=>{
-      const rc = n.repeatConfig;
-      if (rc.unit==='weekly') return WEEKDAY_KR[rc.weekday]+'요일마다';
-      if (rc.unit==='monthly') return rc.day+'일마다';
-      if (rc.unit==='yearly') return rc.mode==='date' ? rc.month+'월 '+rc.day+'일마다' : rc.month+'월 '+['첫째','둘째','셋째','넷째','마지막'][rc.week-1]+'주 '+WEEKDAY_KR[rc.weekday]+'요일';
-      return '';
-    })() : '';
     return `
     <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
       <div>
         <div style="font-size:14px;font-weight:500">${n.title}${statusTag}</div>
-        <div style="font-size:13px;color:var(--text3)">${n.repeatConfig?repeatDesc:(fmt(n.startDate)+' ~ '+fmt(n.endDate))} · 대상 ${n.targetIds.length?n.targetIds.length+'명':'전체'}</div>
+        <div style="font-size:13px;color:var(--text3)">${n.repeatConfig?_noticeRepeatDesc(n):(fmt(n.startDate)+' ~ '+fmt(n.endDate))} · 대상 ${n.targetIds.length?n.targetIds.length+'명':'전체'}</div>
       </div>
-      <button class="btn btn-sm btn-danger" onclick="deleteNotice(${n.id})">삭제</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="editNotice(${n.id})">✏️ 수정</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteNotice(${n.id})">삭제</button>
+      </div>
     </div>`;
-  }).join('') || '<div style="color:var(--text3);font-size:14px;padding:12px 0">등록된 공지사항이 없습니다</div>';
+  };
+  const _noticeDoneRow = (n) => `
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;opacity:0.7">
+      <div>
+        <div style="font-size:14px;font-weight:500">${n.title}<span style="background:#f3f4f6;color:var(--text3);font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px">종료</span></div>
+        <div style="font-size:13px;color:var(--text3)">${fmt(n.startDate)} ~ ${fmt(n.endDate)} · 대상 ${n.targetIds.length?n.targetIds.length+'명':'전체'}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="editNotice(${n.id})">✏️ 수정</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteNotice(${n.id})">삭제</button>
+      </div>
+    </div>`;
+  const _allNotices = db.notices||[];
+  const _pendingNotices = _allNotices.filter(n=>n.repeatConfig || n.endDate>=_todayN);
+  const _doneNotices = _allNotices.filter(n=>!n.repeatConfig && n.endDate<_todayN);
+  const noticeScheduleList = _pendingNotices.map(_noticeRow).join('') || '<div style="color:var(--text3);font-size:14px;padding:12px 0">예약/게시중인 공지사항이 없습니다</div>';
+  const noticeDoneList = _doneNotices.map(_noticeDoneRow).join('') || '<div style="color:var(--text3);font-size:14px;padding:12px 0">종료된 공지사항이 없습니다</div>';
 
   return `
     <div style="margin-top:16px">
@@ -5782,12 +5798,15 @@ function renderNoticeManage() {
         </div>
       </div>
       <div style="margin-bottom:16px">${makeTargetSelector('notice-target')}</div>
-      <div style="display:flex;justify-content:flex-end;margin-bottom:20px">
-        <button class="btn btn-primary" onclick="saveNotice()">📢 공지 등록</button>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:20px">
+        <button id="notice-cancel-edit-btn" class="btn" style="display:none" onclick="cancelEditNotice()">취소</button>
+        <button id="notice-save-btn" class="btn btn-primary" onclick="saveNotice()">📢 공지 등록</button>
       </div>
       <div style="border-top:1px solid var(--border);padding-top:16px">
-        <div style="font-size:14px;font-weight:600;margin-bottom:8px">등록된 공지사항</div>
-        <div id="notice-list">${noticeList}</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">📌 예약/게시중 리스트</div>
+        <div id="notice-list">${noticeScheduleList}</div>
+        <div style="font-size:14px;font-weight:600;margin:20px 0 8px">✅ 완료 리스트</div>
+        <div id="notice-done-list">${noticeDoneList}</div>
       </div>
     </div>`;
 }
@@ -5896,7 +5915,24 @@ async function saveNotice() {
   }
   const endD = new Date(start); endD.setDate(endD.getDate() + dur - 1);
   const end = endD.toISOString().slice(0,10);
-  const row = { title, content, duration: dur, target_ids: JSON.stringify(targets), start_date: start, end_date: end, image_data: window._noticeImageData||null, repeat_config: repeatConfig?JSON.stringify(repeatConfig):null };
+  const imgData = (window._noticeImageData !== undefined) ? window._noticeImageData : (window._editingNoticeImage || null);
+  const row = { title, content, duration: dur, target_ids: JSON.stringify(targets), start_date: start, end_date: end, image_data: imgData, repeat_config: repeatConfig?JSON.stringify(repeatConfig):null };
+
+  if (window._editingNoticeId) {
+    // 수정 모드
+    const editId = window._editingNoticeId;
+    const ok = await sbUpdate('notices', editId, row);
+    if (ok) {
+      const idx = db.notices.findIndex(n=>String(n.id)===String(editId));
+      if (idx>=0) db.notices[idx] = { ...db.notices[idx], title, content, duration: dur, targetIds: targets, startDate: start, endDate: end, imageData: row.image_data, repeatConfig };
+      window._editingNoticeId = null;
+      window._noticeImageData = null;
+      showToast('✅ 공지사항 수정됨');
+      renderNotifySetting();
+    } else { showToast('⚠️ 수정 실패'); }
+    return;
+  }
+
   const saved = await sbInsert('notices', row);
   if (saved) {
     db.notices.unshift({ id: saved.id, title, content, duration: dur, targetIds: targets, startDate: start, endDate: end, createdAt: saved.created_at, imageData: row.image_data, repeatConfig });
@@ -5907,6 +5943,84 @@ async function saveNotice() {
     if (ec) ec.innerHTML = renderNoticeManage();
     else renderNotifySetting();
   } else { showToast('⚠️ 등록 실패'); }
+}
+
+function editNotice(id) {
+  const n = db.notices.find(x=>String(x.id)===String(id));
+  if (!n) return;
+  window._editingNoticeId = id;
+  window._editingNoticeImage = n.imageData || null;
+
+  const titleEl = document.getElementById('notice-title');
+  const contentEl = document.getElementById('notice-content');
+  if (titleEl) titleEl.value = n.title;
+  if (contentEl) contentEl.value = n.content;
+
+  // 반복/예약 여부에 따라 라디오 세팅
+  if (n.repeatConfig) {
+    const r = document.querySelector('input[name="notice-when"][value="repeat"]');
+    if (r) { r.checked = true; toggleNoticeSchedule('repeat'); }
+    const unitRadio = document.querySelector(`input[name="notice-repeat-unit"][value="${n.repeatConfig.unit}"]`);
+    if (unitRadio) { unitRadio.checked = true; onNoticeRepeatUnitChange(); }
+    setTimeout(()=>{
+      const rc = n.repeatConfig;
+      if (rc.unit==='weekly') { const el=document.getElementById('notice-repeat-weekday'); if(el) el.value=rc.weekday; }
+      else if (rc.unit==='monthly') { const el=document.getElementById('notice-repeat-day'); if(el) el.value=rc.day; }
+      else if (rc.unit==='yearly') {
+        if (rc.mode==='date') {
+          const m=document.getElementById('notice-repeat-month'), d=document.getElementById('notice-repeat-mday');
+          if(m) m.value=rc.month; if(d) d.value=rc.day;
+        } else {
+          const wm=document.querySelector('input[name="notice-yearly-mode"][value="week"]');
+          if(wm){ wm.checked=true; onNoticeYearlyModeChange(); }
+          const m2=document.getElementById('notice-repeat-month2'), w=document.getElementById('notice-repeat-week'), wd=document.getElementById('notice-repeat-wday');
+          if(m2) m2.value=rc.month; if(w) w.value=rc.week; if(wd) wd.value=rc.weekday;
+        }
+      }
+    }, 50);
+  } else {
+    const startD = n.startDate;
+    if (startD > todayStr()) {
+      const r = document.querySelector('input[name="notice-when"][value="later"]');
+      if (r) { r.checked = true; toggleNoticeSchedule('later'); }
+      const dateEl = document.getElementById('notice-start-date');
+      if (dateEl) dateEl.value = startD;
+    }
+  }
+
+  // 게시기간(일수) 세팅
+  const days = Math.round((parseLocalDate(n.endDate) - parseLocalDate(n.startDate))/864e5) + 1;
+  const durRadio = document.querySelector(`input[name="notice-dur"][value="${days}"]`) || document.querySelector('input[name="notice-dur"][value="1"]');
+  if (durRadio) durRadio.checked = true;
+
+  // 대상자 세팅
+  setTimeout(()=>{
+    if (n.targetIds && n.targetIds.length) {
+      n.targetIds.forEach(tid=>{
+        const cb = document.querySelector(`.notice-target[value="${tid}"]`);
+        if (cb) cb.checked = true;
+      });
+    }
+  }, 50);
+
+  if (n.imageData) {
+    const preview = document.getElementById('notice-image-preview');
+    if (preview) preview.innerHTML = `<img src="${n.imageData}" style="max-width:100%;max-height:150px;border-radius:var(--radius);border:1px solid var(--border2)">
+      <button style="display:block;margin-top:4px;background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px" onclick="clearNoticeImage()">✕ 이미지 제거</button>`;
+  }
+
+  const saveBtn = document.getElementById('notice-save-btn');
+  const cancelBtn = document.getElementById('notice-cancel-edit-btn');
+  if (saveBtn) saveBtn.textContent = '✏️ 공지 수정 저장';
+  if (cancelBtn) cancelBtn.style.display = '';
+
+  document.querySelector('#notify-popup-body')?.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function cancelEditNotice() {
+  window._editingNoticeId = null;
+  window._editingNoticeImage = null;
+  renderNotifySetting();
 }
 
 async function deleteNotice(id) {
@@ -6280,6 +6394,7 @@ function makeTargetSelector(cls='notify-target', remainMode=null) {
 
 function renderNotifySetting() {
   if (!isAdmin) { setContent('<div style="padding:40px;text-align:center;color:var(--text3)">관리자만 접근할 수 있습니다.</div>'); return; }
+  window._editingNoticeId = null; window._editingNoticeImage = null;
 
   setContent(`
     <div class="folder-tabs">
@@ -6343,7 +6458,8 @@ const REMAIN_PRESETS = {
 };
 
 function renderRemainNotify() {
-  const scheduleList = renderNotifyScheduleList();
+  const scheduleList = renderNotifyScheduleList('remain');
+  const doneList = renderNotifyDoneList('remain');
   return `
     <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">📊 잔여 알림 (메일)</div>
@@ -6396,9 +6512,13 @@ function renderRemainNotify() {
         <button class="btn btn-primary" onclick="sendRemainNotify()">📨 전송</button>
       </div>
     </div>
-    <div class="card" style="max-width:700px">
-      <div class="card-title">예약 전송 내역</div>
+    <div class="card" style="max-width:700px;margin-bottom:16px">
+      <div class="card-title">📌 예약 리스트</div>
       <div id="notify-schedule-list">${scheduleList}</div>
+    </div>
+    <div class="card" style="max-width:700px">
+      <div class="card-title">✅ 완료 리스트</div>
+      <div id="notify-done-list">${doneList}</div>
     </div>`;
 }
 
@@ -6417,7 +6537,7 @@ function onRemainTypeChange(mode) {
 
 function renderRemainPopupNotify() {
   return `
-    <div class="card" style="max-width:700px">
+    <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">📊 잔여 알림 (팝업 전용, 메일 미발송)</div>
       <div class="field" style="margin-bottom:14px">
         <label>알림 종류</label>
@@ -6440,10 +6560,64 @@ function renderRemainPopupNotify() {
           style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px;font-family:inherit;resize:vertical">${REMAIN_PRESETS.leave.content}</textarea>
       </div>
       <div id="popup-notify-target-wrap" style="margin-bottom:16px">${makeTargetSelector('popup-notify-target','leave')}</div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-primary" onclick="sendRemainPopupNotify()">🔔 팝업 등록</button>
+      <div style="margin-bottom:16px">
+        <div style="font-size:14px;font-weight:600;margin-bottom:8px">전송 방식</div>
+        <div style="display:flex;gap:16px;margin-bottom:10px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+            <input type="radio" name="popup-send-type" value="immediate" checked onchange="togglePopupSchedule(this.value)" style="width:15px;height:15px"> 바로 게시
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+            <input type="radio" name="popup-send-type" value="schedule" onchange="togglePopupSchedule(this.value)" style="width:15px;height:15px"> 예약 게시
+          </label>
+        </div>
+        <div id="popup-schedule-wrap" style="display:none">
+          <div class="form-grid">
+            <div class="field"><label>예약 날짜</label><input type="date" id="popup-schedule-date" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"></div>
+            <div class="field"><label>예약 시간</label><input type="time" id="popup-schedule-time" value="09:00" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px"></div>
+          </div>
+        </div>
       </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-primary" onclick="sendRemainPopupNotify()">🔔 등록</button>
+      </div>
+    </div>
+    <div class="card" style="max-width:700px;margin-bottom:16px">
+      <div class="card-title">📌 예약 리스트</div>
+      <div id="popup-remain-schedule-list">${renderPopupRemainScheduleList()}</div>
+    </div>
+    <div class="card" style="max-width:700px">
+      <div class="card-title">✅ 완료 리스트</div>
+      <div id="popup-remain-done-list">${renderPopupRemainDoneList()}</div>
     </div>`;
+}
+
+function togglePopupSchedule(val) {
+  const wrap = document.getElementById('popup-schedule-wrap');
+  if (wrap) wrap.style.display = val==='schedule'?'':'none';
+}
+
+function renderPopupRemainScheduleList() {
+  const list = (db.notifySchedules||[]).filter(s=>!s.sent && (s.type==='popup-leave'||s.type==='popup-comp'));
+  if (!list.length) return '<div style="color:var(--text3);font-size:14px;padding:12px 0">예약된 잔여 알림이 없습니다</div>';
+  return list.map(s=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div style="font-size:14px;font-weight:500">${s.title}</div>
+        <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시 예정 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">삭제</button>
+      </div>
+    </div>`).join('');
+}
+function renderPopupRemainDoneList() {
+  const list = (db.notifySchedules||[]).filter(s=>s.sent && (s.type==='popup-leave'||s.type==='popup-comp'));
+  if (!list.length) return '<div style="color:var(--text3);font-size:14px;padding:12px 0">완료된 잔여 알림이 없습니다</div>';
+  return list.map(s=>`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
+      <div style="font-size:14px;font-weight:500">${s.title}</div>
+      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시완료 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+    </div>`).join('');
 }
 
 async function sendRemainPopupNotify() {
@@ -6453,7 +6627,28 @@ async function sendRemainPopupNotify() {
   const targets = [...document.querySelectorAll('.popup-notify-target:checked')].map(cb=>cb.value);
   if (!targets.length) { showToast('⚠️ 대상자를 선택하세요'); return; }
   const remainType = document.querySelector('input[name="remain-type"]:checked')?.value || 'leave';
+  const sendType = document.querySelector('input[name="popup-send-type"]:checked')?.value || 'immediate';
   const yr = currentYear;
+
+  if (sendType === 'schedule') {
+    const dateVal = document.getElementById('popup-schedule-date')?.value;
+    const timeVal = document.getElementById('popup-schedule-time')?.value || '09:00';
+    if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
+    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const row = { type: 'popup-'+remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
+    let saved = null;
+    if (_supa) {
+      const {data,error} = await _supa.from('notify_schedules').insert(row).select().single();
+      if (error) { showToast('⚠️ 예약 실패: '+error.message); return; }
+      saved = data;
+    }
+    (db.notifySchedules=db.notifySchedules||[]).push({...row,id:saved?.id,sendAt,targetIds:targets});
+    showToast('✅ '+dateVal+' '+timeVal+' 예약 완료');
+    document.getElementById('popup-remain-schedule-list').innerHTML = renderPopupRemainScheduleList();
+    return;
+  }
+
+  // 즉시 게시
   let saved = 0;
   for (const empId of targets) {
     const e = eid(empId);
@@ -6472,12 +6667,20 @@ async function sendRemainPopupNotify() {
       if (!error) { (db.alerts=db.alerts||[]).push({...row, id:data.id}); saved++; }
     }
   }
+  // 완료 리스트에 기록
+  const doneRow = { type: 'popup-'+remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: new Date().toISOString(), sent: true };
+  if (_supa) {
+    const {data} = await _supa.from('notify_schedules').insert(doneRow).select().single();
+    if (data) (db.notifySchedules=db.notifySchedules||[]).push({...doneRow,id:data.id,sendAt:doneRow.send_at,targetIds:targets});
+  }
   showToast('✅ 팝업 알림 등록 완료 ('+saved+'명)');
+  const doneList = document.getElementById('popup-remain-done-list');
+  if (doneList) doneList.innerHTML = renderPopupRemainDoneList();
 }
 
 function renderEtcNotify() {
   return `
-    <div class="card" style="max-width:700px">
+    <div class="card" style="max-width:700px;margin-bottom:16px">
       <div class="card-title">✍️ 기타 알림</div>
       <div style="font-size:12px;color:var(--accent);font-weight:500;margin-bottom:12px">※ jmsemicon.co.kr 로 발송됩니다</div>
       <div class="field" style="margin-bottom:12px">
@@ -6510,6 +6713,14 @@ function renderEtcNotify() {
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button class="btn btn-primary" onclick="sendEtcNotify()">📨 전송</button>
       </div>
+    </div>
+    <div class="card" style="max-width:700px;margin-bottom:16px">
+      <div class="card-title">📌 예약 리스트</div>
+      <div id="etc-schedule-list">${renderNotifyScheduleList('etc')}</div>
+    </div>
+    <div class="card" style="max-width:700px">
+      <div class="card-title">✅ 완료 리스트</div>
+      <div id="etc-done-list">${renderNotifyDoneList('etc')}</div>
     </div>`;
 }
 
@@ -6536,7 +6747,7 @@ async function sendRemainNotify() {
     }
     (db.notifySchedules=db.notifySchedules||[]).push({...row,id:saved?.id,sendAt,targetIds:targets});
     showToast('✅ '+dateVal+' '+timeVal+' 예약 완료');
-    document.getElementById('notify-schedule-list').innerHTML = renderNotifyScheduleList();
+    document.getElementById('notify-schedule-list').innerHTML = renderNotifyScheduleList('remain');
     return;
   }
   // 즉시 전송
@@ -6555,6 +6766,13 @@ async function sendRemainNotify() {
     await sendEmailViaResend(e.email, title, (content1?content1+'\n\n':'')+content2);
   }
   showToast('✅ 발송 완료 ('+targets.length+'명)');
+  const doneRow = { type: remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: new Date().toISOString(), sent: true };
+  if (_supa) {
+    const {data} = await _supa.from('notify_schedules').insert(doneRow).select().single();
+    if (data) (db.notifySchedules=db.notifySchedules||[]).push({...doneRow,id:data.id,sendAt:doneRow.send_at,targetIds:targets});
+  }
+  const dl = document.getElementById('notify-done-list');
+  if (dl) dl.innerHTML = renderNotifyDoneList('remain');
 }
 
 // ── 기타 알림 전송 ──
@@ -6580,6 +6798,7 @@ async function sendEtcNotify() {
     }
     (db.notifySchedules=db.notifySchedules||[]).push({...row,id:saved?.id,sendAt,targetIds:targets});
     showToast('✅ '+dateVal+' '+timeVal+' 예약 완료');
+    document.getElementById('etc-schedule-list').innerHTML = renderNotifyScheduleList('etc');
     return;
   }
   // 즉시 전송
@@ -6589,6 +6808,13 @@ async function sendEtcNotify() {
     await sendEmailViaResend(e.email, title, content);
   }
   showToast('✅ 발송 완료 ('+targets.length+'명)');
+  const doneRow = { type: 'etc', title, content1: content, target_ids: JSON.stringify(targets), send_at: new Date().toISOString(), sent: true };
+  if (_supa) {
+    const {data} = await _supa.from('notify_schedules').insert(doneRow).select().single();
+    if (data) (db.notifySchedules=db.notifySchedules||[]).push({...doneRow,id:data.id,sendAt:doneRow.send_at,targetIds:targets});
+  }
+  const dl = document.getElementById('etc-done-list');
+  if (dl) dl.innerHTML = renderNotifyDoneList('etc');
 }
 
 function toggleEtcSchedule(val) {
@@ -6741,8 +6967,14 @@ function selectNotifyGroup(type, value, cls='notify-target') {
   });
 }
 
-function renderNotifyScheduleList() {
-  const scheduled = (db.notifySchedules || []).filter(s => !s.sent && s.sendAt);
+function renderNotifyScheduleList(typeFilter) {
+  // typeFilter: 'remain' → leave/comp, 'etc' → etc, undefined → 전체
+  const matchType = (t) => {
+    if (typeFilter==='remain') return t==='leave'||t==='comp';
+    if (typeFilter==='etc') return t==='etc';
+    return true;
+  };
+  const scheduled = (db.notifySchedules || []).filter(s => !s.sent && s.sendAt && matchType(s.type));
   if (!scheduled.length) return '<div style="text-align:center;padding:16px;color:var(--text3);font-size:14px">예약된 알림이 없습니다</div>';
   return scheduled.map(s => `
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -6750,9 +6982,30 @@ function renderNotifyScheduleList() {
         <div style="font-size:14px;font-weight:500">${s.title}</div>
         <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송 예정 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
       </div>
-      <button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">취소</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm" onclick="editSchedule(${s.id})">✏️ 수정</button>
+        <button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">삭제</button>
+      </div>
     </div>
   `).join('');
+}
+function renderNotifyDoneList(typeFilter) {
+  const matchType = (t) => {
+    if (typeFilter==='remain') return t==='leave'||t==='comp';
+    if (typeFilter==='etc') return t==='etc';
+    return true;
+  };
+  const done = (db.notifySchedules || []).filter(s => s.sent && matchType(s.type));
+  if (!done.length) return '<div style="text-align:center;padding:16px;color:var(--text3);font-size:14px">완료된 알림이 없습니다</div>';
+  return done.map(s => `
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
+      <div style="font-size:14px;font-weight:500">${s.title}</div>
+      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송완료 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+    </div>
+  `).join('');
+}
+function editSchedule(id) {
+  showToast('⚠️ 예약 항목은 삭제 후 다시 등록해 주세요');
 }
 
 async function sendNotifyEmail() {
@@ -6839,7 +7092,14 @@ async function cancelSchedule(id) {
   if (!confirm('예약을 취소하시겠습니까?')) return;
   await sbDelete('notify_schedules', id);
   db.notifySchedules = (db.notifySchedules || []).filter(s => String(s.id) !== String(id));
-  document.getElementById('notify-schedule-list').innerHTML = renderNotifyScheduleList();
+  // 모든 관련 리스트 갱신 (존재하는 것만)
+  ['notify-schedule-list','etc-schedule-list','popup-remain-schedule-list'].forEach(elId=>{
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (elId==='notify-schedule-list') el.innerHTML = renderNotifyScheduleList('remain');
+    else if (elId==='etc-schedule-list') el.innerHTML = renderNotifyScheduleList('etc');
+    else if (elId==='popup-remain-schedule-list') el.innerHTML = renderPopupRemainScheduleList();
+  });
   showToast('🗑️ 예약 취소됨');
 }
 
