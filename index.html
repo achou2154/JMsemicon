@@ -1198,17 +1198,14 @@ function getLeaveUsed(empId, year) {
   return db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved'&&r.leaveType!=='병가'&&r.leaveType!=='특별휴가').reduce((s,r)=>s+(+r.hours||0),0);
 }
 // 양감 계약직: 입사일 기준 법정연차(만1년 후 15일~) 별도 적용
-const YANGGAM_CONTRACT = {
-  '이연화': '2025-06-10',
-  '임서진': '2026-06-11'
-};
+const YANGGAM_CONTRACT_NAMES = ['이연화', '임서진']; // 대상자 이름만 지정, 입사일은 직원정보의 실제 값 사용
 function isYanggamContract(empId) {
   const e = db.employees.find(x=>String(x.id)===String(empId));
-  return !!(e && YANGGAM_CONTRACT[e.name]);
+  return !!(e && YANGGAM_CONTRACT_NAMES.includes(e.name));
 }
 function getYanggamJoinDate(empId) {
   const e = db.employees.find(x=>String(x.id)===String(empId));
-  return e ? YANGGAM_CONTRACT[e.name] : null;
+  return e ? e.joinDate : null; // 직원정보 화면에서 수정한 실제 입사일을 그대로 사용
 }
 function getLeaveRemain(empId, year) {
   if (isYanggamContract(empId)) {
