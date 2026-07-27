@@ -601,64 +601,60 @@ function exportExcel() {
   const typeMap = {leave:'연차',ot:'특근',comp:'대체휴무',trip:'출장',outside:'외근',education:'교육'};
   const statusMap = {pending:'승인대기',approved:'승인됨',rejected:'반려',completed:'수검완료',modify_requested:'수정신청'};
 
-  // 0-1. 전체현황
+  // 0-1. 전체현황 (직원 1명당 1행, 연차 잔여 내림차순 통합표)
   const yr0 = currentYear;
   const activeEmps0 = db.employees.filter(e=>!e.isExternal);
-  const overviewRows = [];
-  overviewRows.push({'구분':'① 잔여연차','직원':'','부서':'','값1':'이월(일)','값2':'부여(일)','값3':'사용(일)','값4':'잔여(일)'});
-  activeEmps0.slice().sort((a,b)=>getLeaveRemain(b.id,yr0)-getLeaveRemain(a.id,yr0)).forEach(e=>{
-    const a=getAlloc(e.id,yr0);
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,
-      '값1':Math.round((a.carryover||0)/8*10)/10,
-      '값2':Math.round((a.total||0)/8*10)/10,
-      '값3':Math.round(getLeaveUsed(e.id,yr0)/8*10)/10,
-      '값4':Math.round(getLeaveRemain(e.id,yr0)/8*10)/10});
-  });
-  overviewRows.push({});
-  overviewRows.push({'구분':'② 발생특근','직원':'','부서':'','값1':'특근(h)','값2':'환산대휴(h)'});
   const getOTTotalY = (empId,yr)=>db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
-  activeEmps0.slice().sort((a,b)=>getOTTotalY(b.id,yr0)-getOTTotalY(a.id,yr0)).forEach(e=>{
-    const ot=getOTTotalY(e.id,yr0);
-    if(ot<=0) return;
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,'값1':ot,'값2':getCompEarned(e.id,yr0)});
-  });
-  overviewRows.push({});
-  overviewRows.push({'구분':'③ 잔여대휴','직원':'','부서':'','값1':'발생(h)','값2':'사용(h)','값3':'잔여(h)'});
-  activeEmps0.slice().sort((a,b)=>getCompRemain(b.id,yr0)-getCompRemain(a.id,yr0)).forEach(e=>{
-    const earned=getCompEarned(e.id,yr0), used=getCompUsed(e.id,yr0);
-    if(earned<=0&&used<=0) return;
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,'값1':earned,'값2':used,'값3':getCompRemain(e.id,yr0)});
-  });
-  overviewRows.push({});
-  overviewRows.push({'구분':'④ 출장','직원':'','부서':'','값1':'건수'});
-  activeEmps0.forEach(e=>{
-    const cnt=db.requests.filter(r=>r.type==='trip'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr0)&&r.status==='approved').length;
-    if(cnt<=0) return;
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,'값1':cnt});
-  });
-  overviewRows.push({});
-  overviewRows.push({'구분':'⑤ 교통비','직원':'','부서':'','값1':'금액(원)'});
-  activeEmps0.slice().sort((a,b)=>getTransTotal(b.id,yr0)-getTransTotal(a.id,yr0)).forEach(e=>{
-    const t=getTransTotal(e.id,yr0);
-    if(t<=0) return;
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,'값1':t});
-  });
-  overviewRows.push({});
-  overviewRows.push({'구분':'⑥ 하계휴가','직원':'','부서':'','값1':'휴가기간','값2':'일수','값3':'잔여연차(일)','값4':'상태'});
   const summerByEmp0={};
   db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr0)).forEach(r=>{
     (summerByEmp0[r.empId]=summerByEmp0[r.empId]||[]).push(r);
   });
-  Object.keys(summerByEmp0).forEach(empId=>{
-    const e=eid(empId); if(!e) return;
-    const items=summerByEmp0[empId];
-    const periods=items.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
-      .map(r=>r.startDate+(r.endDate&&r.endDate!==r.startDate?' ~ '+r.endDate:'')).join(', ');
-    const totalH=items.reduce((s,r)=>s+(+r.hours||0),0);
-    const allApproved=items.every(r=>r.status==='approved');
-    overviewRows.push({'구분':'','직원':e.name,'부서':e.dept,'값1':periods,'값2':Math.round(totalH/8*10)/10,'값3':Math.round(getLeaveRemain(empId,yr0)/8*10)/10,'값4':allApproved?'승인':'대기'});
+
+  const overviewRows = [];
+  overviewRows.push({
+    '연번':'', '직원':'', '부서':'',
+    '① 잔여연차':'이월(일)', '__1':'부여(일)', '__2':'사용(일)', '__3':'잔여(일)',
+    '② 발생특근':'특근(h)', '__4':'환산대휴(h)',
+    '③ 잔여대휴':'발생(h)', '__5':'사용(h)', '__6':'잔여(h)',
+    '④ 출장':'건수', '⑤ 교통비':'금액(원)',
+    '⑥ 하계휴가':'휴가기간', '__7':'일수', '__8':'잔여연차(일)'
   });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(overviewRows), '전체현황');
+
+  activeEmps0.slice().sort((a,b)=>getLeaveRemain(b.id,yr0)-getLeaveRemain(a.id,yr0)).forEach((e,idx)=>{
+    const a=getAlloc(e.id,yr0);
+    const carry=Math.round((a.carryover||0)/8*10)/10;
+    const grant=Math.round((a.total||0)/8*10)/10;
+    const used=Math.round(getLeaveUsed(e.id,yr0)/8*10)/10;
+    const remain=Math.round(getLeaveRemain(e.id,yr0)/8*10)/10;
+
+    const ot=getOTTotalY(e.id,yr0);
+    const otConv=ot>0?getCompEarned(e.id,yr0):'';
+
+    const earned=getCompEarned(e.id,yr0), compUsed=getCompUsed(e.id,yr0), compRemain=getCompRemain(e.id,yr0);
+    const hasComp=earned>0||compUsed>0;
+
+    const tripCnt=db.requests.filter(r=>r.type==='trip'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr0)&&r.status==='approved').length;
+    const trans=getTransTotal(e.id,yr0);
+
+    const summerItems=summerByEmp0[e.id]||[];
+    const summerPeriods=summerItems.length?summerItems.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
+      .map(r=>r.startDate+(r.endDate&&r.endDate!==r.startDate?' ~ '+r.endDate:'')).join(', '):'';
+    const summerDays=summerItems.length?Math.round(summerItems.reduce((s,r)=>s+(+r.hours||0),0)/8*10)/10:'';
+
+    overviewRows.push({
+      '연번': idx+1,
+      '직원': e.name,
+      '부서': e.dept + (e.employmentType==='계약직'?'(계약)':''),
+      '① 잔여연차': carry, '__1': grant, '__2': used, '__3': remain,
+      '② 발생특근': ot>0?ot:'', '__4': otConv,
+      '③ 잔여대휴': hasComp?earned:'', '__5': hasComp?compUsed:'', '__6': hasComp?compRemain:'',
+      '④ 출장': tripCnt>0?tripCnt:'',
+      '⑤ 교통비': trans>0?trans:'',
+      '⑥ 하계휴가': summerPeriods, '__7': summerDays, '__8': summerItems.length?remain:''
+    });
+  });
+  const ws0 = XLSX.utils.json_to_sheet(overviewRows, {skipHeader:false});
+  XLSX.utils.book_append_sheet(wb, ws0, '전체현황');
 
   // 0-2. 출퇴근내역
   const attRows = (db.attendance||[]).slice().sort((a,b)=>String(a.empId).localeCompare(String(b.empId))||(a.date||'').localeCompare(b.date||'')).map(a=>{
