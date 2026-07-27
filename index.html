@@ -457,9 +457,10 @@ async function sbInsert(table, row) {
   return data;
 }
 async function sbUpdate(table, id, row) {
-  if (!_supa) return;
+  if (!_supa) return false;
   const { error } = await _supa.from(table).update(row).eq('id', id);
-  if (error) console.error('update error:', error);
+  if (error) { console.error('update error:', error); return false; }
+  return true;
 }
 async function sbDelete(table, id) {
   if (!_supa) return null;
