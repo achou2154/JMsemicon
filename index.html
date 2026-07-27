@@ -458,8 +458,13 @@ async function sbInsert(table, row) {
 }
 async function sbUpdate(table, id, row) {
   if (!_supa) return false;
-  const { error } = await _supa.from(table).update(row).eq('id', id);
+  const { data, error } = await _supa.from(table).update(row).eq('id', id).select();
   if (error) { console.error('update error:', error); return false; }
+  if (!data || data.length === 0) {
+    // 매칭된 행이 0개 = RLS 차단 또는 id 불일치 (에러 없이 조용히 실패하는 케이스)
+    console.error(`update matched 0 rows: table=${table}, id=${id} (RLS 차단 또는 id 불일치 가능성)`);
+    return false;
+  }
   return true;
 }
 async function sbDelete(table, id) {
@@ -5707,30 +5712,50 @@ function checkAndShowNotice() {
     return true;
   });
   if (!activeNotices.length) return;
-  // 가장 최신 공지 표시
-  const notice = activeNotices[0];
-  const popupContent = document.getElementById('notice-popup-content');
-  if (!popupContent) return;
-  popupContent.innerHTML = `
-    <div style="font-size:18px;font-weight:700;margin-bottom:12px;color:var(--accent)">📢 공지사항</div>
-    <div style="font-size:16px;font-weight:600;margin-bottom:10px">${notice.title}</div>
-    ${notice.imageData?`<img src="${notice.imageData}" style="max-width:100%;border-radius:var(--radius);margin-bottom:10px">`:''}
-    <div style="font-size:15px;line-height:1.8;white-space:pre-wrap;color:var(--text)">${notice.content}</div>
-    <div style="font-size:12px;color:var(--text3);margin-top:10px">게시기간: ${fmt(notice.startDate)} ~ ${fmt(notice.endDate)}</div>
-  `;
   const popupBg = document.getElementById('notice-popup-bg');
   if (!popupBg) return;
-  popupBg.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center';
-  popupBg._noticeId = notice.id;
+
+  // 여러 공지를 각각 카드로 쌓아서 동시에 표시 (cascade)
+  const total = activeNotices.length;
+  popupBg.innerHTML = activeNotices.map((notice, i) => {
+    const off = i * 22; // 뒤로 갈수록 우하단으로 살짝 어긋나게
+    const periodTxt = notice.repeatConfig
+      ? '🔁 반복 공지'
+      : `게시기간: ${fmt(notice.startDate)} ~ ${fmt(notice.endDate)}`;
+    return `
+    <div class="notice-card" data-notice-id="${notice.id}"
+         style="position:absolute;top:50%;left:50%;
+                transform:translate(calc(-50% + ${off}px), calc(-50% + ${off}px));
+                background:#fff;border-radius:12px;padding:28px 32px;width:480px;max-width:90vw;
+                max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.25);
+                z-index:${9001 + (total - i)}">
+      <div style="font-size:18px;font-weight:700;margin-bottom:12px;color:var(--accent)">📢 공지사항${total>1?` <span style="font-size:13px;font-weight:500;color:var(--text3)">(${i+1}/${total})</span>`:''}</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:10px">${notice.title}</div>
+      ${notice.imageData?`<img src="${notice.imageData}" style="max-width:100%;border-radius:var(--radius);margin-bottom:10px">`:''}
+      <div style="font-size:15px;line-height:1.8;white-space:pre-wrap;color:var(--text)">${notice.content}</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:10px">${periodTxt}</div>
+      <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#64748b">
+          <input type="checkbox" class="notice-no-today" style="width:14px;height:14px">
+          오늘 하루 더 이상 보지 않기
+        </label>
+        <button onclick="closeNoticeCard(this, ${notice.id})"
+          style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:15px;cursor:pointer;font-weight:600">확인</button>
+      </div>
+    </div>`;
+  }).join('');
+  popupBg.style.cssText = 'display:block;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000';
 }
 
-function closeNoticePopup() {
+// 개별 공지 카드 닫기 (여러 팝업 중 하나만 닫음)
+function closeNoticeCard(btn, id) {
+  const card = btn.closest('.notice-card');
+  if (!card) return;
+  const noToday = card.querySelector('.notice-no-today')?.checked;
+  if (noToday) localStorage.setItem(`notice_skip_${id}_${todayStr()}`, '1');
+  card.remove();
   const bg = document.getElementById('notice-popup-bg');
-  const noToday = document.getElementById('notice-no-today')?.checked;
-  if (noToday && bg._noticeId) {
-    localStorage.setItem(`notice_skip_${bg._noticeId}_${todayStr()}`, '1');
-  }
-  bg.style.display = 'none';
+  if (bg && !bg.querySelector('.notice-card')) bg.style.display = 'none';
 }
 
 // ══════════════════════════════════════════════
@@ -7221,18 +7246,7 @@ if (initSupabase()) {
 }
 </script>
 <!-- 공지사항 팝업 -->
-<div id="notice-popup-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center">
-  <div style="background:#fff;border-radius:12px;padding:28px 32px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)">
-    <div id="notice-popup-content"></div>
-    <div style="margin-top:16px;display:flex;align-items:center;justify-content:space-between">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;color:#64748b">
-        <input type="checkbox" id="notice-no-today" style="width:14px;height:14px">
-        오늘 하루 더 이상 보지 않기
-      </label>
-      <button onclick="closeNoticePopup()" style="background:#1e40af;color:#fff;border:none;border-radius:6px;padding:8px 20px;font-size:15px;cursor:pointer;font-weight:600">확인</button>
-    </div>
-  </div>
-</div>
+<div id="notice-popup-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000"></div>
 
 <!-- 모바일 하단 탭바 -->
 <div id="mobile-tabbar">
