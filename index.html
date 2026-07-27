@@ -898,6 +898,7 @@ async function onSignedIn(user) {
     currentPage = 'calendar';
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
+    startIdleTimer(); // 20분 무활동 자동 로그아웃 시작
   } catch(e) {
     console.error('onSignedIn 오류:', e);
     // 오류나도 앱은 표시
@@ -906,6 +907,7 @@ async function onSignedIn(user) {
 }
 
 function onSignedOut() {
+  stopIdleTimer();
   currentUser = null; currentEmp = null; isAdmin = false;
   // 접기/펴기 버튼 숨김
   const sbBtn = document.getElementById('sb-toggle-fixed-btn');
@@ -913,6 +915,78 @@ function onSignedOut() {
   document.querySelector('.app').style.display = 'none';
   showLoginScreen();
 }
+
+// ══════════════════════════════════════════════
+//  무활동 자동 로그아웃 (총 20분: 19분 후 경고 + 60초 카운트다운)
+// ══════════════════════════════════════════════
+const IDLE_WARN_MS = 19 * 60 * 1000;   // 19분 무활동 → 경고
+const IDLE_COUNTDOWN_SEC = 60;         // 경고 후 60초 카운트다운
+let _idleActive = false;
+let _idleWarnTimer = null;
+let _idleCountTimer = null;
+let _idleWarnShown = false;
+
+function _onIdleActivity() {
+  // 경고 팝업이 떠있는 동안에는 마우스 움직임 등으로 자동 해제되지 않게 → '계속 사용하기' 버튼으로만 해제
+  if (_idleWarnShown) return;
+  resetIdleTimer();
+}
+
+function startIdleTimer() {
+  if (_idleActive) return;
+  _idleActive = true;
+  ['click','keydown','mousemove','scroll','touchstart'].forEach(ev =>
+    document.addEventListener(ev, _onIdleActivity, { passive: true }));
+  resetIdleTimer();
+}
+
+function stopIdleTimer() {
+  _idleActive = false;
+  clearTimeout(_idleWarnTimer);
+  clearInterval(_idleCountTimer);
+  ['click','keydown','mousemove','scroll','touchstart'].forEach(ev =>
+    document.removeEventListener(ev, _onIdleActivity));
+  hideIdleWarning();
+}
+
+function resetIdleTimer() {
+  if (!_idleActive) return;
+  hideIdleWarning();
+  clearTimeout(_idleWarnTimer);
+  _idleWarnTimer = setTimeout(showIdleWarning, IDLE_WARN_MS);
+}
+
+function showIdleWarning() {
+  const bg = document.getElementById('idle-warn-bg');
+  const num = document.getElementById('idle-warn-count');
+  if (!bg || !num) { stopIdleTimer(); if (_supa) _supa.auth.signOut(); return; }
+  _idleWarnShown = true;
+  let left = IDLE_COUNTDOWN_SEC;
+  num.textContent = left;
+  bg.style.display = 'flex';
+  clearInterval(_idleCountTimer);
+  _idleCountTimer = setInterval(() => {
+    left--;
+    if (num) num.textContent = left;
+    if (left <= 0) {
+      clearInterval(_idleCountTimer);
+      _idleWarnShown = false;
+      bg.style.display = 'none';
+      stopIdleTimer();
+      if (_supa) _supa.auth.signOut();
+    }
+  }, 1000);
+}
+
+function hideIdleWarning() {
+  clearInterval(_idleCountTimer);
+  _idleWarnShown = false;
+  const bg = document.getElementById('idle-warn-bg');
+  if (bg) bg.style.display = 'none';
+}
+
+// '계속 사용하기' 버튼
+function keepSessionAlive() { resetIdleTimer(); }
 
 // ══════════════════════════════════════════════
 //  PERMISSION HELPERS
@@ -7247,6 +7321,18 @@ if (initSupabase()) {
 </script>
 <!-- 공지사항 팝업 -->
 <div id="notice-popup-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000"></div>
+
+<!-- 무활동 자동 로그아웃 경고 팝업 -->
+<div id="idle-warn-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:11000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:32px 36px;width:400px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center">
+    <div style="font-size:40px;margin-bottom:12px">⏰</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:10px;color:#1e293b">자동 로그아웃 안내</div>
+    <div style="font-size:15px;color:#475569;line-height:1.6;margin-bottom:18px">
+      장시간 활동이 없어<br><b style="color:#dc2626;font-size:22px" id="idle-warn-count">60</b>초 후 자동 로그아웃됩니다.
+    </div>
+    <button onclick="keepSessionAlive()" style="background:#1e40af;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:16px;font-weight:600;cursor:pointer;width:100%">계속 사용하기</button>
+  </div>
+</div>
 
 <!-- 모바일 하단 탭바 -->
 <div id="mobile-tabbar">
