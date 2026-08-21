@@ -213,6 +213,7 @@ tbody tr:hover td{background:var(--surface2)}
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>기념일</button>
+    <button class="nav-item" id="nav-summer" onclick="go('summer')"><span class="nav-icon">🏖️</span>하계휴가</button>
     <div class="nav-sec">내 계정</div>
     <button class="nav-item" onclick="go('myprofile')"><span class="nav-icon">👤</span>내 정보</button>
     <button class="nav-item" onclick="go('inquiry')"><span class="nav-icon">💬</span>1:1 문의</button>
@@ -310,7 +311,9 @@ let db = {
   alerts: [],       // 관리자 설정 알람 [{id, date, title, content, color}]
   inquiries: [],    // 1:1 문의
   inquiryReplies: [], // 1:1 문의 답변
-  notices: []       // 팝업 공지사항
+  notices: [],      // 팝업 공지사항
+  summerPlans: [],  // 하계휴가 계획
+  appSettings: {}   // 전역 설정(토글 등)
 };
 
 // ══════════════════════════════════════════════
@@ -392,6 +395,16 @@ async function loadAllData() {
       });
       db.notifySchedules = (nsRes.data || []).map(r=>({id:r.id,type:r.type,title:r.title,content1:r.content1,targetIds:JSON.parse(r.target_ids||'[]'),sendAt:r.send_at,sent:r.sent||false}));
     } catch(e2) { console.warn('부가 테이블 로드 실패 (무시):', e2); }
+    // 하계휴가 계획 + 전역설정 (테이블 없으면 무시)
+    try {
+      const [spRes, asRes] = await Promise.all([
+        _supa.from('summer_plans').select('*').order('start_date',{ascending:true}),
+        _supa.from('app_settings').select('*'),
+      ]);
+      db.summerPlans = (spRes.data||[]).map(r=>({id:r.id,empId:r.emp_id,year:r.year,startDate:r.start_date,endDate:r.end_date,days:Number(r.days)||0,memo:r.memo||''}));
+      db.appSettings = {};
+      (asRes.data||[]).forEach(r=>{ db.appSettings[r.key]=r.value; });
+    } catch(e3){ console.warn('하계휴가/설정 로드 실패 (무시):', e3); db.summerPlans=db.summerPlans||[]; db.appSettings=db.appSettings||{}; }
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -407,7 +420,7 @@ function normalizeEmp(r) {
   return { id:r.id, user_id:r.user_id, name:r.name, dept:r.dept,
     position:r.position, phone:r.phone, email:r.email,
     joinDate:r.join_date||'', isExternal:r.is_external||false,
-    employmentType:r.employment_type||(r.is_external?'사외이사':'정직원'),
+    employmentType:r.employment_type||(r.is_external?'상임이사':'정직원'),
     birthdate:r.birthdate||'', birthdateLunar:r.birthdate_lunar||false,
     address:r.address||'', avatarUrl:r.avatar_url||'',
     muteNotify:r.mute_notify||false,
@@ -674,7 +687,7 @@ function exportExcel() {
     'ID': e.id, '이름': e.name, '부서': e.dept, '직책': e.position,
     '연락처': e.phone, '이메일': e.email, '입사일': e.joinDate,
     '생년월일': e.birthdate, '음양력': e.birthdateLunar?'음력':'양력',
-    '사외이사': e.isExternal?'⭐':''
+    '상임이사': e.isExternal?'⭐':''
   }));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(empRows), '직원 명부');
 
@@ -1096,12 +1109,12 @@ function getDateVal(id){
   return `${y.padStart(4,'0')}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
 }
 function emptyRow(cols,msg='데이터가 없습니다'){return`<tr class="empty-row"><td colspan="${cols}">${msg}</td></tr>`;}
-// 개인기록 시트에서 숨길 직원 여부 (사외이사 또는 대표이사)
+// 개인기록 시트에서 숨길 직원 여부 (상임이사 또는 대표이사)
 function isHiddenFromPersonal(e) {
   return e.isExternal || (e.position || '').includes('대표이사');
 }
 
-// 신청용 (사외이사 제외)
+// 신청용 (상임이사 제외)
 function empOptions(sel=''){
   // 직원은 본인만 선택 가능
   if(!isAdmin && currentEmp) {
@@ -1113,10 +1126,10 @@ function empOptions(sel=''){
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})</option>`)
     .join('');
 }
-// 전체 직원 (사외이사 포함, 건강검진·생일 등)
+// 전체 직원 (상임이사 포함, 건강검진·생일 등)
 function empOptionsAll(sel=''){
   return db.employees.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
-    .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})${e.isExternal?' [사외이사]':''}</option>`)
+    .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})${e.isExternal?' [상임이사]':''}</option>`)
     .join('');
 }
 
@@ -1532,7 +1545,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1541,6 +1554,7 @@ function go(page) {
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   // 교통비 관리는 전직원(관리자 포함) 숨김 처리
   if(page==='transport') { page='calendar'; }
+  if(page==='summer' && !isAdmin && !isSummerVisible()) { page='calendar'; }
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   setTimeout(updateBdayAlarmBar, 50);
@@ -1566,15 +1580,258 @@ function go(page) {
     const match = onclick.match(/go\('([^']+)'\)/);
     const pg = match ? match[1] : '';
     if(pg==='transport') el.style.display='none';
+    else if(pg==='summer') el.style.display=(isAdmin||isSummerVisible())?'':'none';
     else if(!isAdmin && adminOnly.includes(pg)) el.style.display='none';
     else el.style.display='';
   });
   // 관리자 알람설정은 별도 처리
   const nsEl = document.getElementById('nav-notifysetting');
   if(nsEl) nsEl.style.display = isAdmin ? '' : 'none';
-  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard}[page]||renderOverview)();
+  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard,summer:renderSummer}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
+
+// ══════════════════════════════════════════════
+//  하계휴가 계획 섹션
+// ══════════════════════════════════════════════
+function isSummerVisible(){
+  const v = db.appSettings ? db.appSettings['summer_section_visible'] : false;
+  return v===true || v==='true' || v===1;
+}
+async function setSummerVisible(on){
+  db.appSettings = db.appSettings || {};
+  db.appSettings['summer_section_visible'] = on;
+  if(_supa){
+    const { error } = await _supa.from('app_settings')
+      .upsert({key:'summer_section_visible', value:on, updated_at:new Date().toISOString()}, {onConflict:'key'});
+    if(error){ console.error('setSummerVisible error:', error); showToast('⚠️ 설정 저장 실패'); return false; }
+  }
+  return true;
+}
+async function toggleSummerVisible(){
+  const next = !isSummerVisible();
+  const ok = await setSummerVisible(next);
+  if(ok) showToast(next ? '✅ 직원에게 공개됨' : '🔒 직원에게 숨김 (관리자만 표시)');
+  renderSummer();
+  const el=document.getElementById('nav-summer'); if(el) el.style.display=(isAdmin||isSummerVisible())?'':'none';
+}
+function summerDayCount(start, end){
+  if(!start) return 0;
+  if(!end || end<start) return 1;
+  const a=new Date(start), b=new Date(end);
+  return Math.round((b-a)/86400000)+1;
+}
+
+function renderSummer(){
+  const yr = currentYear;
+  const me = currentEmp;
+  const all = (db.summerPlans||[]).filter(p=>String(p.year)===String(yr));
+
+  // ── 본인 계획 ──
+  const myPlans = me ? all.filter(p=>String(p.empId)===String(me.id)) : [];
+  const myDays = Math.round(myPlans.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
+  const myRemainNow = me ? Math.round(getLeaveRemain(me.id, yr)/8*10)/10 : 0;
+  const myProjected = Math.round((myRemainNow - myDays)*10)/10;
+  const myRows = myPlans.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
+    .map(p=>`<tr>
+      <td style="padding:8px 10px">${fmt(p.startDate)} ~ ${p.endDate?fmt(p.endDate):'-'}</td>
+      <td style="padding:8px 10px;text-align:center">${p.days}일</td>
+      <td style="padding:8px 10px;color:var(--text3)">${p.memo||''}</td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="openSummerPlan(${p.id})">수정</button>
+        <button class="btn btn-sm btn-danger" onclick="delSummerPlan(${p.id})">삭제</button>
+      </td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">등록된 계획이 없습니다</td></tr>`;
+
+  const topFrame = `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin:0">🏖️ 내 하계휴가 계획 (${yr}년)</div>
+        <button class="btn btn-primary btn-sm" onclick="openSummerPlan()">+ 계획 등록</button>
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <div style="flex:1;min-width:130px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#0369a1">현재 잔여 연차</div>
+          <div style="font-size:22px;font-weight:700;color:#0369a1">${myRemainNow}일</div>
+        </div>
+        <div style="flex:1;min-width:130px;background:#fff7ed;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#c2410c">계획한 하계휴가</div>
+          <div style="font-size:22px;font-weight:700;color:#c2410c">${myDays}일</div>
+        </div>
+        <div style="flex:1;min-width:130px;background:#f0fdf4;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#15803d">예상 잔여 연차</div>
+          <div style="font-size:22px;font-weight:700;color:${myProjected<0?'#dc2626':'#15803d'}">${myProjected}일</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">※ 여기 등록한 계획은 <b>실제 연차에서 차감되지 않습니다</b> (예상치 미리보기).</div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:var(--bg);color:var(--text2)">
+          <th style="padding:8px 10px;text-align:left">기간</th>
+          <th style="padding:8px 10px;text-align:center">일수</th>
+          <th style="padding:8px 10px;text-align:left">메모</th>
+          <th style="padding:8px 10px;text-align:right">관리</th>
+        </tr></thead>
+        <tbody>${myRows}</tbody>
+      </table>
+    </div>`;
+
+  // ── 전직원 현황 (월별) ──
+  const sorted = all.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''));
+  const uniqueEmp = new Set(all.map(p=>String(p.empId))).size;
+  const totalDays = Math.round(all.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
+  const totalEmp = (db.employees||[]).length;
+  const byMonth = {};
+  sorted.forEach(p=>{ const m=(p.startDate||'').slice(0,7)||'미정'; (byMonth[m]=byMonth[m]||[]).push(p); });
+  const months = Object.keys(byMonth).sort();
+
+  const monthBlocks = months.map(m=>{
+    const list = byMonth[m];
+    const mDays = Math.round(list.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
+    const mEmp = new Set(list.map(p=>String(p.empId))).size;
+    const label = m==='미정' ? '미정' : `${m.slice(0,4)}년 ${parseInt(m.slice(5,7))}월`;
+    const rows = list.map(p=>{
+      const e = eid(p.empId);
+      return `<tr>
+        <td style="padding:7px 10px">${e?e.name:'?'}</td>
+        <td style="padding:7px 10px;color:var(--text3)">${e?e.dept:''}</td>
+        <td style="padding:7px 10px">${fmt(p.startDate)} ~ ${p.endDate?fmt(p.endDate):'-'}</td>
+        <td style="padding:7px 10px;text-align:center">${p.days}일</td>
+        <td style="padding:7px 10px;color:var(--text3)">${p.memo||''}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#eff6ff;border-radius:8px;padding:8px 12px;margin-bottom:6px">
+        <b style="color:#1d4ed8">📅 ${label}</b>
+        <span style="font-size:13px;color:var(--text2)">${mEmp}명 · ${mDays}일</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="color:var(--text3);font-size:12px">
+          <th style="padding:4px 10px;text-align:left">이름</th>
+          <th style="padding:4px 10px;text-align:left">부서</th>
+          <th style="padding:4px 10px;text-align:left">기간</th>
+          <th style="padding:4px 10px;text-align:center">일수</th>
+          <th style="padding:4px 10px;text-align:left">메모</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('') || `<div style="text-align:center;color:var(--text3);padding:24px">등록된 하계휴가 계획이 없습니다</div>`;
+
+  const monthStat = months.filter(m=>m!=='미정').map(m=>{
+    const list=byMonth[m];
+    const mDays=Math.round(list.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
+    return `<div style="text-align:center;padding:8px 10px;background:var(--bg);border-radius:8px;min-width:66px">
+      <div style="font-size:12px;color:var(--text3)">${parseInt(m.slice(5,7))}월</div>
+      <div style="font-weight:700;color:var(--accent)">${new Set(list.map(p=>String(p.empId))).size}명</div>
+      <div style="font-size:11px;color:var(--text3)">${mDays}일</div>
+    </div>`;
+  }).join('');
+
+  const bottomFrame = `
+    <div class="card">
+      <div class="card-title">📊 전직원 하계휴가 현황 (${yr}년)</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:120px;background:#faf5ff;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#7c3aed">등록 인원</div>
+          <div style="font-size:22px;font-weight:700;color:#7c3aed">${uniqueEmp} / ${totalEmp}명</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#fff7ed;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#c2410c">총 계획 일수</div>
+          <div style="font-size:22px;font-weight:700;color:#c2410c">${totalDays}일</div>
+        </div>
+        <div style="flex:1;min-width:120px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#0369a1">계획 건수</div>
+          <div style="font-size:22px;font-weight:700;color:#0369a1">${all.length}건</div>
+        </div>
+      </div>
+      ${monthStat?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${monthStat}</div>`:''}
+      ${monthBlocks}
+    </div>`;
+
+  const toggleBar = isAdmin ? `
+    <div class="card" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px">
+      <div>
+        <div style="font-weight:700">직원 공개 설정</div>
+        <div style="font-size:12px;color:var(--text3)">OFF로 두면 직원 화면에선 '하계휴가' 메뉴가 숨겨지고, 관리자만 볼 수 있어요.</div>
+      </div>
+      <button onclick="toggleSummerVisible()" style="border:none;border-radius:20px;padding:8px 22px;font-size:15px;font-weight:700;cursor:pointer;color:#fff;white-space:nowrap;background:${isSummerVisible()?'#16a34a':'#94a3b8'}">
+        ${isSummerVisible()?'공개 ON':'숨김 OFF'}
+      </button>
+    </div>` : '';
+
+  setContent(toggleBar + topFrame + bottomFrame);
+}
+
+function openSummerPlan(id){
+  const editing = id ? (db.summerPlans||[]).find(p=>String(p.id)===String(id)) : null;
+  const s = editing?editing.startDate:'';
+  const e = editing?editing.endDate:'';
+  const d = editing?editing.days:'';
+  const memo = editing?editing.memo:'';
+  openModal(`
+    <div class="modal-title">🏖️ 하계휴가 계획 ${editing?'수정':'등록'}</div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-weight:700">시작일</label>
+      <input type="date" id="sp-start" value="${s||''}" onchange="spSyncDays()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px">
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-weight:700">종료일</label>
+      <input type="date" id="sp-end" value="${e||''}" onchange="spSyncDays()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px">
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-weight:700">일수</label>
+      <input type="number" id="sp-days" value="${d||''}" min="0" step="0.5" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="자동 계산 (수정 가능)">
+    </div>
+    <div class="field" style="margin-bottom:12px">
+      <label style="font-weight:700">메모 (선택)</label>
+      <input type="text" id="sp-memo" value="${(memo||'').replace(/"/g,'&quot;')}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="예: 가족 여행">
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="saveSummerPlan(${editing?editing.id:'null'})">${editing?'수정':'등록'}</button>
+    </div>
+  `);
+}
+function spSyncDays(){
+  const s=document.getElementById('sp-start')?.value;
+  const e=document.getElementById('sp-end')?.value;
+  const dEl=document.getElementById('sp-days');
+  if(dEl && s){ dEl.value = summerDayCount(s,e); }
+}
+async function saveSummerPlan(id){
+  const s=document.getElementById('sp-start')?.value;
+  const e=document.getElementById('sp-end')?.value||null;
+  let d=parseFloat(document.getElementById('sp-days')?.value);
+  const memo=document.getElementById('sp-memo')?.value||'';
+  if(!s){ showToast('⚠️ 시작일을 입력하세요'); return; }
+  if(isNaN(d)||d<0){ d=summerDayCount(s,e); }
+  const empId = currentEmp ? currentEmp.id : null;
+  if(!empId){ showToast('⚠️ 직원 정보를 찾을 수 없습니다'); return; }
+  const row={ emp_id:empId, year:currentYear, start_date:s, end_date:e, days:d, memo };
+  if(id){
+    const ok=await sbUpdate('summer_plans', id, row);
+    if(!ok){ showToast('⚠️ 수정 실패'); return; }
+    const idx=(db.summerPlans||[]).findIndex(p=>String(p.id)===String(id));
+    if(idx>=0) db.summerPlans[idx]={...db.summerPlans[idx], startDate:s, endDate:e, days:d, memo};
+    showToast('✅ 수정됨');
+  } else {
+    const ins=await sbInsert('summer_plans', row);
+    if(!ins){ showToast('⚠️ 등록 실패'); return; }
+    db.summerPlans=db.summerPlans||[];
+    db.summerPlans.push({id:ins.id, empId, year:currentYear, startDate:s, endDate:e, days:d, memo});
+    showToast('✅ 등록됨');
+  }
+  closeModal();
+  renderSummer();
+}
+async function delSummerPlan(id){
+  if(!confirm('이 계획을 삭제할까요?')) return;
+  const ok=await sbDelete('summer_plans', id);
+  if(!ok){ showToast('⚠️ 삭제 실패'); return; }
+  db.summerPlans=(db.summerPlans||[]).filter(p=>String(p.id)!==String(id));
+  showToast('🗑️ 삭제됨');
+  renderSummer();
+}
+
 function setContent(html, scrollToTop=true){
   document.getElementById('main-content').innerHTML=html;
   const _doScroll = scrollToTop && !_keepScroll;
@@ -1856,11 +2113,6 @@ function renderOverview(){
         <div class="stat-label">교통비</div>
         <div class="stat-val">₩${Math.round(totalTrans/10000)}만</div>
         <div class="stat-sub">${totalTrans.toLocaleString()}원</div>
-      </div>
-      <div class="stat-card" style="cursor:pointer;background:#fff7ed" onclick="openOverviewDetail('summer')" title="클릭하면 하계휴가 신청 현황을 확인할 수 있습니다">
-        <div class="stat-label">🏖️ 하계휴가</div>
-        <div class="stat-val" style="color:#c2410c">${totalSummer}건</div>
-        <div class="stat-sub">신청 현황</div>
       </div>
     </div>
     <div class="card" style="margin-bottom:10px">
@@ -2198,7 +2450,7 @@ function openOverviewDetail(type) {
       </div>`;
     }).join('') || '<div style="text-align:center;color:var(--text3);padding:20px 0">하계휴가 신청 없음</div>';
 
-    // 미신청자 (정직원+계약직, 사외이사 제외)
+    // 미신청자 (정직원+계약직, 상임이사 제외)
     const appliedIds = new Set(Object.keys(grouped));
     const notApplied = db.employees
       .filter(e=>!e.isExternal && !appliedIds.has(String(e.id)))
@@ -2308,7 +2560,7 @@ function renderRoster(){
   const sorted = getSortedByPosition();
   const rows=sorted.map((e,idx)=>{
     const a=getAlloc(e.id,yr);
-    const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#666;border:1px solid #ddd;margin-left:5px;font-size:11px">⭐ 사외이사</span>`:(e.employmentType==='계약직'?`<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;margin-left:5px;font-size:11px">계약직</span>`:'');
+    const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#666;border:1px solid #ddd;margin-left:5px;font-size:11px">⭐ 상임이사</span>`:(e.employmentType==='계약직'?`<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;margin-left:5px;font-size:11px">계약직</span>`:'');
     return`<tr data-id="${e.id}" ${e.isExternal?'style="background:#fafafa"':''}>
       <td style="color:var(--text3);font-size:13px;width:30px">${idx+1}</td>
       <td><div class="name-cell">${av(e.id)}
@@ -2513,7 +2765,7 @@ function openEmpInfo(empId) {
           <div style="display:flex;gap:12px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="정직원" ${(!e.isExternal&&e.employmentType!=='계약직')?'checked':''} style="width:14px;height:14px"> 정직원</label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="계약직" ${e.employmentType==='계약직'?'checked':''} style="width:14px;height:14px"> 계약직</label>
-            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="사외이사" ${e.isExternal?'checked':''} style="width:14px;height:14px"> 사외이사/임원</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ei-emptype" value="상임이사" ${e.isExternal?'checked':''} style="width:14px;height:14px"> 상임이사/임원</label>
           </div>
         </div>
         ${(isAdmin && adminUserIdSet.has(e.user_id))?`<div class="field" style="margin-top:10px">
@@ -2636,7 +2888,7 @@ async function saveEmpInfo(empId) {
   const annexSel = document.querySelector('input[name="ei-anniv"]:checked');
   const anniversaryType = annexSel ? annexSel.value : 'birthday';
   const empType = document.querySelector('input[name="ei-emptype"]:checked')?.value || '정직원';
-  const isExternal = empType === '사외이사';
+  const isExternal = empType === '상임이사';
   const muteNotify = document.getElementById('ei-mute')?.checked || false;
 
   await sbUpdate('employees', empId, {
@@ -4161,9 +4413,9 @@ function openAddEmp(){
       <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="정직원" checked style="width:15px;height:15px"> 정직원</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="계약직" style="width:15px;height:15px"> 계약직</label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="사외이사" style="width:15px;height:15px"> 사외이사/임원</label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-emptype" value="상임이사" style="width:15px;height:15px"> 상임이사/임원</label>
       </div>
-      <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 사외이사/임원 선택 시 연차·특근 관리에서 제외되며 직원명부·종합내역에만 표시됩니다.</div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 상임이사/임원 선택 시 연차·특근 관리에서 제외되며 직원명부·종합내역에만 표시됩니다.</div>
     </div>
     <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveEmp()">저장</button></div>`);
 }
@@ -4172,7 +4424,7 @@ async function saveEmp(){
   if(!name){alert('이름을 입력하세요');return;}
   const id=nextId++;
   const empType=document.querySelector('input[name="f-emptype"]:checked')?.value||'정직원';
-  const isExternal=empType==='사외이사';
+  const isExternal=empType==='상임이사';
   const birth=getDateVal('f-birth')||'';
   const calSel=document.querySelector('input[name="f-cal"]:checked');
   const birthdateLunar=calSel?calSel.value==='lunar':false;
@@ -4529,7 +4781,7 @@ function onLeaveEmpChange(){
   const empId = sel.value;
   const emp = db.employees.find(e=>String(e.id)===String(empId));
   const isExt = emp && emp.isExternal;
-  // 사외이사/임원은 하계휴가만 신청 가능
+  // 상임이사/임원은 하계휴가만 신청 가능
   document.querySelectorAll('input[name="ltype"]').forEach(r=>{
     const wrap = r.closest('label');
     if(!wrap) return;
@@ -4707,7 +4959,7 @@ async function saveLeave(){
   const empId=document.getElementById('f-emp').value;
   const _empChk = db.employees.find(x=>String(x.id)===String(empId));
   if(_empChk && _empChk.isExternal && leaveType!=='하계휴가'){
-    showToast('⚠️ 사외이사/임원은 하계휴가만 신청 가능합니다');
+    showToast('⚠️ 상임이사/임원은 하계휴가만 신청 가능합니다');
     return;
   }
   const e2=getDateVal('f-end')||s;
