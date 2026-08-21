@@ -205,7 +205,8 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item active" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
     <div class="nav-sec">개인 기록</div>
-    <button class="nav-item" onclick="go('leave')"><span class="nav-icon">🏖️</span>연차 관리</button>
+    <button class="nav-item" onclick="go('leave')"><span class="nav-icon"><img src="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2040%2040%22%3E%3Ccircle%20cx%3D%2220%22%20cy%3D%2220%22%20r%3D%2220%22%20fill%3D%22%2329b6f6%22/%3E%3Ctext%20x%3D%2221%22%20y%3D%2230%22%20font-size%3D%2260%22%20font-family%3D%22Georgia%2C%27Times%20New%20Roman%27%2Cserif%22%20fill%3D%22white%22%20text-anchor%3D%22middle%22%20font-weight%3D%22bold%22%3E%2C%3C/text%3E%3C/svg%3E" style="width:18px;height:18px;vertical-align:middle;border-radius:50%"></span>연차 관리</button>
+    <button class="nav-item" id="nav-summer" onclick="go('summer')"><span class="nav-icon">🏖️</span>하계휴가</button>
     <button class="nav-item" onclick="go('ot')"><span class="nav-icon">⏰</span>특근/대휴 관리</button>
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
     <!-- 교통비 관리 메뉴 숨김 처리 (요청에 따라, 기능은 보존) -->
@@ -213,7 +214,6 @@ tbody tr:hover td{background:var(--surface2)}
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>기념일</button>
-    <button class="nav-item" id="nav-summer" onclick="go('summer')"><span class="nav-icon">🏖️</span>하계휴가</button>
     <div class="nav-sec">내 계정</div>
     <button class="nav-item" onclick="go('myprofile')"><span class="nav-icon">👤</span>내 정보</button>
     <button class="nav-item" onclick="go('inquiry')"><span class="nav-icon">💬</span>1:1 문의</button>
@@ -1546,7 +1546,7 @@ let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
 const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가'};
-const NAV_ORDER=['overview','calendar','roster','requests','leave','ot','trip','transport','bday','health','myprofile'];
+const NAV_ORDER=['overview','calendar','roster','requests','leave','summer','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
@@ -1685,6 +1685,10 @@ function renderSummer(){
   sorted.forEach(p=>{ const m=(p.startDate||'').slice(0,7)||'미정'; (byMonth[m]=byMonth[m]||[]).push(p); });
   const months = Object.keys(byMonth).sort();
 
+  // 월별 표 열 너비 고정 (모든 월 표 정렬 통일)
+  const summerColGroup = isAdmin
+    ? '<colgroup><col style="width:13%"><col style="width:15%"><col style="width:27%"><col style="width:10%"><col style="width:15%"><col style="width:20%"></colgroup>'
+    : '<colgroup><col style="width:16%"><col style="width:18%"><col style="width:32%"><col style="width:12%"><col style="width:22%"></colgroup>';
   const monthBlocks = months.map(m=>{
     const list = byMonth[m];
     const mDays = Math.round(list.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
@@ -1709,7 +1713,8 @@ function renderSummer(){
         <b style="color:#1d4ed8">📅 ${label}</b>
         <span style="font-size:13px;color:var(--text2)">${mEmp}명 · ${mDays}일</span>
       </div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;table-layout:fixed">
+        ${summerColGroup}
         <thead><tr style="color:var(--text3);font-size:12px">
           <th style="padding:4px 10px;text-align:left">이름</th>
           <th style="padding:4px 10px;text-align:left">부서</th>
