@@ -1632,15 +1632,30 @@ function renderSummer(){
   const myDays = Math.round(myPlans.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
   const myRemainNow = me ? Math.round(getLeaveRemain(me.id, yr)/8*10)/10 : 0;
   const myProjected = Math.round((myRemainNow - myDays)*10)/10;
+  const _todayS = todayStr();
+  let _runRemain = myRemainNow; // 예상 잔여 누적 (일)
   const myRows = myPlans.slice().sort((a,b)=>(a.startDate||'').localeCompare(b.startDate||''))
-    .map(p=>`<tr>
+    .map(p=>{
+      const _end = p.endDate || p.startDate || '';
+      const _passed = _end && _end < _todayS; // 기간이 이미 지났는지
+      let _projCell;
+      if(_passed){
+        // 기간 지남 → 예상 잔여 변동 없음
+        _projCell = `${_runRemain}일 <span style="color:var(--text3);font-size:12px">(지난 계획)</span>`;
+      } else {
+        _runRemain = Math.round((_runRemain - (Number(p.days)||0))*10)/10;
+        _projCell = `<span style="color:${_runRemain<0?'#dc2626':'#15803d'};font-weight:600">${_runRemain}일</span>`;
+      }
+      return `<tr>
       <td style="padding:8px 10px">${fmt(p.startDate)} ~ ${p.endDate?fmt(p.endDate):'-'}</td>
       <td style="padding:8px 10px;text-align:center">${p.days}일</td>
       <td style="padding:8px 10px;color:var(--text3)">${p.memo||''}</td>
+      <td style="padding:8px 10px;text-align:center">${_projCell}</td>
       <td style="padding:8px 10px;text-align:right;white-space:nowrap">
         <button class="btn btn-sm" onclick="openSummerPlan(${p.id})">수정</button>
         <button class="btn btn-sm btn-danger" onclick="delSummerPlan(${p.id})">삭제</button>
-      </td></tr>`).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:16px">등록된 계획이 없습니다</td></tr>`;
+      </td></tr>`;
+    }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">등록된 계획이 없습니다</td></tr>`;
 
   const topFrame = `
     <div class="card" style="margin-bottom:14px">
@@ -1648,26 +1663,13 @@ function renderSummer(){
         <div class="card-title" style="margin:0">🏖️ 내 하계휴가 계획 (${yr}년)</div>
         <button class="btn btn-primary btn-sm" onclick="openSummerPlan()">+ 계획 등록</button>
       </div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
-        <div style="flex:1;min-width:130px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#0369a1">현재 잔여 연차</div>
-          <div style="font-size:22px;font-weight:700;color:#0369a1">${myRemainNow}일</div>
-        </div>
-        <div style="flex:1;min-width:130px;background:#fff7ed;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#c2410c">계획한 하계휴가</div>
-          <div style="font-size:22px;font-weight:700;color:#c2410c">${myDays}일</div>
-        </div>
-        <div style="flex:1;min-width:130px;background:#f0fdf4;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#15803d">예상 잔여 연차</div>
-          <div style="font-size:22px;font-weight:700;color:${myProjected<0?'#dc2626':'#15803d'}">${myProjected}일</div>
-        </div>
-      </div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">※ 여기 등록한 계획은 <b>실제 연차에서 차감되지 않습니다</b> (예상치 미리보기).</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:8px">※ 등록한 계획은 <b>실제 연차에서 차감되지 않습니다</b> (예상치 미리보기). 현재 잔여 연차 <b>${myRemainNow}일</b> 기준이며, <b>기간이 지난 계획은 예상 잔여에 반영되지 않습니다</b>.</div>
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="background:var(--bg);color:var(--text2)">
           <th style="padding:8px 10px;text-align:left">기간</th>
           <th style="padding:8px 10px;text-align:center">일수</th>
           <th style="padding:8px 10px;text-align:left">사유</th>
+          <th style="padding:8px 10px;text-align:center">예상 잔여</th>
           <th style="padding:8px 10px;text-align:right">관리</th>
         </tr></thead>
         <tbody>${myRows}</tbody>
@@ -1738,6 +1740,10 @@ function renderSummer(){
         <div style="flex:1;min-width:120px;background:#faf5ff;border-radius:10px;padding:12px 16px">
           <div style="font-size:12px;color:#7c3aed">등록 인원</div>
           <div style="font-size:22px;font-weight:700;color:#7c3aed">${uniqueEmp} / ${totalEmp}명</div>
+        </div>
+        <div onclick="showSummerUnregistered()" title="클릭하면 미등록 직원 명단이 표시됩니다" style="flex:1;min-width:120px;background:#fef2f2;border-radius:10px;padding:12px 16px;cursor:pointer">
+          <div style="font-size:12px;color:#b91c1c">미등록 인원 🔎</div>
+          <div style="font-size:22px;font-weight:700;color:#b91c1c">${totalEmp - uniqueEmp}명</div>
         </div>
         <div style="flex:1;min-width:120px;background:#fff7ed;border-radius:10px;padding:12px 16px">
           <div style="font-size:12px;color:#c2410c">총 계획 일수</div>
@@ -1851,6 +1857,22 @@ async function delSummerPlan(id){
   db.summerPlans=(db.summerPlans||[]).filter(p=>String(p.id)!==String(id));
   showToast('🗑️ 삭제됨');
   renderSummer();
+}
+
+// 하계휴가 미등록 인원 팝업 (ㄱㄴㄷ 순)
+function showSummerUnregistered(){
+  const yr = currentYear;
+  const all = (db.summerPlans||[]).filter(p=>String(p.year)===String(yr));
+  const reg = new Set(all.map(p=>String(p.empId)));
+  const un = (db.employees||[]).filter(e=>!reg.has(String(e.id)))
+    .slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+  const rows = un.map((e,i)=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border2)">
+    <span><b style="color:var(--text3)">${i+1}.</b> ${e.name}</span>
+    <span style="color:var(--text3);font-size:13px">${e.dept||''}${e.position?' · '+e.position:''}</span>
+  </div>`).join('') || '<div style="padding:20px;text-align:center;color:var(--text3)">모든 직원이 등록했습니다 🎉</div>';
+  openModal(`<div class="modal-title">📋 ${yr}년 하계휴가 미등록 인원 (${un.length}명)</div>
+    <div style="max-height:60vh;overflow-y:auto;border:1px solid var(--border2);border-radius:var(--radius)">${rows}</div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>`);
 }
 
 function setContent(html, scrollToTop=true){
