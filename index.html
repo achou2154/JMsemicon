@@ -1667,7 +1667,7 @@ function renderSummer(){
         <thead><tr style="background:var(--bg);color:var(--text2)">
           <th style="padding:8px 10px;text-align:left">기간</th>
           <th style="padding:8px 10px;text-align:center">일수</th>
-          <th style="padding:8px 10px;text-align:left">메모</th>
+          <th style="padding:8px 10px;text-align:left">사유</th>
           <th style="padding:8px 10px;text-align:right">관리</th>
         </tr></thead>
         <tbody>${myRows}</tbody>
@@ -1696,6 +1696,10 @@ function renderSummer(){
         <td style="padding:7px 10px">${fmt(p.startDate)} ~ ${p.endDate?fmt(p.endDate):'-'}</td>
         <td style="padding:7px 10px;text-align:center">${p.days}일</td>
         <td style="padding:7px 10px;color:var(--text3)">${p.memo||''}</td>
+        ${isAdmin?`<td style="padding:7px 10px;text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" onclick="openSummerPlan(${p.id})">수정</button>
+          <button class="btn btn-sm btn-danger" onclick="delSummerPlan(${p.id})">삭제</button>
+        </td>`:''}
       </tr>`;
     }).join('');
     return `<div style="margin-bottom:14px">
@@ -1709,7 +1713,8 @@ function renderSummer(){
           <th style="padding:4px 10px;text-align:left">부서</th>
           <th style="padding:4px 10px;text-align:left">기간</th>
           <th style="padding:4px 10px;text-align:center">일수</th>
-          <th style="padding:4px 10px;text-align:left">메모</th>
+          <th style="padding:4px 10px;text-align:left">사유</th>
+          ${isAdmin?'<th style="padding:4px 10px;text-align:right">관리</th>':''}
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -1763,66 +1768,82 @@ function renderSummer(){
 
 function openSummerPlan(id){
   const editing = id ? (db.summerPlans||[]).find(p=>String(p.id)===String(id)) : null;
-  const s = editing?editing.startDate:'';
-  const e = editing?editing.endDate:'';
-  const d = editing?editing.days:'';
-  const memo = editing?editing.memo:'';
-  openModal(`
-    <div class="modal-title">🏖️ 하계휴가 계획 ${editing?'수정':'등록'}</div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-weight:700">시작일</label>
-      <input type="date" id="sp-start" value="${s||''}" onchange="spSyncDays()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px">
-    </div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-weight:700">종료일</label>
-      <input type="date" id="sp-end" value="${e||''}" onchange="spSyncDays()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px">
-    </div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-weight:700">일수</label>
-      <input type="number" id="sp-days" value="${d||''}" min="0" step="0.5" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="자동 계산 (수정 가능)">
-    </div>
-    <div class="field" style="margin-bottom:12px">
-      <label style="font-weight:700">메모 (선택)</label>
-      <input type="text" id="sp-memo" value="${(memo||'').replace(/"/g,'&quot;')}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px" placeholder="예: 가족 여행">
-    </div>
-    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px">
-      <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn btn-primary" onclick="saveSummerPlan(${editing?editing.id:'null'})">${editing?'수정':'등록'}</button>
-    </div>
-  `);
-}
-function spSyncDays(){
-  const s=document.getElementById('sp-start')?.value;
-  const e=document.getElementById('sp-end')?.value;
-  const dEl=document.getElementById('sp-days');
-  if(dEl && s){ dEl.value = summerDayCount(s,e); }
+  let empId = editing ? editing.empId : (currentEmp?currentEmp.id:null);
+  if(!isAdmin && currentEmp) empId = currentEmp.id; // 직원은 항상 본인
+  const _startISO = editing ? (editing.startDate||todayStr()) : todayStr();
+  const _endISO   = editing ? (editing.endDate||editing.startDate||todayStr()) : todayStr();
+  const _hoursVal = editing ? (Math.round((Number(editing.days)||1)*8*10)/10) : 8;
+  const _reason   = editing ? (editing.memo||'') : '';
+  window._leaveAttachFile=null;
+  openModal('<div class="modal-title">🏖️ 하계휴가 신청</div>'
+  +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
+  // 직원 (관리자는 전체 선택=대리, 직원은 본인 고정)
+  +empSelectField(empId)
+  // 일시
+  +'<div style="margin-bottom:12px">'
+  +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
+  +'<label style="font-size:14px;font-weight:700;min-width:32px">일시</label>'
+  +'<div style="display:flex;align-items:center;gap:6px"><label style="font-size:13px;color:var(--text2)">총 시간</label>'
+  +'<input id="f-hours" type="number" value="'+_hoursVal+'" min="0" step="0.5" style="width:64px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;text-align:center" oninput="onLeaveHoursInput()"><label style="font-size:13px;color:var(--text2)">시간</label></div>'
+  +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="checkbox" id="f-allday" checked onchange="onAlldayChange()" style="width:15px;height:15px"> 종일</label>'
+  +'</div>'
+  // 시작일
+  +'<div style="display:grid;grid-template-columns:48px 0.7fr 1.2fr;align-items:center;gap:8px;margin-bottom:6px">'
+  +'<span style="font-size:13px;color:var(--text2);font-weight:500">시작일</span>'
+  +'<div id="leave-start-date-wrap">'+makeDateInput('f-start',_startISO)+'</div>'
+  +'<div id="leave-start-time-wrap" style="display:none"><input id="f-start-time" type="time" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px" oninput="onLeaveTimeChange()"></div>'
+  +'</div>'
+  // 종료일
+  +'<div style="display:grid;grid-template-columns:48px 0.7fr 1.2fr;align-items:center;gap:8px">'
+  +'<span style="font-size:13px;color:var(--text2);font-weight:500">종료일</span>'
+  +'<div id="leave-end-date-wrap">'+makeDateInput('f-end',_endISO)+'</div>'
+  +'<div id="leave-end-time-wrap" style="display:none"><input id="f-end-time" type="time" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px" oninput="onLeaveTimeChange()"></div>'
+  +'</div></div>'
+  // 예상 잔여연차 (연차 폼과 동일)
+  +'<div id="leave-remain-preview" style="background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#166534"></div>'
+  // 사유
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" value="'+String(_reason).replace(/"/g,'&quot;')+'" placeholder="사유를 입력하세요"></div>'
+  +'</div>'
+  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveSummerPlan('+(editing?editing.id:'null')+')">'+(editing?'수정':'신청')+'</button></div>');
+  setTimeout(()=>{
+    ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el){ el.addEventListener('input',autoCalcLeaveHours); el.addEventListener('input',updateLeaveRemainPreview); }
+    });
+    document.getElementById('f-hours')?.addEventListener('input',updateLeaveRemainPreview);
+    document.getElementById('f-emp')?.addEventListener('change',updateLeaveRemainPreview);
+    updateLeaveRemainPreview();
+  },100);
 }
 async function saveSummerPlan(id){
-  const s=document.getElementById('sp-start')?.value;
-  const e=document.getElementById('sp-end')?.value||null;
-  let d=parseFloat(document.getElementById('sp-days')?.value);
-  const memo=document.getElementById('sp-memo')?.value||'';
+  const empSel=document.getElementById('f-emp');
+  let empId = empSel ? empSel.value : (currentEmp?currentEmp.id:null);
+  if(!isAdmin && currentEmp) empId = currentEmp.id; // 직원은 본인 강제
+  const s = getDateVal('f-start');
+  const e = getDateVal('f-end');
+  const hours = parseFloat(document.getElementById('f-hours')?.value);
+  const reason = document.getElementById('f-reason')?.value||'';
+  if(!empId){ showToast('⚠️ 직원을 선택하세요'); return; }
   if(!s){ showToast('⚠️ 시작일을 입력하세요'); return; }
-  if(isNaN(d)||d<0){ d=summerDayCount(s,e); }
-  const empId = currentEmp ? currentEmp.id : null;
-  if(!empId){ showToast('⚠️ 직원 정보를 찾을 수 없습니다'); return; }
-  const row={ emp_id:empId, year:currentYear, start_date:s, end_date:e, days:d, memo };
+  const days = (isNaN(hours)||hours<=0) ? summerDayCount(s,e) : Math.round(hours/8*10)/10;
+  const row={ emp_id:empId, year:currentYear, start_date:s, end_date:e||s, days, memo:reason };
   if(id){
     const ok=await sbUpdate('summer_plans', id, row);
     if(!ok){ showToast('⚠️ 수정 실패'); return; }
     const idx=(db.summerPlans||[]).findIndex(p=>String(p.id)===String(id));
-    if(idx>=0) db.summerPlans[idx]={...db.summerPlans[idx], startDate:s, endDate:e, days:d, memo};
+    if(idx>=0) db.summerPlans[idx]={...db.summerPlans[idx], empId, startDate:s, endDate:e||s, days, memo:reason};
     showToast('✅ 수정됨');
   } else {
     const ins=await sbInsert('summer_plans', row);
     if(!ins){ showToast('⚠️ 등록 실패'); return; }
     db.summerPlans=db.summerPlans||[];
-    db.summerPlans.push({id:ins.id, empId, year:currentYear, startDate:s, endDate:e, days:d, memo});
-    showToast('✅ 등록됨');
+    db.summerPlans.push({id:ins.id, empId, year:currentYear, startDate:s, endDate:e||s, days, memo:reason});
+    showToast('✅ 신청됨');
   }
   closeModal();
   renderSummer();
 }
+
 async function delSummerPlan(id){
   if(!confirm('이 계획을 삭제할까요?')) return;
   const ok=await sbDelete('summer_plans', id);
@@ -2088,7 +2109,7 @@ function renderOverview(){
 
   setContent(`
     ${pending?`<div style="background:var(--warn-bg);border:1px solid #fcd34d;border-radius:var(--radius);padding:10px 16px;margin-bottom:16px;font-size:14px;color:var(--ot);display:flex;align-items:center;gap:8px">⚠️ 승인 대기 <strong>${pending}건</strong> <button class="btn btn-sm btn-warn" onclick="go('requests')">확인</button></div>`:''}
-    <div class="stats-row" style="grid-template-columns:repeat(6,1fr)">
+    <div class="stats-row" style="grid-template-columns:repeat(5,1fr)">
       <div class="stat-card leave" style="cursor:pointer" onclick="openOverviewDetail('leave')" title="클릭하면 직원별 잔여연차 상세 내역을 확인할 수 있습니다">
         <div class="stat-label">잔여연차</div>
         <div class="stat-val">${Math.round(totalLeaveAlloc/8*10)/10}일</div>
@@ -2101,7 +2122,7 @@ function renderOverview(){
       </div>
       <div class="stat-card comp" style="cursor:pointer" onclick="openOverviewDetail('comp')" title="클릭하면 직원별 잔여대휴 상세 내역을 확인할 수 있습니다">
         <div class="stat-label">잔여대휴</div>
-        <div class="stat-val">${totalCompRemain} h</div>
+        <div class="stat-val">${Math.round(totalCompRemain/8*10)/10}일 (${totalCompRemain} h)</div>
         <div class="stat-sub">발생 ${totalComp} h / 사용 ${totalCompUsed} h</div>
       </div>
       <div class="stat-card trip" style="cursor:pointer" onclick="openOverviewDetail('trip')" title="클릭하면 직원별 출장/교육 상세 내역을 확인할 수 있습니다">
