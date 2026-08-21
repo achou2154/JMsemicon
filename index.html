@@ -457,9 +457,14 @@ async function sbInsert(table, row) {
   return data;
 }
 async function sbUpdate(table, id, row) {
-  if (!_supa) return;
-  const { error } = await _supa.from(table).update(row).eq('id', id);
-  if (error) console.error('update error:', error);
+  if (!_supa) return false;
+  const { data, error } = await _supa.from(table).update(row).eq('id', id).select();
+  if (error) { console.error('update error:', error); return false; }
+  if (!data || data.length === 0) {
+    console.error(`update matched 0 rows: table=${table}, id=${id} (RLS 차단 또는 id 불일치 가능성)`);
+    return false;
+  }
+  return true;
 }
 async function sbDelete(table, id) {
   if (!_supa) return null;
@@ -892,6 +897,7 @@ async function onSignedIn(user) {
     currentPage = 'calendar';
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
+    startIdleTimer(); // 20분 무활동 자동 로그아웃 시작
   } catch(e) {
     console.error('onSignedIn 오류:', e);
     // 오류나도 앱은 표시
@@ -900,12 +906,91 @@ async function onSignedIn(user) {
 }
 
 function onSignedOut() {
+  stopIdleTimer();
   currentUser = null; currentEmp = null; isAdmin = false;
   // 접기/펴기 버튼 숨김
   const sbBtn = document.getElementById('sb-toggle-fixed-btn');
   if (sbBtn) sbBtn.style.display = 'none';
   document.querySelector('.app').style.display = 'none';
   showLoginScreen();
+}
+
+// ══════════════════════════════════════════════
+//  무활동 자동 로그아웃 (총 20분: 19분 경고 + 60초 카운트다운)
+//  타임스탬프 기반 + 1초 인터벌 + 복귀 시 즉시검사 → 절전/방치에도 확실히 로그아웃
+// ══════════════════════════════════════════════
+const IDLE_LOGOUT_MS = 20 * 60 * 1000;  // 20분 → 로그아웃
+const IDLE_WARN_MS   = 19 * 60 * 1000;  // 19분 → 경고 팝업
+let _idleLastActive = Date.now();
+let _idleInterval = null;
+let _idleWarnShown = false;
+
+// 실제 '활동'으로 간주할 이벤트 (마우스 단순 이동은 제외 → 방치 시 확실히 로그아웃)
+const _IDLE_EVENTS = ['click','keydown','mousedown','scroll','touchstart'];
+
+function _idleTouch() {
+  // 경고 팝업이 떠있는 동안엔 '계속 사용하기' 버튼으로만 해제 (실수 방지)
+  if (_idleWarnShown) return;
+  _idleLastActive = Date.now();
+}
+
+function startIdleTimer() {
+  _idleLastActive = Date.now();
+  _IDLE_EVENTS.forEach(ev => document.addEventListener(ev, _idleTouch, { passive: true }));
+  document.addEventListener('visibilitychange', _idleCheckNow);
+  window.addEventListener('focus', _idleCheckNow);
+  clearInterval(_idleInterval);
+  _idleInterval = setInterval(_idleTick, 1000);
+}
+
+function stopIdleTimer() {
+  clearInterval(_idleInterval); _idleInterval = null;
+  _IDLE_EVENTS.forEach(ev => document.removeEventListener(ev, _idleTouch));
+  document.removeEventListener('visibilitychange', _idleCheckNow);
+  window.removeEventListener('focus', _idleCheckNow);
+  hideIdleWarning();
+}
+
+function _idleTick() {
+  if (!currentUser) return;
+  const idle = Date.now() - _idleLastActive;
+  if (idle >= IDLE_LOGOUT_MS) { _doIdleLogout(); return; }
+  if (idle >= IDLE_WARN_MS) {
+    const remain = Math.max(0, Math.ceil((IDLE_LOGOUT_MS - idle) / 1000));
+    showIdleWarning(remain);
+  }
+}
+
+// 탭 복귀/포커스 시 즉시 검사 (절전에서 깨어난 경우 등)
+function _idleCheckNow() {
+  if (!currentUser) return;
+  if (Date.now() - _idleLastActive >= IDLE_LOGOUT_MS) _doIdleLogout();
+}
+
+function _doIdleLogout() {
+  stopIdleTimer();
+  if (_supa) _supa.auth.signOut();
+}
+
+function showIdleWarning(remain) {
+  const bg = document.getElementById('idle-warn-bg');
+  const num = document.getElementById('idle-warn-count');
+  if (!bg || !num) return;
+  _idleWarnShown = true;
+  num.textContent = remain;
+  bg.style.display = 'flex';
+}
+
+function hideIdleWarning() {
+  _idleWarnShown = false;
+  const bg = document.getElementById('idle-warn-bg');
+  if (bg) bg.style.display = 'none';
+}
+
+// '계속 사용하기' 버튼
+function keepSessionAlive() {
+  _idleLastActive = Date.now();
+  hideIdleWarning();
 }
 
 // ══════════════════════════════════════════════
@@ -1033,6 +1118,24 @@ function empOptionsAll(sel=''){
   return db.employees.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})${e.isExternal?' [사외이사]':''}</option>`)
     .join('');
+}
+
+// 신청 폼의 '직원' 선택 필드: 관리자는 전체(대리신청 가능), 직원은 본인 고정
+function empSelectField(empId){
+  if(!isAdmin && currentEmp) empId = currentEmp.id;
+  const me = db.employees.find(e=>String(e.id)===String(empId));
+  if(isAdmin){
+    return '<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>';
+  }
+  return '<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" disabled style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed"><option value="'+(empId||'')+'">'+(me?(me.name+' ('+me.dept+')'):'본인')+'</option></select></div>';
+}
+
+// 직원 select만 반환 (전달된 옵션HTML 사용). 직원모드면 본인 고정+비활성화
+function empLockSelect(empId, optionsHtml){
+  if(isAdmin) return '<select id="f-emp">'+optionsHtml+'</select>';
+  if(currentEmp) empId = currentEmp.id;
+  const me = db.employees.find(e=>String(e.id)===String(empId));
+  return '<select id="f-emp" disabled style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed"><option value="'+(empId||'')+'">'+(me?(me.name+' ('+me.dept+')'):'본인')+'</option></select>';
 }
 
 // syncNow: 수동 동기화 (사용 안함 - 에러 방지용)
@@ -4235,6 +4338,7 @@ function reqToDb(r) {
 }
 
 async function openAddLeave(empId){
+  if(currentEmp && (!isAdmin || !empId)){ empId = currentEmp.id; } // 지정 없으면 본인 기본(관리자 포함), 직원은 항상 본인
   const _nowK=new Date(Date.now()+9*3600*1000);
   const _todayISO=_nowK.toISOString().slice(0,10);
   const _hh=String(_nowK.getUTCHours()).padStart(2,'0');
@@ -4244,7 +4348,7 @@ async function openAddLeave(empId){
   openModal('<div class="modal-title">연차 신청</div>'
   +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
   // 직원
-  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
+  +empSelectField(empId)
   // 구분
   +'<div class="field" style="margin-bottom:8px"><label style="font-weight:700">구분</label>'
   +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
@@ -4650,8 +4754,10 @@ function openOTMenu(empId){
     </div>
     <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button></div>`);
 }
-async function openAddOT(empId){openModal(`<div class="modal-title">특근 신청</div>
-  <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label><select id="f-emp">${empOptions(empId)}</select></div></div>
+async function openAddOT(empId){
+  if(currentEmp && (!isAdmin || !empId)){ empId = currentEmp.id; } // 지정 없으면 본인 기본(관리자 포함), 직원은 항상 본인
+  openModal(`<div class="modal-title">특근 신청</div>
+  <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>직원</label>${empLockSelect(empId, empOptions(empId))}</div></div>
   <div class="form-grid" style="margin-bottom:12px">
     <div class="field"><label>구분</label><div style="display:flex;gap:12px">
   <label style="font-size:14px;cursor:pointer"><input type="radio" name="otsub2" value="특근" checked style="width:14px;height:14px"> 특근</label>
@@ -4722,6 +4828,7 @@ async function saveOT(){
   renderOT();
 }
 async function openAddComp(empId){
+  if(currentEmp && (!isAdmin || !empId)){ empId = currentEmp.id; } // 지정 없으면 본인 기본(관리자 포함), 직원은 항상 본인
   const _nk=new Date(Date.now()+9*3600*1000);
   const _td=_nk.toISOString().slice(0,10);
   const _hh=String(_nk.getUTCHours()).padStart(2,'0');
@@ -4729,7 +4836,7 @@ async function openAddComp(empId){
   openModal(
     '<div class="modal-title">🔄 대체휴무 신청</div>'
     +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
+    +empSelectField(empId)
     +'<div style="margin-bottom:12px">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;flex-wrap:wrap">'
     +'<label style="font-size:14px;font-weight:700">일시</label>'
@@ -4844,6 +4951,7 @@ async function saveComp(){
 }
 
 async function openAddTrip(kind,empId){
+  if(currentEmp && (!isAdmin || !empId)){ empId = currentEmp.id; } // 지정 없으면 본인 기본(관리자 포함), 직원은 항상 본인
   kind=kind||'domestic';
   const isOverseas=kind==='overseas';
   const _nk=new Date(Date.now()+9*3600*1000);
@@ -4853,7 +4961,7 @@ async function openAddTrip(kind,empId){
   openModal(
     '<div class="modal-title">'+(isOverseas?'🌏 해외':'🇰🇷 국내')+' 출장 신청</div>'
     +'<div style="max-height:75vh;overflow-y:auto;padding-right:4px">'
-    +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>'
+    +empSelectField(empId)
     +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">목적지</label><input id="f-dest" placeholder="'+(isOverseas?'예: 일본 도쿄':'예: 부산')+'"></div>'
     +'<div style="margin-bottom:12px">'
     +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><label style="font-size:14px;font-weight:700">일시</label></div>'
@@ -7232,6 +7340,18 @@ if (initSupabase()) {
   showSetupBanner();
 }
 </script>
+<!-- 무활동 자동 로그아웃 경고 팝업 -->
+<div id="idle-warn-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:11000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;padding:32px 36px;width:400px;max-width:90vw;box-shadow:0 12px 40px rgba(0,0,0,.3);text-align:center">
+    <div style="font-size:40px;margin-bottom:12px">⏰</div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:10px;color:#1e293b">자동 로그아웃 안내</div>
+    <div style="font-size:15px;color:#475569;line-height:1.6;margin-bottom:18px">
+      장시간 활동이 없어<br><b style="color:#dc2626;font-size:22px" id="idle-warn-count">60</b>초 후 자동 로그아웃됩니다.
+    </div>
+    <button onclick="keepSessionAlive()" style="background:#1e40af;color:#fff;border:none;border-radius:8px;padding:12px 28px;font-size:16px;font-weight:600;cursor:pointer;width:100%">계속 사용하기</button>
+  </div>
+</div>
+
 <!-- 공지사항 팝업 -->
 <div id="notice-popup-bg" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:12px;padding:28px 32px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)">
