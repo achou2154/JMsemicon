@@ -1708,7 +1708,7 @@ function renderSummer(){
         </td>`:''}
       </tr>`;
     }).join('');
-    return `<div style="margin-bottom:14px">
+    return `<div>
       <div style="display:flex;justify-content:space-between;align-items:center;background:#eff6ff;border-radius:8px;padding:8px 12px;margin-bottom:6px">
         <b style="color:#1d4ed8">📅 ${label}</b>
         <span style="font-size:13px;color:var(--text2)">${mEmp}명 · ${mDays}일</span>
@@ -1779,7 +1779,9 @@ function renderSummer(){
           </div>
         </div>
       </div>
-      ${monthBlocks}
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start">
+        ${monthBlocks}
+      </div>
     </div>`;
 
   const toggleBar = isAdmin ? `
