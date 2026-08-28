@@ -1731,35 +1731,55 @@ function renderSummer(){
   const monthStat = months.filter(m=>m!=='미정').map(m=>{
     const list=byMonth[m];
     const mDays=Math.round(list.reduce((s,p)=>s+(Number(p.days)||0),0)*10)/10;
-    return `<div style="text-align:center;padding:8px 10px;background:var(--bg);border-radius:8px;min-width:66px">
-      <div style="font-size:12px;color:var(--text3)">${parseInt(m.slice(5,7))}월</div>
-      <div style="font-weight:700;color:var(--accent)">${new Set(list.map(p=>String(p.empId))).size}명</div>
-      <div style="font-size:11px;color:var(--text3)">${mDays}일</div>
+    const mEmpCnt=new Set(list.map(p=>String(p.empId))).size;
+    const pct=totalEmp>0?Math.round(mEmpCnt/totalEmp*100):0;
+    return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+      <div style="font-size:12px;color:var(--text3);min-width:28px;text-align:right">${parseInt(m.slice(5,7))}월</div>
+      <div style="flex:1;background:#e2e8f0;border-radius:4px;height:8px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:4px;min-width:${mEmpCnt>0?4:0}px"></div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);white-space:nowrap;min-width:60px">${mEmpCnt}명 · ${mDays}일</div>
     </div>`;
   }).join('');
 
   const bottomFrame = `
     <div class="card">
       <div class="card-title">📊 전직원 하계휴가 현황 (${yr}년)</div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
-        <div style="flex:1;min-width:120px;background:#faf5ff;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#7c3aed">등록 인원</div>
-          <div style="font-size:22px;font-weight:700;color:#7c3aed">${uniqueEmp} / ${totalEmp}명</div>
+      <div style="display:flex;gap:12px;margin-bottom:14px;align-items:stretch">
+        <!-- 왼쪽 50%: 타일 3개 -->
+        <div style="flex:0 0 50%;display:flex;flex-direction:column;gap:8px">
+          <!-- 등록/미등록 합친 타일 (클릭 시 미등록 팝업) -->
+          <div onclick="showSummerUnregistered()" title="클릭하면 미등록 직원 명단이 표시됩니다"
+               style="flex:1;background:linear-gradient(135deg,#faf5ff 50%,#fef2f2 100%);border-radius:10px;padding:12px 16px;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div>
+              <div style="font-size:11px;color:#7c3aed;margin-bottom:2px">등록 인원</div>
+              <div style="font-size:20px;font-weight:700;color:#7c3aed">${uniqueEmp} / ${totalEmp}명</div>
+            </div>
+            <div style="width:1px;background:#e2d9f3;align-self:stretch;margin:4px 0"></div>
+            <div style="text-align:right">
+              <div style="font-size:11px;color:#b91c1c;margin-bottom:2px">미등록 🔎</div>
+              <div style="font-size:20px;font-weight:700;color:#b91c1c">${totalEmp - uniqueEmp}명</div>
+            </div>
+          </div>
+          <!-- 총 계획 일수 -->
+          <div style="flex:1;background:#fff7ed;border-radius:10px;padding:12px 16px">
+            <div style="font-size:11px;color:#c2410c;margin-bottom:2px">총 계획 일수</div>
+            <div style="font-size:20px;font-weight:700;color:#c2410c">${totalDays}일</div>
+          </div>
+          <!-- 계획 건수 -->
+          <div style="flex:1;background:#f0f9ff;border-radius:10px;padding:12px 16px">
+            <div style="font-size:11px;color:#0369a1;margin-bottom:2px">계획 건수</div>
+            <div style="font-size:20px;font-weight:700;color:#0369a1">${all.length}건</div>
+          </div>
         </div>
-        <div onclick="showSummerUnregistered()" title="클릭하면 미등록 직원 명단이 표시됩니다" style="flex:1;min-width:120px;background:#fef2f2;border-radius:10px;padding:12px 16px;cursor:pointer">
-          <div style="font-size:12px;color:#b91c1c">미등록 인원 🔎</div>
-          <div style="font-size:22px;font-weight:700;color:#b91c1c">${totalEmp - uniqueEmp}명</div>
-        </div>
-        <div style="flex:1;min-width:120px;background:#fff7ed;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#c2410c">총 계획 일수</div>
-          <div style="font-size:22px;font-weight:700;color:#c2410c">${totalDays}일</div>
-        </div>
-        <div style="flex:1;min-width:120px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#0369a1">계획 건수</div>
-          <div style="font-size:22px;font-weight:700;color:#0369a1">${all.length}건</div>
+        <!-- 오른쪽 50%: 월별 통계 -->
+        <div style="flex:0 0 calc(50% - 12px);background:var(--bg);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:0">
+          <div style="font-size:11px;color:var(--text3);margin-bottom:8px;font-weight:600">월별 현황</div>
+          <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+            ${monthStat||'<div style="color:var(--text3);font-size:13px;padding:8px 0">등록된 계획 없음</div>'}
+          </div>
         </div>
       </div>
-      ${monthStat?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${monthStat}</div>`:''}
       ${monthBlocks}
     </div>`;
 
