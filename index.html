@@ -1828,139 +1828,132 @@ function renderCardTable(type, rows, canEdit, headerId) {
 
 
 // ── 기존 양식 엑셀 업로드 → 자동 파싱 ──
+// ── 엑셀 헤더 기반 동적 매핑 파서 ──
+// 헤더 텍스트로 컬럼 위치를 찾아서 매핑 → 양식 구조 변경에 강인
+function parseCellDate(cell){
+  if(!cell) return '';
+  if(cell instanceof Date) return cell.toISOString().slice(0,10);
+  if(typeof cell==='number'&&cell>1000){ const d=new Date(Math.round((cell-25569)*86400*1000)); return d.toISOString().slice(0,10); }
+  const str=String(cell).replace(/\./g,'-').trim();
+  const m=str.match(/(\d{4})[^\d](\d{2})[^\d](\d{2})/);
+  return m?`${m[1]}-${m[2]}-${m[3]}`:str.slice(0,10);
+}
+
+function findColByKeywords(headers, keywords){
+  // 헤더 배열에서 키워드 중 하나라도 포함된 첫 번째 열 인덱스 반환
+  for(let i=0;i<headers.length;i++){
+    const h=String(headers[i]||'').replace(/\s|\n/g,'');
+    if(keywords.some(k=>h.includes(k))) return i;
+  }
+  return -1;
+}
+
+function parseCardExcelSheet(aoa){
+  const ccParsed=[], ctParsed=[];
+  const KEY=window._cardHeaderId||'_NEW_';
+
+  // NO 헤더가 있는 행들을 모두 찾아서 섹션별로 처리
+  const headerRows=[];
+  aoa.forEach((row,ri)=>{
+    const r0=String(row[0]||'').trim();
+    const r1=String(row[1]||'').trim();
+    // NO가 첫 번째 또는 두 번째 컬럼에 있고, 사용일자 헤더가 있는 행
+    if((r0==='NO'||r1==='NO') && row.some(c=>String(c||'').includes('사용일'))){
+      headerRows.push({ri, row});
+    }
+  });
+
+  for(const {ri, row} of headerRows){
+    // 헤더에서 컬럼 위치 동적 탐색
+    const noCol    = row.findIndex(c=>String(c||'').trim()==='NO');
+    const dateCol  = findColByKeywords(row,['사용일자']);
+    const detailCol= findColByKeywords(row,['사용내역','적요']);
+    const cardCoCol= findColByKeywords(row,['카드사','카드사(은행)']);
+    const cardNoCol= findColByKeywords(row,['카드번호']);
+    const placeCol = findColByKeywords(row,['사용처']);
+    const amtCol   = findColByKeywords(row,['사용금액']);
+    const rcptCol  = findColByKeywords(row,['지출증빙','영수증유']);
+    const branchCol= findColByKeywords(row,['개인/본사','개인/본사/양감']);
+
+    if(dateCol<0||amtCol<0) continue; // 필수 컬럼 없으면 스킵
+
+    // 섹션 구분: 헤더 위쪽 행들에서 '교통비', '개인카드', '법인카드' 키워드 탐색
+    let sectionLabel='cc'; // 기본: 개인카드
+    for(let look=ri-1;look>=Math.max(0,ri-5);look--){
+      const cellText=String(aoa[look]?.[0]||aoa[look]?.[1]||'').replace(/\s/g,'');
+      if(cellText.includes('교통비'))  { sectionLabel='ct'; break; }
+      if(cellText.includes('개인카드')){ sectionLabel='cc'; break; }
+      if(cellText.includes('법인카드')){ sectionLabel='cc'; break; }
+    }
+
+    // 헤더 다음 행부터 데이터 읽기
+    for(let dr=ri+1; dr<aoa.length; dr++){
+      const dataRow=aoa[dr];
+      const noVal=noCol>=0?dataRow[noCol]:null;
+      // NO 컬럼이 숫자가 아니면 종료 (합계·빈 행 등)
+      if(!noVal||isNaN(Number(noVal))) break;
+      const useDate=parseCellDate(dataRow[dateCol]);
+      const amount=Number(String(dataRow[amtCol]||'').replace(/[^0-9.-]/g,''))||0;
+      if(!useDate&&!amount) continue; // 날짜·금액 모두 없으면 스킵
+      const item={
+        seq:Number(noVal),
+        useDate,
+        detail:   detailCol>=0?String(dataRow[detailCol]||''):'',
+        cardCompany: cardCoCol>=0?String(dataRow[cardCoCol]||''):'',
+        cardNumber:  cardNoCol>=0?String(dataRow[cardNoCol]||''):'',
+        place:    placeCol>=0?String(dataRow[placeCol]||''):'',
+        amount,
+        receiptType: rcptCol>=0?String(dataRow[rcptCol]||'영수증'):'영수증',
+        branch:   sectionLabel==='cc'?(branchCol>=0?String(dataRow[branchCol]||'본사'):'본사'):'',
+        id:null, headerId:KEY, category:sectionLabel==='ct'?'교통비':'개인카드', hasAttachment:false
+      };
+      if(sectionLabel==='ct') ctParsed.push(item);
+      else ccParsed.push(item);
+    }
+  }
+  return {ccParsed, ctParsed};
+}
+
+async function _loadXLSX(input){
+  const file=input.files[0]; if(!file)return null;
+  if(!window.XLSX){await new Promise(res=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=res;document.head.appendChild(sc);});}
+  const buf=await file.arrayBuffer();
+  const wb=window.XLSX.read(buf,{type:'array',cellDates:true});
+  // 마지막 시트 = 열었을 때 활성 시트 우선
+  const ws=wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]];
+  return window.XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+}
+
+async function _dupCheckAndPush(ccParsed,ctParsed){
+  const KEY=window._cardHeaderId||'_NEW_';
+  const existing=(db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY));
+  const dupList=[...ccParsed,...ctParsed].filter(nr=>existing.find(er=>er.useDate===nr.useDate&&Number(er.amount)===Number(nr.amount)&&er.category===nr.category)).map(nr=>`${nr.useDate} / ${Number(nr.amount).toLocaleString()}원 (${nr.category})`);
+  if(dupList.length&&!confirm(`중복 항목:\n${dupList.join('\n')}\n\n그래도 추가하시겠습니까?`))return false;
+  db.cardRows=db.cardRows||[];
+  db.cardRows.push(...ccParsed,...ctParsed);
+  return true;
+}
+
 async function importCardExcel(input) {
-  const file = input.files[0]; if (!file) return;
-  if (!window.XLSX) {
-    await new Promise(res => { const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload=res; document.head.appendChild(sc); });
-  }
-  const buf = await file.arrayBuffer();
-  const wb = window.XLSX.read(buf, {type:'array', cellDates:true});
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const aoa = window.XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-
-  const ccParsed = [], ctParsed = [];
-  let section = null;
-  for (const row of aoa) {
-    const r0 = String(row[0]||'').trim();
-    if (r0 === 'NO' && String(row[1]||'').includes('사용일')) {
-      // 어느 섹션인지는 바로 위 행으로 판별
-      const prev = aoa[aoa.indexOf(row)-1]||[];
-      section = String(prev[0]||'').includes('교통') ? 'ct' : 'cc';
-      continue;
-    }
-    if (!section) continue;
-    const no = row[0];
-    if (!no || isNaN(Number(no))) continue; // 번호 없으면 스킵
-    // SheetJS 날짜 변환: Date객체 / serial숫자 / 문자열 모두 처리
-    let useDate = '';
-    if (row[1]) {
-      if (row[1] instanceof Date) {
-        useDate = row[1].toISOString().slice(0,10);
-      } else if (typeof row[1] === 'number' && row[1] > 1000) {
-        // Excel serial → JS Date (1900.01.01 기준, 윤년 버그 보정)
-        const d = new Date(Math.round((row[1] - 25569) * 86400 * 1000));
-        useDate = d.toISOString().slice(0,10);
-      } else {
-        const str = String(row[1]).replace(/\./g,'-').trim();
-        // YYYYMMDD or YY.MM.DD or YYYY-MM-DD 등 처리
-        const m = str.match(/(\d{4})[^\d]?(\d{2})[^\d]?(\d{2})/);
-        useDate = m ? `${m[1]}-${m[2]}-${m[3]}` : str.slice(0,10);
-      }
-    }
-    const item = { seq:Number(no), useDate, detail:String(row[2]||''), cardCompany:String(row[3]||''), cardNumber:String(row[4]||''), place:String(row[5]||''), amount:Number(row[6])||0, receiptType:String(row[7]||'영수증'), branch:section==='cc'?String(row[10]||'본사'):'', id:null, headerId:window._cardHeaderId||'_NEW_', hasAttachment:false };
-    if (section==='cc') ccParsed.push({...item, category:'개인카드'});
-    else ctParsed.push({...item, category:'교통비'});
-  }
-
-  if (!ccParsed.length && !ctParsed.length) { showToast('⚠️ 파싱된 내역이 없습니다. 기존 양식 파일인지 확인해 주세요.'); return; }
-
-  // 중복 체크
-  const KEY = window._cardHeaderId || '_NEW_';
-  const existing = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY));
-  const dupList = [];
-  const allParsed = [...ccParsed,...ctParsed];
-  for (const nr of allParsed) {
-    const dup = existing.find(er => er.useDate===nr.useDate && Number(er.amount)===Number(nr.amount) && er.category===nr.category);
-    if (dup) dupList.push(`${nr.useDate} / ${Number(nr.amount).toLocaleString()}원 (${nr.category})`);
-  }
-  if (dupList.length) {
-    const msg = `아래 항목이 이미 등록되어 있습니다:\n${dupList.join('\n')}\n\n그래도 추가하시겠습니까?`;
-    if (!confirm(msg)) return;
-  }
-
-  // 기존 행 유지 + 파싱 행 추가
-  db.cardRows = db.cardRows||[];
-  db.cardRows.push(...allParsed);
+  const aoa=await _loadXLSX(input); if(!aoa)return;
+  const {ccParsed,ctParsed}=parseCardExcelSheet(aoa);
+  if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
+  if(!await _dupCheckAndPush(ccParsed,ctParsed))return;
   showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 파싱 완료`);
   renderCard();
 }
 
 // ── 관리자 편집 모달 내 엑셀 업로드 파싱 ──
 async function importCardExcelModal(input) {
-  const file = input.files[0]; if (!file) return;
-  if (!window.XLSX) {
-    await new Promise(res => { const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload=res; document.head.appendChild(sc); });
-  }
-  const buf = await file.arrayBuffer();
-  const wb = window.XLSX.read(buf, {type:'array', cellDates:true});
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  const aoa = window.XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
-
-  const ccParsed = [], ctParsed = [];
-  let section = null;
-  for (const row of aoa) {
-    const r0 = String(row[0]||'').trim();
-    if (r0 === 'NO' && String(row[1]||'').includes('사용일')) {
-      const prev = aoa[aoa.indexOf(row)-1]||[];
-      section = String(prev[0]||'').includes('교통') ? 'ct' : 'cc';
-      continue;
-    }
-    if (!section) continue;
-    const no = row[0];
-    if (!no || isNaN(Number(no))) continue;
-    let useDate = '';
-    if (row[1]) {
-      if (row[1] instanceof Date) {
-        useDate = row[1].toISOString().slice(0,10);
-      } else if (typeof row[1] === 'number' && row[1] > 1000) {
-        const d = new Date(Math.round((row[1] - 25569) * 86400 * 1000));
-        useDate = d.toISOString().slice(0,10);
-      } else {
-        const str = String(row[1]).replace(/\./g,'-').trim();
-        const m = str.match(/(\d{4})[^\d]?(\d{2})[^\d]?(\d{2})/);
-        useDate = m ? `${m[1]}-${m[2]}-${m[3]}` : str.slice(0,10);
-      }
-    }
-    const item = { seq:Number(no), useDate, detail:String(row[2]||''), cardCompany:String(row[3]||''), cardNumber:String(row[4]||''), place:String(row[5]||''), amount:Number(row[6])||0, receiptType:String(row[7]||'영수증'), branch:section==='cc'?String(row[10]||'본사'):'', id:null, headerId:window._cardHeaderId||'_NEW_', hasAttachment:false };
-    if (section==='cc') ccParsed.push({...item, category:'개인카드'});
-    else ctParsed.push({...item, category:'교통비'});
-  }
-
-  if (!ccParsed.length && !ctParsed.length) { showToast('⚠️ 파싱된 내역이 없습니다. 기존 양식 파일인지 확인해 주세요.'); return; }
-
-  // 중복 체크
-  const KEY = window._cardHeaderId || '_NEW_';
-  const existing = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY));
-  const dupList = [];
-  for (const nr of [...ccParsed,...ctParsed]) {
-    const dup = existing.find(er => er.useDate===nr.useDate && Number(er.amount)===Number(nr.amount) && er.category===nr.category);
-    if (dup) dupList.push(`${nr.useDate} / ${Number(nr.amount).toLocaleString()}원 (${nr.category})`);
-  }
-  if (dupList.length) {
-    if (!confirm(`아래 항목이 이미 등록되어 있습니다:\n${dupList.join('\n')}\n\n그래도 추가하시겠습니까?`)) return;
-  }
-
-  // db에 추가 후 모달 내 테이블 갱신
-  db.cardRows = db.cardRows||[];
-  db.cardRows.push(...ccParsed,...ctParsed);
-
-  // 모달 테이블 갱신
-  const ccRows = getCardRows(KEY,'개인카드');
-  const ctRows = getCardRows(KEY,'교통비');
-  const ccWrap = document.getElementById('modal-cc-wrap');
-  const ctWrap = document.getElementById('modal-ct-wrap');
-  if (ccWrap) ccWrap.innerHTML = renderCardTable('cc',ccRows,true,window._cardHeaderId);
-  if (ctWrap) ctWrap.innerHTML = renderCardTable('ct',ctRows,true,window._cardHeaderId);
+  const aoa=await _loadXLSX(input); if(!aoa)return;
+  const {ccParsed,ctParsed}=parseCardExcelSheet(aoa);
+  if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
+  if(!await _dupCheckAndPush(ccParsed,ctParsed))return;
+  const KEY=window._cardHeaderId||'_NEW_';
+  const ccRows=getCardRows(KEY,'개인카드'), ctRows=getCardRows(KEY,'교통비');
+  const ccWrap=document.getElementById('modal-cc-wrap'), ctWrap=document.getElementById('modal-ct-wrap');
+  if(ccWrap) ccWrap.innerHTML=renderCardTable('cc',ccRows,true,window._cardHeaderId);
+  if(ctWrap) ctWrap.innerHTML=renderCardTable('ct',ctRows,true,window._cardHeaderId);
   showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 파싱 완료`);
 }
 
@@ -2138,10 +2131,34 @@ function renderCardAdmin2() {
 // ── 관리자 화면 ──
 function renderCardAdmin(yr, mo) {
   const months=Array.from({length:12},(_,i)=>i+1);
-  const monthTabs=months.map(m=>`<button onclick="currentMonth=${m};renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
-  const activeEmps=(db.employees||[]).filter(e=>!e.isExternal);
+  const monthTabs='<button onclick="currentMonth=0;renderCardAdmin(currentYear,0)" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:'+(mo===0?'var(--accent)':'transparent')+';color:'+(mo===0?'#fff':'var(--text2)')+';cursor:pointer;font-size:13px;font-weight:600">전체</button> '+
+    months.map(m=>`<button onclick="currentMonth=${m};renderCardAdmin(currentYear,${m})" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
+  // 특정 순서로 정렬 (없는 사람은 ㄱㄴㄷ 뒤에 추가)
+  const CARD_ORDER = ['이두원', '강상석', '김영은', '정기헌', '김호문', '초승열', '허은경', '문석상', '김용해', '이정호', '정숙희', '조완호', '공정찬', '장세현', '김미영', '초종복', '박희용', '신병택', '조수인', '류성윤', '정영희', '이선영', '유소영', '김국용', '이명걸', '김광태', '윤보성', '최창주', '강지현', '유용숙', '유도선', '박석수', '최연호', '류영균', '편경호', '오현묵', '고영남', '양구열', '장해라', '함헌평'];
+  const allActive=(db.employees||[]).filter(e=>!e.isExternal);
+  const activeEmps=[
+    ...CARD_ORDER.map(n=>allActive.find(e=>e.name===n)).filter(Boolean),
+    ...allActive.filter(e=>!CARD_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
+  ];
   const sc={작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
+  const isAllMode = mo===0;
   const rows=activeEmps.map(e=>{
+    if(isAllMode){
+      // 전체 모드: 모든 월 합산
+      const headers=(db.cardHeaders||[]).filter(h=>h.year===yr&&String(h.empId)===String(e.id));
+      const totalCc=headers.reduce((s,h)=>s+getCardRows(h.id,'개인카드').reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
+      const totalCt=headers.reduce((s,h)=>s+getCardRows(h.id,'교통비').reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
+      const total=totalCc+totalCt;
+      const lastH=headers.sort((a,b)=>b.month-a.month)[0];
+      return `<tr>
+        <td style="padding:9px 10px">${e.name}</td>
+        <td style="padding:9px 10px;color:var(--text3)">${e.dept}</td>
+        <td style="padding:9px 10px;text-align:right">${totalCc?totalCc.toLocaleString()+'원':'—'}</td>
+        <td style="padding:9px 10px;text-align:right">${totalCt?totalCt.toLocaleString()+'원':'—'}</td>
+        <td style="padding:9px 10px;text-align:right;font-weight:700;color:var(--accent)">${total?total.toLocaleString()+'원':'—'}</td>
+        <td style="padding:9px 10px;color:var(--text3);font-size:12px">${lastH?lastH.bankName+' '+lastH.accountNumber+' ('+lastH.accountHolder+')':'—'}</td>
+      </tr>`;
+    }
     const h=getCardHeader(e.id,yr,mo);
     const st=h?h.status:'미제출';
     const cc=(h?getCardRows(h.id,'개인카드'):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -2167,14 +2184,13 @@ function renderCardAdmin(yr, mo) {
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">📨 Resend 수신 메일 설정</div>
       <div style="font-size:13px;color:var(--text3);margin-bottom:12px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일로 엑셀 파일이 첨부 발송됩니다.</div>
-      <div style="margin-bottom:8px">
-        <textarea id="card-recv-mail-admin" rows="3" placeholder="한 줄에 하나씩 또는 쉼표로 구분해서 입력&#10;예)&#10;finance@jmsemicon.co.kr&#10;ceo@jmsemicon.co.kr"
-          style="width:100%;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px;font-family:inherit;resize:vertical">${curRecvMail instanceof Array ? curRecvMail.join('\n') : (curRecvMail||'')}</textarea>
-        <div style="font-size:12px;color:var(--text3);margin-top:4px">여러 명 등록 시 줄바꿈 또는 쉼표(,)로 구분해 주세요.</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="card-recv-mail-admin" value="${Array.isArray(curRecvMail)?curRecvMail.join(', '):(curRecvMail||'')}"
+          placeholder="예: finance@jmsemicon.co.kr, ceo@jmsemicon.co.kr"
+          style="flex:1;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px">
+        <button class="btn btn-primary" onclick="saveCardMailSettingAdmin()" style="white-space:nowrap">저장</button>
       </div>
-      <div style="display:flex;justify-content:flex-end">
-        <button class="btn btn-primary" onclick="saveCardMailSettingAdmin()">저장</button>
-      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:4px">여러 명은 쉼표(,)로 구분해 주세요.</div>
     </div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
@@ -2199,22 +2215,145 @@ function renderCardAdmin(yr, mo) {
         <thead><tr style="background:var(--bg);color:var(--text2)">
           <th style="padding:8px 10px;text-align:left">이름</th>
           <th style="padding:8px 10px;text-align:left">부서</th>
-          <th style="padding:8px 10px;text-align:left">상태</th>
-          <th style="padding:8px 10px;text-align:right">개인카드</th>
-          <th style="padding:8px 10px;text-align:right">교통비</th>
-          <th style="padding:8px 10px;text-align:right">관리</th>
+          ${isAllMode?`<th style="padding:8px 10px;text-align:right">개인카드(연)</th><th style="padding:8px 10px;text-align:right">교통비(연)</th><th style="padding:8px 10px;text-align:right">합계</th><th style="padding:8px 10px;text-align:left">입금정보</th>`:`<th style="padding:8px 10px;text-align:left">상태</th><th style="padding:8px 10px;text-align:right">개인카드</th><th style="padding:8px 10px;text-align:right">교통비</th><th style="padding:8px 10px;text-align:right">관리</th>`}
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="downloadCardSummaryExcel(${yr},${mo})">📥 ${isAllMode?'전체 통계':mo+'월 현황'} 엑셀 추출</button>
+        <button class="btn" onclick="sendCardSummaryMail(${yr},${mo})">📨 메일 발송</button>
+      </div>
     </div>
   `);
   window._cardYr=yr; window._cardMo=mo;
 }
 
+const CARD_FIXED_ORDER = ['이두원','강상석','김영은','정기헌','김호문','초승열','허은경','문석상','김용해','이정호','정숙희','조완호','공정찬','장세현','김미영','초종복','박희용','신병택','조수인','류성윤','정영희','이선영','유소영','김국용','이명걸','김광태','윤보성','최창주','강지현','유용숙','유도선','박석수','최연호','류영균','편경호','오현묵','고영남','양구열','장해라','함헌평'];
+
+function getSortedEmps(yr) {
+  const allActive=(db.employees||[]).filter(e=>!e.isExternal);
+  return [
+    ...CARD_FIXED_ORDER.map(n=>allActive.find(e=>e.name===n)).filter(Boolean),
+    ...allActive.filter(e=>!CARD_FIXED_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
+  ];
+}
+
+async function downloadCardSummaryExcel(yr, mo) {
+  if(!window.XLSX){
+    await new Promise(res=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=res;document.head.appendChild(sc);});
+  }
+  const XL=window.XLSX;
+  const wb=XL.utils.book_new();
+  const emps=getSortedEmps(yr);
+  const months=mo===0?Array.from({length:12},(_,i)=>i+1):[mo];
+
+  for(const m of months){
+    const headers=(db.cardHeaders||[]).filter(h=>h.year===yr&&h.month===m);
+    if(!headers.length && mo!==0) continue;
+    const label=`${String(yr).slice(2)}${String(m).padStart(2,'0')}귀속분`;
+    const aoa=[];
+    aoa.push([null,`개인카드비용_${yr}년도 ${m}월 귀속분`]);
+    aoa.push([]);
+    aoa.push([null,'코드','직원명',`${yr}년 ${m}월 총 사용금액`,'은행명','계좌번호','예금주']);
+    let totalSum=0;
+    emps.forEach((e,i)=>{
+      const h=headers.find(h=>String(h.empId)===String(e.id));
+      const ccAmt=h?getCardRows(h.id,'개인카드').reduce((s,r)=>s+(Number(r.amount)||0),0):0;
+      const ctAmt=h?getCardRows(h.id,'교통비').reduce((s,r)=>s+(Number(r.amount)||0),0):0;
+      const total=ccAmt+ctAmt;
+      totalSum+=total;
+      const bankInfo=h||getLastBankInfo(e.id);
+      aoa.push([null,i+1,e.name,total||null,bankInfo.bankName||null,bankInfo.accountNumber||null,bankInfo.accountHolder||null]);
+    });
+    aoa.push([null,null,'합계',totalSum]);
+    const ws=XL.utils.aoa_to_sheet(aoa);
+    ws['!cols']=[{wch:4},{wch:6},{wch:10},{wch:20},{wch:14},{wch:22},{wch:10}];
+    aoa.forEach((_,ri)=>{
+      const cell=ws[XL.utils.encode_cell({r:ri,c:3})];
+      if(cell&&typeof cell.v==='number') cell.z='#,##0';
+    });
+    XL.utils.book_append_sheet(wb,ws,label.slice(0,31));
+  }
+
+  if(mo===0){
+    const aoa2=[];
+    aoa2.push([null,`개인카드비용_${yr}년도 연간 합계`]);
+    aoa2.push([]);
+    aoa2.push([null,'코드','직원명',...Array.from({length:12},(_,i)=>`${i+1}월`),'연간합계','은행명','계좌번호','예금주']);
+    let grandTotal=0;
+    emps.forEach((e,i)=>{
+      const monthAmts=Array.from({length:12},(_,mi)=>{
+        const m2=mi+1;
+        const h=(db.cardHeaders||[]).find(h=>h.year===yr&&h.month===m2&&String(h.empId)===String(e.id));
+        return h?(getCardRows(h.id,'개인카드').reduce((s,r)=>s+(Number(r.amount)||0),0)+getCardRows(h.id,'교통비').reduce((s,r)=>s+(Number(r.amount)||0),0)):null;
+      });
+      const empTotal=monthAmts.reduce((s,v)=>s+(v||0),0);
+      grandTotal+=empTotal;
+      const lastH=(db.cardHeaders||[]).filter(h=>h.year===yr&&String(h.empId)===String(e.id)).sort((a,b)=>b.month-a.month)[0];
+      aoa2.push([null,i+1,e.name,...monthAmts,empTotal||null,lastH?.bankName||null,lastH?.accountNumber||null,lastH?.accountHolder||null]);
+    });
+    const footAmts=Array.from({length:12},(_,mi)=>{
+      const m2=mi+1;
+      return emps.reduce((s,e)=>{
+        const h=(db.cardHeaders||[]).find(h=>h.year===yr&&h.month===m2&&String(h.empId)===String(e.id));
+        return s+(h?(getCardRows(h.id,'개인카드').reduce((ss,r)=>ss+(Number(r.amount)||0),0)+getCardRows(h.id,'교통비').reduce((ss,r)=>ss+(Number(r.amount)||0),0)):0);
+      },0)||null;
+    });
+    aoa2.push([null,null,'합계',...footAmts,grandTotal]);
+    const ws2=XL.utils.aoa_to_sheet(aoa2);
+    aoa2.forEach((_,ri)=>{
+      for(let ci=3;ci<=16;ci++){
+        const cell=ws2[XL.utils.encode_cell({r:ri,c:ci})];
+        if(cell&&typeof cell.v==='number') cell.z='#,##0';
+      }
+    });
+    XL.utils.book_append_sheet(wb,ws2,'연간합계');
+  }
+
+  const wbBin=XL.write(wb,{bookType:'xlsx',type:'array'});
+  const blob=new Blob([wbBin],{type:'application/octet-stream'});
+  const fileName=mo===0?`개인카드비용_${yr}년_전체통계.xlsx`:`개인카드비용_${yr}년${mo}월.xlsx`;
+  const url=URL.createObjectURL(blob);
+  const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); URL.revokeObjectURL(url);
+  showToast('📥 엑셀 추출 완료');
+  return {wbBin, fileName};
+}
+
+async function sendCardSummaryMail(yr, mo) {
+  showToast('⏳ 엑셀 생성 중...');
+  const result=await downloadCardSummaryExcel(yr,mo);
+  if(!result)return;
+  const {wbBin,fileName}=result;
+  try{
+    let recvMailRaw=(db.appSettings&&db.appSettings['card_submit_email'])||'';
+    let recvMails=[];
+    if(Array.isArray(recvMailRaw)) recvMails=recvMailRaw;
+    else{ try{ const pp=JSON.parse(recvMailRaw); recvMails=Array.isArray(pp)?pp:[recvMailRaw]; }catch(e){ recvMails=String(recvMailRaw).split(',').map(e=>e.trim()).filter(Boolean); } }
+    if(!recvMails.length){showToast('⚠️ 수신 메일 주소를 먼저 설정해 주세요');return;}
+    const bytes=new Uint8Array(wbBin); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b));
+    const b64=btoa(bin);
+    const {data:{session}}=await _supa.auth.getSession();
+    const moLabel=mo===0?'전체통계':`${mo}월현황`;
+    await fetch(`${SUPA_URL}/functions/v1/notify-admin`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${session?.access_token||SUPA_KEY}`},
+      body:JSON.stringify({
+        type:'card_summary',
+        to:recvMails.join(','),
+        subject:`[JM반도체] ${yr}년 ${moLabel} 개인카드비용 현황`,
+        html:`<p>${yr}년 ${moLabel} 개인카드비용 현황 파일을 첨부합니다.</p>`,
+        attachments:[{filename:fileName,content:b64}]
+      })
+    });
+    showToast(`📨 ${recvMails.length}명에게 메일 발송 완료`);
+  }catch(err){console.error(err);showToast('⚠️ 메일 발송 실패: '+err.message);}
+}
+
+
 async function saveCardMailSettingAdmin() {
   const raw=document.getElementById('card-recv-mail-admin')?.value||'';
   // 줄바꿈 + 쉼표 모두 구분자로 처리
-  const emails=raw.split(/[,\n]/).map(e=>e.trim()).filter(e=>e&&e.includes('@'));
+  const emails=raw.split(',').map(e=>e.trim()).filter(e=>e&&e.includes('@'));
   if(!emails.length){showToast('⚠️ 유효한 메일 주소를 입력하세요');return;}
   if(_supa){
     const {error}=await _supa.from('app_settings').upsert({key:'card_submit_email',value:JSON.stringify(emails),updated_at:new Date().toISOString()},{onConflict:'key'});
@@ -2543,7 +2682,7 @@ async function sendCardSubmitMail(headerId, wbBin, fileName, empName) {
     // 배열이거나 JSON 문자열인 경우 파싱
     let recvMails=[];
     if(Array.isArray(recvMailRaw)) recvMails=recvMailRaw;
-    else { try{ const p=JSON.parse(recvMailRaw); recvMails=Array.isArray(p)?p:[recvMailRaw]; }catch{ recvMails=String(recvMailRaw).split(/[,\n]/).map(e=>e.trim()).filter(Boolean); } }
+    else { try{ const p=JSON.parse(recvMailRaw); recvMails=Array.isArray(p)?p:[recvMailRaw]; }catch{ recvMails=String(recvMailRaw).split(',').map(e=>e.trim()).filter(Boolean); } }
     if(!recvMails.length){console.warn('카드 수신 메일 미설정');return;}
     const recvMail=recvMails.join(',');
     // base64 변환
@@ -7900,13 +8039,14 @@ function renderCardMailSetting() {
   let curArr=[];
   if(Array.isArray(curRaw))curArr=curRaw;
   else{try{const pp=JSON.parse(curRaw);curArr=Array.isArray(pp)?pp:(curRaw?[curRaw]:[]);}catch(e){curArr=curRaw?[curRaw]:[]; }}
-  const curStr=curArr.join('\n');
+  const curStr=curArr.join(', ');
   return `<div class="card" style="max-width:600px">
     <div class="card-title">💳 개인카드내역 제출 알림 메일</div>
     <div style="font-size:13px;color:var(--text3);margin-bottom:14px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일 주소로 엑셀 파일이 첨부 발송됩니다. 여러 명은 줄바꿈 또는 쉼표로 구분하세요.</div>
     <div class="field" style="margin-bottom:12px">
-      <label>수신 메일 주소</label>
-      <textarea id="card-recv-mail" rows="3" placeholder="finance@jmsemicon.co.kr" style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px;font-family:inherit;resize:vertical">${curStr}</textarea>
+      <label>수신 메일 주소 <span style="font-size:12px;color:var(--text3);font-weight:400">— 여러 명은 쉼표(,)로 구분</span></label>
+      <input id="card-recv-mail" value="${curStr}" placeholder="예: finance@jmsemicon.co.kr, ceo@jmsemicon.co.kr"
+        style="width:100%;padding:9px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px">
     </div>
     <div style="display:flex;gap:8px;justify-content:flex-end">
       <button class="btn btn-primary" onclick="saveCardMailSetting()">💾 저장</button>
@@ -7915,7 +8055,7 @@ function renderCardMailSetting() {
 }
 async function saveCardMailSetting() {
   const raw=document.getElementById('card-recv-mail')?.value||'';
-  const emails=raw.split(/[,\n]/).map(e=>e.trim()).filter(e=>e&&e.includes('@'));
+  const emails=raw.split(',').map(e=>e.trim()).filter(e=>e&&e.includes('@'));
   if(!emails.length){showToast('⚠️ 유효한 메일 주소를 입력하세요');return;}
   if(_supa){
     const {error}=await _supa.from('app_settings').upsert({key:'card_submit_email',value:JSON.stringify(emails),updated_at:new Date().toISOString()},{onConflict:'key'});
