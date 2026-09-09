@@ -211,6 +211,7 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
     <!-- 교통비 관리 메뉴 숨김 처리 (요청에 따라, 기능은 보존) -->
     <button id="nav-transport" class="nav-item" style="display:none" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
+    <button class="nav-item" onclick="go('card')"><span class="nav-icon">💳</span>개인카드내역</button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>기념일</button>
@@ -300,6 +301,7 @@ const LUNAR_NEW_YEAR = {
 // ══════════════════════════════════════════════
 let currentPage = 'calendar';
 let currentYear = 2026;
+let currentMonth = new Date().getMonth()+1;
 let calYear = 2026, calMonth = new Date().getMonth()+1;
 let reqFilter = 'all', reqTypeFilter = 'all';
 let _overviewSort = 'default'; // default | name | joindate | leavedesc | compdesc
@@ -313,7 +315,10 @@ let db = {
   inquiryReplies: [], // 1:1 문의 답변
   notices: [],      // 팝업 공지사항
   summerPlans: [],  // 하계휴가 계획
-  appSettings: {}   // 전역 설정(토글 등)
+  appSettings: {},  // 전역 설정(토글 등)
+  cardHeaders: [],  // 개인카드 헤더
+  cardRows: [],     // 개인카드 행
+  cardAttachments:[]// 개인카드 첨부
 };
 
 // ══════════════════════════════════════════════
@@ -405,6 +410,17 @@ async function loadAllData() {
       db.appSettings = {};
       (asRes.data||[]).forEach(r=>{ db.appSettings[r.key]=r.value; });
     } catch(e3){ console.warn('하계휴가/설정 로드 실패 (무시):', e3); db.summerPlans=db.summerPlans||[]; db.appSettings=db.appSettings||{}; }
+    // 개인카드 내역 로드
+    try {
+      const meId = currentEmp ? currentEmp.id : null;
+      const yr = currentYear;
+      let chQ = _supa.from('card_expense_headers').select('*').eq('year', yr);
+      if (!isAdmin && meId) chQ = chQ.eq('emp_id', meId);
+      const { data: chData } = await chQ;
+      db.cardHeaders = (chData||[]).map(r=>({id:r.id,empId:r.emp_id,year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
+      // 행은 상세 열람 시 개별 로드 (성능)
+      db.cardRows = db.cardRows||[];
+    } catch(e4){ console.warn('카드 내역 로드 실패 (무시):', e4); db.cardHeaders=db.cardHeaders||[]; }
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -1545,7 +1561,7 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가'};
+const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가',card:'개인카드사용내역'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','summer','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
@@ -1587,13 +1603,491 @@ function go(page) {
   // 관리자 알람설정은 별도 처리
   const nsEl = document.getElementById('nav-notifysetting');
   if(nsEl) nsEl.style.display = isAdmin ? '' : 'none';
-  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard,summer:renderSummer}[page]||renderOverview)();
+  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard,summer:renderSummer,card:renderCard}[page]||renderOverview)();
 }
 function changeYear(y){currentYear=y;go(currentPage);}
 
 // ══════════════════════════════════════════════
 //  하계휴가 계획 섹션
 // ══════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  개인카드사용내역
+// ══════════════════════════════════════════════
+
+// ── 마감일 헬퍼 ──
+function cardDeadline(year, month) {
+  return { soft: `${year}-${String(month).padStart(2,'0')}-05`, hard: `${year}-${String(month).padStart(2,'0')}-09` };
+}
+function cardDeadlineStatus(year, month) {
+  const today = todayStr();
+  const { soft, hard } = cardDeadline(year, month);
+  if (today > hard) return 'closed';   // 마감
+  if (today > soft) return 'warning';  // 5일 초과 ~ 9일
+  return 'open';
+}
+
+// ── db 초기화 헬퍼 ──
+function getCardHeader(empId, year, month) {
+  return (db.cardHeaders||[]).find(h => String(h.empId)===String(empId) && h.year===year && h.month===month) || null;
+}
+function getCardRows(headerId, category) {
+  return (db.cardRows||[]).filter(r => String(r.headerId)===String(headerId) && (!category || r.category===category))
+    .sort((a,b)=>a.seq-b.seq);
+}
+function getCardAttachments(headerId) {
+  return (db.cardAttachments||[]).filter(a => String(a.headerId)===String(headerId));
+}
+
+// ── 직전 제출 은행정보 불러오기 ──
+function getLastBankInfo(empId) {
+  const headers = (db.cardHeaders||[]).filter(h=>String(h.empId)===String(empId) && h.status!=='작성중')
+    .sort((a,b)=>{ if(a.year!==b.year) return b.year-a.year; return b.month-a.month; });
+  if (!headers.length) return { bankName:'', accountNumber:'', accountHolder:'' };
+  const h = headers[0];
+  return { bankName: h.bankName||'', accountNumber: h.accountNumber||'', accountHolder: h.accountHolder||'' };
+}
+
+// ── renderCard ──
+function renderCard() {
+  const yr = currentYear;
+  const mo = currentMonth || new Date().getMonth()+1;
+  if (!currentEmp && !isAdmin) { setContent('<div style="padding:24px;color:var(--text3)">로그인이 필요합니다.</div>'); return; }
+
+  if (isAdmin) { renderCardAdmin(yr, mo); } else { renderCardMy(yr, mo); }
+}
+
+// ── 직원 화면 ──
+function renderCardMy(yr, mo) {
+  const empId = currentEmp.id;
+  const header = getCardHeader(empId, yr, mo);
+  const ds = cardDeadlineStatus(yr, mo);
+  const { soft, hard } = cardDeadline(yr, mo);
+  const deadlineBanner = ds==='closed'
+    ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626">⛔ 마감 완료 (${hard} 이후 제출 불가)</div>`
+    : ds==='warning'
+    ? `<div style="background:#fef3c7;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#d97706">⚠️ 제출 마감일(${soft})이 지났습니다. 최대 ${hard}까지 제출 가능합니다.</div>`
+    : `<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#15803d">✅ 제출 기한: ${soft}까지 (최대 ${hard})</div>`;
+
+  const statusColor = {작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
+  const statusBadge = header
+    ? `<span style="background:${statusColor[header.status]||'#64748b'}15;color:${statusColor[header.status]||'#64748b'};border:1px solid ${statusColor[header.status]||'#64748b'}40;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600">${header.status}</span>`
+    : `<span style="background:#f1f5f9;color:#94a3b8;border-radius:20px;padding:3px 12px;font-size:13px">미작성</span>`;
+
+  const canEdit = !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
+  const headerId = header ? header.id : null;
+  const ccRows = headerId ? getCardRows(headerId,'개인카드') : [];
+  const ctRows = headerId ? getCardRows(headerId,'교통비') : [];
+  const bankInfo = header || getLastBankInfo(empId);
+
+  // 월 선택 탭
+  const months = Array.from({length:12},(_,i)=>i+1);
+  const monthTabs = months.map(m=>`<button onclick="currentMonth=${m};renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
+
+  setContent(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-weight:700;font-size:16px">📋 ${yr}년 ${mo}월 개인카드사용내역 ${statusBadge}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${monthTabs}</div>
+      </div>
+      ${deadlineBanner}
+      ${header?.status==='반려' && header.rejectReason ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626">반려 사유: ${header.rejectReason}</div>` : ''}
+    </div>
+
+    <!-- 개인카드 섹션 -->
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin:0">💳 개인카드 지출</div>
+        ${canEdit?`<button class="btn btn-primary btn-sm" onclick="addCardRow('cc')">+ 행 추가</button>`:''}
+      </div>
+      <div id="cc-table-wrap">${renderCardTable('cc', ccRows, canEdit, headerId)}</div>
+      <div style="text-align:right;font-size:14px;font-weight:700;margin-top:8px;color:var(--accent)">
+        합계: ${(ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0)).toLocaleString()}원
+      </div>
+    </div>
+
+    <!-- 교통비 섹션 -->
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin:0">🚗 교통비 (개인차량)</div>
+        ${canEdit?`<button class="btn btn-primary btn-sm" onclick="addCardRow('ct')">+ 행 추가</button>`:''}
+      </div>
+      <div id="ct-table-wrap">${renderCardTable('ct', ctRows, canEdit, headerId)}</div>
+      <div style="text-align:right;font-size:14px;font-weight:700;margin-top:8px;color:var(--accent)">
+        합계: ${(ctRows.reduce((s,r)=>s+(Number(r.amount)||0),0)).toLocaleString()}원
+      </div>
+    </div>
+
+    <!-- 입금정보 -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">💰 입금 정보</div>
+      <div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px">
+        <div><label style="font-size:12px;color:var(--text3)">은행명</label>
+          <input id="card-bank" value="${bankInfo.bankName||''}" ${canEdit?'':'disabled'} style="width:100%;padding:7px;border:1px solid var(--border2);border-radius:6px;font-size:14px"></div>
+        <div><label style="font-size:12px;color:var(--text3)">계좌번호</label>
+          <input id="card-account" value="${bankInfo.accountNumber||''}" ${canEdit?'':'disabled'} style="width:100%;padding:7px;border:1px solid var(--border2);border-radius:6px;font-size:14px"></div>
+        <div><label style="font-size:12px;color:var(--text3)">예금주명</label>
+          <input id="card-holder" value="${bankInfo.accountHolder||''}" ${canEdit?'':'disabled'} style="width:100%;padding:7px;border:1px solid var(--border2);border-radius:6px;font-size:14px"></div>
+      </div>
+    </div>
+
+    <!-- 하단 버튼 -->
+    ${canEdit ? `
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
+      <button class="btn" onclick="saveCardDraft()">💾 임시저장</button>
+      <button class="btn btn-primary" onclick="submitCard()">📤 제출</button>
+    </div>` : (header?.status==='확인' ? `
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
+      <button class="btn btn-primary" onclick="downloadCardExcel(${header.id})">📥 엑셀 다운로드</button>
+    </div>` : '')}
+  `);
+  window._cardYr=yr; window._cardMo=mo; window._cardEmpId=empId; window._cardHeaderId=headerId;
+}
+
+function renderCardTable(type, rows, canEdit, headerId) {
+  const isCc = type==='cc';
+  const colHeaders = isCc
+    ? ['사용일자','사용내역','카드사','카드번호','사용처','금액','지출증빙','구분','']
+    : ['사용일자','사용내역','카드사','카드번호','사용처','금액','지출증빙',''];
+  const ths = colHeaders.map(h=>`<th style="padding:6px 8px;font-size:12px;color:var(--text3);text-align:left;white-space:nowrap">${h}</th>`).join('');
+  if (!rows.length) return `<div style="color:var(--text3);font-size:13px;padding:12px 0">내역이 없습니다. "+ 행 추가"를 눌러 입력하세요.</div>`;
+  const trs = rows.map((r,i)=>{
+    const rid = r.id || `new-${type}-${i}`;
+    if (!canEdit) {
+      return `<tr>
+        <td style="padding:6px 8px;font-size:13px">${r.useDate||''}</td>
+        <td style="padding:6px 8px;font-size:13px">${r.detail||''}</td>
+        <td style="padding:6px 8px;font-size:13px">${r.cardCompany||''}</td>
+        <td style="padding:6px 8px;font-size:13px">${r.cardNumber||''}</td>
+        <td style="padding:6px 8px;font-size:13px">${r.place||''}</td>
+        <td style="padding:6px 8px;font-size:13px;text-align:right">${(Number(r.amount)||0).toLocaleString()}</td>
+        <td style="padding:6px 8px;font-size:13px">${r.receiptType||''}</td>
+        ${isCc?`<td style="padding:6px 8px;font-size:13px">${r.branch||''}</td>`:''}
+      </tr>`;
+    }
+    return `<tr id="row-${type}-${i}" data-seq="${r.seq||i+1}" data-id="${r.id||''}">
+      <td style="padding:4px 6px"><input type="date" value="${r.useDate||''}" style="width:130px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input value="${(r.detail||'').replace(/"/g,'&quot;')}" placeholder="상세내역" style="width:140px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input value="${(r.cardCompany||'').replace(/"/g,'&quot;')}" placeholder="카드사" style="width:80px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input value="${(r.cardNumber||'').replace(/"/g,'&quot;')}" placeholder="카드번호" style="width:150px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input value="${(r.place||'').replace(/"/g,'&quot;')}" placeholder="사용처" style="width:110px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input type="number" value="${r.amount||''}" placeholder="0" style="width:90px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:right" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px">
+        <select style="width:100px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
+          ${['영수증','현금영수증','카드영수증','기타'].map(v=>`<option${v===r.receiptType?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </td>
+      ${isCc?`<td style="padding:4px 6px">
+        <select style="width:75px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
+          ${['본사','개인','양감'].map(v=>`<option${v===r.branch?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </td>`:''}
+      <td style="padding:4px 6px;white-space:nowrap">
+        <label style="cursor:pointer;font-size:18px" title="증빙 업로드">📷<input type="file" accept="image/*" style="display:none" onchange="uploadCardReceipt(this,'${type}',${i})"></label>
+        ${r.hasAttachment?'<span title="첨부있음" style="color:#16a34a">📎</span>':''}
+        <button class="btn btn-sm btn-danger" onclick="deleteCardRow('${type}',${i})" style="margin-left:4px">삭제</button>
+      </td>
+    </tr>`;
+  }).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:700px"><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table></div>`;
+}
+
+// ── 행 조작 ──
+let _cardDirtyRows = {};
+function markRowDirty(type, idx) { _cardDirtyRows[`${type}-${idx}`]=true; }
+
+function addCardRow(type) {
+  if (!_cardEmpId) return;
+  const isCc = type==='cc';
+  const category = isCc?'개인카드':'교통비';
+  const existing = (db.cardRows||[]).filter(r=>String(r.headerId)===String(window._cardHeaderId||'')||false);
+  const seqList = existing.filter(r=>r.category===category).map(r=>r.seq);
+  const newSeq = seqList.length ? Math.max(...seqList)+1 : 1;
+  const newRow = { id:null, headerId:null, category, seq:newSeq, useDate:'', detail:'', cardCompany:'', cardNumber:'', place:'', amount:0, receiptType:'영수증', branch:isCc?'본사':'', hasAttachment:false };
+  db.cardRows = db.cardRows||[];
+  db.cardRows.push(newRow);
+  renderCard();
+}
+
+function deleteCardRow(type, idx) {
+  const category = type==='cc'?'개인카드':'교통비';
+  const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(window._cardHeaderId||'')&&r.category===category).sort((a,b)=>a.seq-b.seq);
+  if (!rows[idx]) return;
+  if (rows[idx].id) {
+    sbDelete('card_expense_rows', rows[idx].id).then(ok=>{ if(ok){ db.cardRows=db.cardRows.filter(r=>r!==rows[idx]); renderCard(); } });
+  } else {
+    db.cardRows=db.cardRows.filter(r=>r!==rows[idx]); renderCard();
+  }
+}
+
+// ── 증빙 업로드 ──
+async function uploadCardReceipt(input, type, idx) {
+  const file = input.files[0]; if (!file) return;
+  if (file.size > 10*1024*1024) { showToast('⚠️ 10MB 이하 파일만 가능합니다'); return; }
+  showToast('⏳ 업로드 중...');
+  const headerId = window._cardHeaderId;
+  if (!headerId) { showToast('⚠️ 먼저 임시저장해 주세요'); return; }
+  const path = `${headerId}/${type}_${idx}_${Date.now()}_${file.name}`;
+  const { error } = await _supa.storage.from('card-receipts').upload(path, file, {upsert:true});
+  if (error) { showToast('⚠️ 업로드 실패: '+error.message); return; }
+  const { data: urlData } = _supa.storage.from('card-receipts').getPublicUrl(path);
+  const category = type==='cc'?'개인카드':'교통비';
+  const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(headerId)&&r.category===category).sort((a,b)=>a.seq-b.seq);
+  const rowSeq = rows[idx]?.seq||idx+1;
+  await sbInsert('card_expense_attachments',{header_id:headerId,row_seq:rowSeq,file_name:file.name,file_url:urlData?.publicUrl||path});
+  if (rows[idx]) rows[idx].hasAttachment=true;
+  showToast('✅ 증빙 업로드 완료');
+  renderCard();
+}
+
+// ── 행 데이터 수집 ──
+function collectCardRows(type) {
+  const category = type==='cc'?'개인카드':'교통비';
+  const isCc = type==='cc';
+  const rows = document.querySelectorAll(`#${type}-table-wrap tr[id^="row-${type}-"]`);
+  const result = [];
+  rows.forEach((tr,i)=>{
+    const inputs = tr.querySelectorAll('input,select');
+    result.push({
+      category, seq:i+1,
+      useDate: inputs[0]?.value||'',
+      detail: inputs[1]?.value||'',
+      cardCompany: inputs[2]?.value||'',
+      cardNumber: inputs[3]?.value||'',
+      place: inputs[4]?.value||'',
+      amount: parseInt(inputs[5]?.value)||0,
+      receiptType: inputs[6]?.value||'영수증',
+      branch: isCc?(inputs[7]?.value||'본사'):'',
+      id: tr.dataset.id||null
+    });
+  });
+  return result;
+}
+
+// ── 헤더 저장/업데이트 ──
+async function ensureCardHeader(status) {
+  const yr=window._cardYr, mo=window._cardMo, empId=window._cardEmpId;
+  const bankName=document.getElementById('card-bank')?.value||'';
+  const accountNumber=document.getElementById('card-account')?.value||'';
+  const accountHolder=document.getElementById('card-holder')?.value||'';
+  const row={emp_id:empId,year:yr,month:mo,bank_name:bankName,account_number:accountNumber,account_holder:accountHolder,status,updated_at:new Date().toISOString()};
+  if (status==='제출') row.submitted_at=new Date().toISOString();
+  let headerId=window._cardHeaderId;
+  if (!headerId) {
+    const ins=await sbInsert('card_expense_headers',row);
+    if (!ins) return null;
+    headerId=ins.id;
+    db.cardHeaders=db.cardHeaders||[];
+    db.cardHeaders.push({id:headerId,empId,year:yr,month:mo,bankName,accountNumber,accountHolder,status,submittedAt:row.submitted_at||null});
+    window._cardHeaderId=headerId;
+  } else {
+    await sbUpdate('card_expense_headers',headerId,row);
+    const h=db.cardHeaders.find(h=>h.id===headerId);
+    if(h){h.bankName=bankName;h.accountNumber=accountNumber;h.accountHolder=accountHolder;h.status=status;}
+  }
+  return headerId;
+}
+
+// ── 행 일괄 저장 ──
+async function saveCardRowsToDb(headerId, ccRows, ctRows) {
+  const allNew=[...ccRows,...ctRows].filter(r=>!r.id);
+  const allEdit=[...ccRows,...ctRows].filter(r=>r.id);
+  for(const r of allNew){
+    const ins=await sbInsert('card_expense_rows',{header_id:headerId,category:r.category,seq:r.seq,use_date:r.useDate||null,detail:r.detail,card_company:r.cardCompany,card_number:r.cardNumber,place:r.place,amount:r.amount,receipt_type:r.receiptType,branch:r.branch});
+    if(ins){ r.id=ins.id; r.headerId=headerId; }
+  }
+  for(const r of allEdit){
+    await sbUpdate('card_expense_rows',r.id,{seq:r.seq,use_date:r.useDate||null,detail:r.detail,card_company:r.cardCompany,card_number:r.cardNumber,place:r.place,amount:r.amount,receipt_type:r.receiptType,branch:r.branch});
+  }
+  db.cardRows=(db.cardRows||[]).filter(r=>String(r.headerId)!==String(headerId));
+  db.cardRows.push(...[...ccRows,...ctRows].map(r=>({...r,headerId})));
+}
+
+async function saveCardDraft() {
+  const ccRows=collectCardRows('cc'), ctRows=collectCardRows('ct');
+  const headerId=await ensureCardHeader('작성중');
+  if(!headerId){showToast('⚠️ 저장 실패');return;}
+  await saveCardRowsToDb(headerId,ccRows,ctRows);
+  showToast('💾 임시저장 완료');renderCard();
+}
+
+async function submitCard() {
+  const ds=cardDeadlineStatus(window._cardYr,window._cardMo);
+  if(ds==='closed'){showToast('⛔ 제출 기한이 마감됐습니다');return;}
+  if(!confirm('제출하면 내용을 수정할 수 없습니다. 제출할까요?'))return;
+  const ccRows=collectCardRows('cc'), ctRows=collectCardRows('ct');
+  const headerId=await ensureCardHeader('제출');
+  if(!headerId){showToast('⚠️ 제출 실패');return;}
+  await saveCardRowsToDb(headerId,ccRows,ctRows);
+  showToast('✅ 제출 완료');renderCard();
+}
+
+// ── 관리자 화면 ──
+function renderCardAdmin(yr, mo) {
+  const months=Array.from({length:12},(_,i)=>i+1);
+  const monthTabs=months.map(m=>`<button onclick="currentMonth=${m};renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
+  const activeEmps=(db.employees||[]).filter(e=>!e.isExternal);
+  const sc={작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
+  const rows=activeEmps.map(e=>{
+    const h=getCardHeader(e.id,yr,mo);
+    const st=h?h.status:'미제출';
+    const cc=(h?getCardRows(h.id,'개인카드'):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const ct=(h?getCardRows(h.id,'교통비'):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const color=sc[st]||(st==='미제출'?'#94a3b8':'#64748b');
+    return `<tr>
+      <td style="padding:9px 10px">${e.name}</td>
+      <td style="padding:9px 10px;color:var(--text3)">${e.dept}</td>
+      <td style="padding:9px 10px"><span style="background:${color}15;color:${color};border:1px solid ${color}40;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600">${st}</span></td>
+      <td style="padding:9px 10px;text-align:right">${cc?cc.toLocaleString()+'원':'—'}</td>
+      <td style="padding:9px 10px;text-align:right">${ct?ct.toLocaleString()+'원':'—'}</td>
+      <td style="padding:9px 10px;text-align:right;white-space:nowrap">
+        ${h?`<button class="btn btn-sm" onclick="openCardDetail(${h.id})">상세</button>`:'-'}
+        ${h&&h.status==='제출'?`<button class="btn btn-sm btn-primary" onclick="confirmCard(${h.id})" style="margin-left:4px">확인</button><button class="btn btn-sm btn-danger" onclick="rejectCard(${h.id})" style="margin-left:4px">반려</button>`:''}
+        ${h?`<button class="btn btn-sm" onclick="downloadCardExcel(${h.id})" style="margin-left:4px">📥</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+  const submitted=(db.cardHeaders||[]).filter(h=>h.year===yr&&h.month===mo&&h.status!=='미제출').length;
+  setContent(`
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
+        <div class="card-title" style="margin:0">📋 ${yr}년 ${mo}월 개인카드사용내역 현황</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${monthTabs}</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="flex:1;min-width:100px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#0369a1">제출 인원</div>
+          <div style="font-size:20px;font-weight:700;color:#0369a1">${submitted} / ${activeEmps.length}명</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:#fef2f2;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#b91c1c">미제출</div>
+          <div style="font-size:20px;font-weight:700;color:#b91c1c">${activeEmps.length-submitted}명</div>
+        </div>
+        <div style="flex:1;min-width:100px;background:#f0fdf4;border-radius:10px;padding:12px 16px">
+          <div style="font-size:12px;color:#15803d">확인 완료</div>
+          <div style="font-size:20px;font-weight:700;color:#15803d">${(db.cardHeaders||[]).filter(h=>h.year===yr&&h.month===mo&&h.status==='확인').length}명</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:var(--bg);color:var(--text2)">
+          <th style="padding:8px 10px;text-align:left">이름</th>
+          <th style="padding:8px 10px;text-align:left">부서</th>
+          <th style="padding:8px 10px;text-align:left">상태</th>
+          <th style="padding:8px 10px;text-align:right">개인카드</th>
+          <th style="padding:8px 10px;text-align:right">교통비</th>
+          <th style="padding:8px 10px;text-align:right">관리</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `);
+  window._cardYr=yr; window._cardMo=mo;
+}
+
+async function confirmCard(headerId) {
+  if(!confirm('확인 처리하시겠습니까?'))return;
+  const ok=await sbUpdate('card_expense_headers',headerId,{status:'확인',confirmed_at:new Date().toISOString()});
+  if(!ok){showToast('⚠️ 처리 실패');return;}
+  const h=db.cardHeaders.find(h=>h.id===headerId); if(h)h.status='확인';
+  showToast('✅ 확인 완료');renderCard();
+}
+
+async function rejectCard(headerId) {
+  const reason=prompt('반려 사유를 입력하세요:'); if(reason===null)return;
+  const ok=await sbUpdate('card_expense_headers',headerId,{status:'반려',reject_reason:reason});
+  if(!ok){showToast('⚠️ 처리 실패');return;}
+  const h=db.cardHeaders.find(h=>h.id===headerId); if(h){h.status='반려';h.rejectReason=reason;}
+  showToast('🔴 반려 처리 완료');renderCard();
+}
+
+async function openCardDetail(headerId) {
+  const h=db.cardHeaders.find(h=>h.id===headerId); if(!h)return;
+  const e=eid(h.empId); if(!e)return;
+  // 상세 내역 없으면 로드
+  if(!db.cardRows||!db.cardRows.find(r=>String(r.headerId)===String(headerId))){
+    const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
+    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date,detail:r.detail,cardCompany:r.card_company,cardNumber:r.card_number,place:r.place,amount:r.amount,receiptType:r.receipt_type,branch:r.branch}); });
+  }
+  const ccRows=getCardRows(headerId,'개인카드'), ctRows=getCardRows(headerId,'교통비');
+  const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const ctTotal=ctRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const makeReadTable=(rows,isCc)=>{
+    if(!rows.length)return '<div style="color:var(--text3);font-size:13px;padding:8px">내역 없음</div>';
+    return `<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="color:var(--text3)">
+      <th style="padding:5px 8px;text-align:left">일자</th><th style="padding:5px 8px;text-align:left">내역</th>
+      <th style="padding:5px 8px;text-align:left">카드사</th><th style="padding:5px 8px;text-align:left">카드번호</th>
+      <th style="padding:5px 8px;text-align:left">사용처</th><th style="padding:5px 8px;text-align:right">금액</th>
+      <th style="padding:5px 8px;text-align:left">증빙</th>${isCc?'<th style="padding:5px 8px;text-align:left">구분</th>':''}
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr><td style="padding:5px 8px">${r.useDate||''}</td><td style="padding:5px 8px">${r.detail||''}</td>
+      <td style="padding:5px 8px">${r.cardCompany||''}</td><td style="padding:5px 8px">${r.cardNumber||''}</td>
+      <td style="padding:5px 8px">${r.place||''}</td><td style="padding:5px 8px;text-align:right">${(Number(r.amount)||0).toLocaleString()}</td>
+      <td style="padding:5px 8px">${r.receiptType||''}</td>${isCc?`<td style="padding:5px 8px">${r.branch||''}</td>`:''}</tr>`).join('')}
+    </tbody></table>`;
+  };
+  openModal(`<div class="modal-title">📋 ${h.year}년 ${h.month}월 — ${e.name} (${e.dept})</div>
+    <div style="max-height:70vh;overflow-y:auto">
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">💳 개인카드</div>
+      ${makeReadTable(ccRows,true)}
+      <div style="text-align:right;font-size:13px;font-weight:700;margin:6px 0 14px;color:var(--accent)">${ccTotal.toLocaleString()}원</div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:6px">🚗 교통비</div>
+      ${makeReadTable(ctRows,false)}
+      <div style="text-align:right;font-size:13px;font-weight:700;margin:6px 0 14px;color:var(--accent)">${ctTotal.toLocaleString()}원</div>
+      <div style="background:var(--bg);border-radius:8px;padding:10px 14px;font-size:13px">
+        <b>입금정보</b> — ${h.bankName||''} / ${h.accountNumber||''} / ${h.accountHolder||''}
+      </div>
+      <div style="font-size:12px;color:var(--text3);margin-top:8px">총 지출: <b>${(ccTotal+ctTotal).toLocaleString()}원</b> · 제출일: ${h.submittedAt?h.submittedAt.slice(0,10):'-'}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">닫기</button>
+      <button class="btn btn-primary" onclick="closeModal();downloadCardExcel(${headerId})">📥 엑셀 다운로드</button>
+    </div>`,true);
+}
+
+// ── 엑셀 다운로드 ──
+async function downloadCardExcel(headerId) {
+  const h=db.cardHeaders.find(h=>h.id===headerId); if(!h)return;
+  const e=eid(h.empId); if(!e)return;
+  // 내역 로드 (없으면)
+  if(!db.cardRows||!db.cardRows.find(r=>String(r.headerId)===String(headerId))){
+    const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
+    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date,detail:r.detail,cardCompany:r.card_company,cardNumber:r.card_number,place:r.place,amount:r.amount,receiptType:r.receipt_type,branch:r.branch}); });
+  }
+  const ccRows=getCardRows(headerId,'개인카드'), ctRows=getCardRows(headerId,'교통비');
+  const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const ctTotal=ctRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const yr=h.year, mo=String(h.month).padStart(2,'0');
+  // CSV 대신 간단한 HTML→다운로드 방식 (서버 없이 순수 프론트)
+  const csvRows=[
+    [`${yr}년 ${h.month}월귀속`,'','','','','','','소속기관','㈜제이엠반도체'],
+    ['','','','','','','','작성자',e.name],
+    ['','','','','','','','작성일자',`${yr}-${mo}-${new Date().getDate().toString().padStart(2,'0')}`],
+    [],
+    ['[개인카드 지출결의서]'],
+    ['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙','구분'],
+    ...ccRows.map((r,i)=>[i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',r.amount||0,r.receiptType||'',r.branch||'']),
+    ['합계','','','','','',ccTotal],
+    [],
+    ['[교통비(개인차량)]'],
+    ['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙'],
+    ...ctRows.map((r,i)=>[i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',r.amount||0,r.receiptType||'']),
+    ['합계','','','','','',ctTotal],
+    [],
+    ['총 지출 금액','','','','','',ccTotal+ctTotal],
+    [],
+    ['[입금 정보]'],
+    ['은행명','계좌번호','예금주명'],
+    [h.bankName||'',h.accountNumber||'',h.accountHolder||'']
+  ];
+  const csvContent='\uFEFF'+csvRows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob=new Blob([csvContent],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url;
+  a.download=`개인카드사용대장_${e.name}_${yr}${mo}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('📥 다운로드 완료');
+}
+
+
 function isSummerVisible(){
   const v = db.appSettings ? db.appSettings['summer_section_visible'] : false;
   return v===true || v==='true' || v===1;
