@@ -411,21 +411,23 @@ async function loadAllData() {
       db.appSettings = {};
       (asRes.data||[]).forEach(r=>{ db.appSettings[r.key]=r.value; });
     } catch(e3){ console.warn('하계휴가/설정 로드 실패 (무시):', e3); db.summerPlans=db.summerPlans||[]; db.appSettings=db.appSettings||{}; }
-    // 개인카드 내역 로드
+    // 개인카드 내역 로드 (전 연도 포함, year 필터 없이)
     try {
       const meId = currentEmp ? currentEmp.id : null;
-      const yr = currentYear;
-      let chQ = _supa.from('card_expense_headers').select('*').eq('year', yr);
+      // year 필터 제거 → 전 연도 내역도 모두 로드 (임시저장 포함)
+      let chQ = _supa.from('card_expense_headers').select('*').order('year',{ascending:false}).order('month',{ascending:false});
       if (!isAdmin && meId) chQ = chQ.eq('emp_id', meId);
-      const { data: chData } = await chQ;
+      const { data: chData, error: chErr } = await chQ;
+      if(chErr) throw chErr;
       const headerIds=(chData||[]).map(r=>r.id);
       db.cardHeaders = (chData||[]).map(r=>({id:r.id,empId:r.emp_id,year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
-      // 행도 함께 로드 (임시저장 포함)
+      // 행도 함께 로드
       if(headerIds.length){
-        const {data:crData}=await _supa.from('card_expense_rows').select('*').in('header_id',headerIds).order('seq');
+        const {data:crData,error:crErr}=await _supa.from('card_expense_rows').select('*').in('header_id',headerIds).order('seq');
+        if(crErr) throw crErr;
         db.cardRows=(crData||[]).map(r=>({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}));
       } else { db.cardRows=[]; }
-    } catch(e4){ console.warn('카드 내역 로드 실패 (무시):', e4); db.cardHeaders=db.cardHeaders||[]; }
+    } catch(e4){ console.warn('카드 내역 로드 실패:', e4); db.cardHeaders=db.cardHeaders||[]; db.cardRows=db.cardRows||[]; }
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -1819,7 +1821,7 @@ function renderCardTable(type, rows, canEdit, headerId) {
           <input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadCardReceipt(this,'${type}',${i})">
         </label>
         ${r.hasAttachment?'<span title="첨부있음" style="color:#16a34a;margin-left:4px">✅</span>':''}
-        <button class="btn btn-sm btn-danger" onclick="deleteCardRow('${type}',${i})" style="margin-left:4px">삭제</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteCardRowBySeq('${type}',${r.seq||i+1})" style="margin-left:4px">삭제</button>
       </td>
     </tr>`;
   }).join('');
@@ -1987,15 +1989,45 @@ function addCardRow(type) {
   renderCard();
 }
 
+function deleteCardRowBySeq(type, seq) {
+  const category = type==='cc'?'개인카드':'교통비';
+  const KEY = window._cardHeaderId || '_NEW_';
+  const target = (db.cardRows||[]).find(r=>String(r.headerId)===String(KEY)&&r.category===category&&Number(r.seq)===Number(seq));
+  if (!target) {
+    // seq 못 찾으면 인덱스 기반으로 폴백
+    const rows=(db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
+    const t2=rows[seq-1]; if(!t2)return;
+    if(t2.id) sbDelete('card_expense_rows',t2.id).then(ok=>{if(ok){db.cardRows=db.cardRows.filter(r=>r!==t2);renderCard();}});
+    else{db.cardRows=db.cardRows.filter(r=>r!==t2);renderCard();}
+    return;
+  }
+  if (target.id) {
+    sbDelete('card_expense_rows', target.id).then(ok=>{
+      if(ok){db.cardRows=(db.cardRows||[]).filter(r=>r!==target);renderCard();}
+      else showToast('⚠️ 삭제 실패');
+    });
+  } else {
+    db.cardRows=(db.cardRows||[]).filter(r=>r!==target);
+    renderCard();
+  }
+}
+
 function deleteCardRow(type, idx) {
   const category = type==='cc'?'개인카드':'교통비';
   const KEY = window._cardHeaderId || '_NEW_';
   const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
-  if (!rows[idx]) return;
-  if (rows[idx].id) {
-    sbDelete('card_expense_rows', rows[idx].id).then(ok=>{ if(ok){ db.cardRows=db.cardRows.filter(r=>r!==rows[idx]); renderCard(); } });
+  const target = rows[idx];
+  if (!target) { console.warn('deleteCardRow: 대상 행 없음', type, idx, rows.length); return; }
+  if (target.id) {
+    // DB에 저장된 행: DB 삭제 후 로컬에서도 제거
+    sbDelete('card_expense_rows', target.id).then(ok=>{
+      if(ok){ db.cardRows=(db.cardRows||[]).filter(r=>r!==target); renderCard(); }
+      else showToast('⚠️ 삭제 실패');
+    });
   } else {
-    db.cardRows=db.cardRows.filter(r=>r!==rows[idx]); renderCard();
+    // 미저장 행(임시/업로드): 로컬에서만 제거
+    db.cardRows=(db.cardRows||[]).filter(r=>r!==target);
+    renderCard();
   }
 }
 
