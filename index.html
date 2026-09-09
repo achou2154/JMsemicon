@@ -1675,8 +1675,9 @@ function renderCardMy(yr, mo) {
 
   const canEdit = !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
   const headerId = header ? header.id : null;
-  const ccRows = headerId ? getCardRows(headerId,'개인카드') : [];
-  const ctRows = headerId ? getCardRows(headerId,'교통비') : [];
+  const KEY = headerId || '_NEW_';
+  const ccRows = getCardRows(KEY,'개인카드');
+  const ctRows = getCardRows(KEY,'교통비');
   const bankInfo = header || getLastBankInfo(empId);
 
   // 월 선택 탭
@@ -1796,13 +1797,14 @@ let _cardDirtyRows = {};
 function markRowDirty(type, idx) { _cardDirtyRows[`${type}-${idx}`]=true; }
 
 function addCardRow(type) {
-  if (!_cardEmpId) return;
+  if (!window._cardEmpId) return;  // 로그인 체크
   const isCc = type==='cc';
   const category = isCc?'개인카드':'교통비';
-  const existing = (db.cardRows||[]).filter(r=>String(r.headerId)===String(window._cardHeaderId||'')||false);
+  const KEY = window._cardHeaderId || '_NEW_'; // headerId 없으면 임시키
+  const existing = (db.cardRows||[]).filter(r=>(String(r.headerId)===String(KEY)));
   const seqList = existing.filter(r=>r.category===category).map(r=>r.seq);
   const newSeq = seqList.length ? Math.max(...seqList)+1 : 1;
-  const newRow = { id:null, headerId:null, category, seq:newSeq, useDate:'', detail:'', cardCompany:'', cardNumber:'', place:'', amount:0, receiptType:'영수증', branch:isCc?'본사':'', hasAttachment:false };
+  const newRow = { id:null, headerId:KEY, category, seq:newSeq, useDate:'', detail:'', cardCompany:'', cardNumber:'', place:'', amount:0, receiptType:'영수증', branch:isCc?'본사':'', hasAttachment:false };
   db.cardRows = db.cardRows||[];
   db.cardRows.push(newRow);
   renderCard();
@@ -1810,7 +1812,8 @@ function addCardRow(type) {
 
 function deleteCardRow(type, idx) {
   const category = type==='cc'?'개인카드':'교통비';
-  const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(window._cardHeaderId||'')&&r.category===category).sort((a,b)=>a.seq-b.seq);
+  const KEY = window._cardHeaderId || '_NEW_';
+  const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
   if (!rows[idx]) return;
   if (rows[idx].id) {
     sbDelete('card_expense_rows', rows[idx].id).then(ok=>{ if(ok){ db.cardRows=db.cardRows.filter(r=>r!==rows[idx]); renderCard(); } });
@@ -1889,6 +1892,8 @@ async function ensureCardHeader(status) {
 
 // ── 행 일괄 저장 ──
 async function saveCardRowsToDb(headerId, ccRows, ctRows) {
+  // 임시키(_NEW_)로 등록된 행들을 실제 headerId로 교체
+  (db.cardRows||[]).forEach(r=>{ if(String(r.headerId)==='_NEW_') r.headerId=headerId; });
   const allNew=[...ccRows,...ctRows].filter(r=>!r.id);
   const allEdit=[...ccRows,...ctRows].filter(r=>r.id);
   for(const r of allNew){
@@ -2043,12 +2048,12 @@ async function openCardDetail(headerId) {
     </div>`,true);
 }
 
-// ── 엑셀 다운로드 ──
+// ── 엑셀 다운로드 (xlsx 기존 양식 포맷) ──
 async function downloadCardExcel(headerId) {
   const h=db.cardHeaders.find(h=>h.id===headerId); if(!h)return;
   const e=eid(h.empId); if(!e)return;
-  // 내역 로드 (없으면)
-  if(!db.cardRows||!db.cardRows.find(r=>String(r.headerId)===String(headerId))){
+  // 내역 로드
+  if(!(db.cardRows||[]).find(r=>String(r.headerId)===String(headerId))){
     const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
     (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date,detail:r.detail,cardCompany:r.card_company,cardNumber:r.card_number,place:r.place,amount:r.amount,receiptType:r.receipt_type,branch:r.branch}); });
   }
@@ -2056,35 +2061,65 @@ async function downloadCardExcel(headerId) {
   const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
   const ctTotal=ctRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
   const yr=h.year, mo=String(h.month).padStart(2,'0');
-  // CSV 대신 간단한 HTML→다운로드 방식 (서버 없이 순수 프론트)
-  const csvRows=[
-    [`${yr}년 ${h.month}월귀속`,'','','','','','','소속기관','㈜제이엠반도체'],
-    ['','','','','','','','작성자',e.name],
-    ['','','','','','','','작성일자',`${yr}-${mo}-${new Date().getDate().toString().padStart(2,'0')}`],
-    [],
-    ['[개인카드 지출결의서]'],
-    ['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙','구분'],
-    ...ccRows.map((r,i)=>[i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',r.amount||0,r.receiptType||'',r.branch||'']),
-    ['합계','','','','','',ccTotal],
-    [],
-    ['[교통비(개인차량)]'],
-    ['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙'],
-    ...ctRows.map((r,i)=>[i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',r.amount||0,r.receiptType||'']),
-    ['합계','','','','','',ctTotal],
-    [],
-    ['총 지출 금액','','','','','',ccTotal+ctTotal],
-    [],
-    ['[입금 정보]'],
-    ['은행명','계좌번호','예금주명'],
-    [h.bankName||'',h.accountNumber||'',h.accountHolder||'']
-  ];
-  const csvContent='\uFEFF'+csvRows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob=new Blob([csvContent],{type:'text/csv;charset=utf-8'});
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); a.href=url;
-  a.download=`개인카드사용대장_${e.name}_${yr}${mo}.csv`;
-  a.click(); URL.revokeObjectURL(url);
-  showToast('📥 다운로드 완료');
+  const today=new Date(); const todayStr2=`${yr}-${mo}-${String(today.getDate()).padStart(2,'0')}`;
+
+  // SheetJS import
+  if(!window.XLSX){ await new Promise(res=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload=res; document.head.appendChild(sc); }); }
+  const XL=window.XLSX;
+
+  // 워크북 생성
+  const wb=XL.utils.book_new();
+
+  // ── 시트1: 지출결의서 ──
+  const aoa=[];
+  // 헤더 상단
+  aoa.push(['개인카드 지출결의서','','','','','','','소속기관','㈜제이엠반도체','','']);
+  aoa.push(['','','','','','','','작성자',e.name,'','']);
+  aoa.push(['','','','','','','','작성일자',todayStr2,'','']);
+  aoa.push([]);
+  aoa.push([`${yr}년 ${h.month}월귀속`]);
+  aoa.push([]);
+  // 개인카드 섹션
+  aoa.push(['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','','','개인/본사/양감']);
+  aoa.push([]);
+  if(ccRows.length){
+    ccRows.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','','',r.branch||'']));
+  } else { aoa.push(['','','','','','','','','','','']); }
+  // 빈줄 채우기 (최소 5행)
+  while(ccRows.length < 5) { aoa.push([]); ccRows.push({}); }
+  aoa.push(['합계','','','','','',ccTotal,'','','','']);
+  aoa.push([]);
+  // 교통비 섹션
+  aoa.push(['교통비','(개인차량)']);
+  aoa.push(['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','','','']);
+  if(ctRows.length){
+    ctRows.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','','','']));
+  } else { aoa.push([]); }
+  while(ctRows.length < 5) { aoa.push([]); ctRows.push({}); }
+  aoa.push(['합계','','','','','',ctTotal,'','','','']);
+  aoa.push(['총 지출 금액','','','','','',ccTotal+ctTotal,'','','','']);
+  aoa.push([]);
+  // 입금정보
+  aoa.push(['*입금 정보*']);
+  aoa.push(['은행명','','계좌번호','예금주명','','','','','','','']);
+  aoa.push([h.bankName||'','',h.accountNumber||'',h.accountHolder||'','','','','','','','']);
+
+  const ws=XL.utils.aoa_to_sheet(aoa);
+
+  // 열 너비 설정
+  ws['!cols']=[{wch:6},{wch:12},{wch:28},{wch:10},{wch:22},{wch:18},{wch:12},{wch:18},{wch:4},{wch:4},{wch:12}];
+
+  // 금액 셀 숫자 형식
+  const moneyFmt='#,##0';
+  aoa.forEach((row,ri)=>{
+    const ci=6; // G열 금액
+    const cell=ws[XL.utils.encode_cell({r:ri,c:ci})];
+    if(cell && typeof cell.v==='number') cell.z=moneyFmt;
+  });
+
+  XL.utils.book_append_sheet(wb,ws,`${yr}년${h.month}월귀속분`);
+  XL.writeFile(wb,`개인카드사용대장_${e.name}_${yr}${mo}.xlsx`);
+  showToast('📥 xlsx 다운로드 완료');
 }
 
 
