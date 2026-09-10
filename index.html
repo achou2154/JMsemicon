@@ -430,7 +430,7 @@ async function loadAllData() {
       if(headerIds.length){
         const {data:crData,error:crErr}=await _supa.from('card_expense_rows').select('*').in('header_id',headerIds).order('seq');
         if(crErr) throw crErr;
-        db.cardRows=(crData||[]).map(r=>({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}));
+        db.cardRows=(crData||[]).map(r=>({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}));
       } else { db.cardRows=[]; }
     } catch(e4){ console.warn('카드 내역 로드 실패:', e4); db.cardHeaders=db.cardHeaders||[]; db.cardRows=db.cardRows||[]; }
     recalcNextIds();
@@ -459,7 +459,7 @@ function normalizeLa(r) {
 }
 function normalizeReq(r) {
   return { id:r.id, type:r.type, empId:r.emp_id, status:r.status, year:r.year,
-    reason:r.reason||'', reqDate:r.req_date||'', startDate:r.start_date||'',
+    reason:r.reason||'', substitute:r.substitute||'', reqDate:r.req_date||'', startDate:r.start_date||'',
     endDate:r.end_date||'', leaveType:r.leave_type||'', hours:r.hours||0,
     date:r.date||'', otType:r.ot_type||'', useTransport:r.use_transport||false,
     dest:r.dest||'', tripKind:r.trip_kind||'', allowance:r.allowance||0,
@@ -1835,7 +1835,7 @@ function renderCardTable(type, rows, canEdit, headerId) {
           <input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadCardReceipt(this,'${type}',${i})">
         </label>
         ${r.hasAttachment?'<span title="첨부있음" style="color:#16a34a;margin-left:4px">✅</span>':''}
-        <button class="btn btn-sm btn-danger" onclick="deleteCardRowBySeq('${type}',${r.seq||i+1},this.dataset.hid)" data-hid="${headerId||'_NEW_'}" style="margin-left:4px">삭제</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteCardRowByUid('${r._uid||""}')" style="margin-left:4px">삭제</button>
       </td>
     </tr>`;
   }).join('');
@@ -1990,7 +1990,7 @@ function parseCardExcelSheet(aoa){
         amount,
         receiptType: rcptCol>=0?String(dataRow[rcptCol]||'영수증').trim():'영수증',
         branch:   sectionLabel==='cc'?(branchCol>=0?String(dataRow[branchCol]||'본사').trim():'본사'):'',
-        id:null, headerId:KEY, category:sectionLabel==='ct'?'교통비':'개인카드', hasAttachment:false
+        _uid:Math.random().toString(36).slice(2), id:null, headerId:KEY, category:sectionLabel==='ct'?'교통비':'개인카드', hasAttachment:false
       };
       if(sectionLabel==='ct') ctParsed.push(item);
       else ccParsed.push(item);
@@ -2098,24 +2098,18 @@ function addCardRow(type) {
   const existing = (db.cardRows||[]).filter(r=>(String(r.headerId)===String(KEY)));
   const seqList = existing.filter(r=>r.category===category).map(r=>r.seq);
   const newSeq = seqList.length ? Math.max(...seqList)+1 : 1;
-  const newRow = { id:null, headerId:KEY, category, seq:newSeq, useDate:'', detail:'', cardCompany:'', cardNumber:'', place:'', amount:0, receiptType:'영수증', branch:isCc?'본사':'', hasAttachment:false };
+  const newRow = { _uid:Math.random().toString(36).slice(2), id:null, headerId:KEY, category, seq:newSeq, useDate:'', detail:'', cardCompany:'', cardNumber:'', place:'', amount:0, receiptType:'영수증', branch:isCc?'본사':'', hasAttachment:false };
   db.cardRows = db.cardRows||[];
   db.cardRows.push(newRow);
   renderCard();
 }
 
-function deleteCardRowBySeq(type, seq, headerKey) {
-  const category = type==='cc'?'개인카드':'교통비';
-  const KEY = (headerKey && headerKey!=='null' && headerKey!=='undefined' && headerKey!=='') ? String(headerKey) : (window._cardHeaderId || '_NEW_');
-  const allInSection = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
-  // seq로 찾기, 없으면 인덱스(seq-1)로 폴백
-  const target = allInSection.find(r=>Number(r.seq)===Number(seq)) || allInSection[Number(seq)-1];
-  if(!target){ console.warn('deleteCardRowBySeq: 행 없음', {type,seq,KEY,rows:allInSection.length}); return; }
+function deleteCardRowByUid(uid) {
+  if(!uid){ console.warn('deleteCardRowByUid: uid 없음'); return; }
+  const target = (db.cardRows||[]).find(r=>r._uid===uid);
+  if(!target){ console.warn('deleteCardRowByUid: 행 없음', uid); return; }
   const doRemove = () => {
-    db.cardRows = (db.cardRows||[]).filter(r=>r!==target);
-    // 삭제 후 남은 행 seq 재정렬 (1부터)
-    (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category)
-      .sort((a,b)=>a.seq-b.seq).forEach((r,i)=>{ r.seq=i+1; });
+    db.cardRows = (db.cardRows||[]).filter(r=>r._uid!==uid);
     renderCard();
   };
   if(target.id){
@@ -2522,7 +2516,7 @@ async function _openCardEditModal(empId, headerId) {
   // 행 로드
   if (headerId && !(db.cardRows||[]).find(r=>String(r.headerId)===String(headerId))) {
     const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
-    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}); });
+    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}); });
   }
   const h = headerId ? db.cardHeaders.find(h=>h.id===headerId) : null;
   const KEY = headerId || '_NEW_';
@@ -2682,7 +2676,7 @@ async function openCardDetail(headerId) {
   // 상세 내역 없으면 로드 (이미 로드됐으면 스킵)
   if(!(db.cardRows||[]).find(r=>String(r.headerId)===String(headerId))){
     const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
-    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}); });
+    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}); });
   }
   const ccRows=getCardRows(headerId,'개인카드'), ctRows=getCardRows(headerId,'교통비');
   const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -2727,7 +2721,7 @@ async function downloadCardExcel(headerId) {
   // 내역 로드
   if(!(db.cardRows||[]).find(r=>String(r.headerId)===String(headerId))){
     const {data}=await _supa.from('card_expense_rows').select('*').eq('header_id',headerId).order('seq');
-    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date,detail:r.detail,cardCompany:r.card_company,cardNumber:r.card_number,place:r.place,amount:r.amount,receiptType:r.receipt_type,branch:r.branch}); });
+    (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date,detail:r.detail,cardCompany:r.card_company,cardNumber:r.card_number,place:r.place,amount:r.amount,receiptType:r.receipt_type,branch:r.branch}); });
   }
   const ccRows=getCardRows(headerId,'개인카드'), ctRows=getCardRows(headerId,'교통비');
   const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
@@ -4285,6 +4279,7 @@ function renderRequests(){
       <td>${e?e.dept:''}</td><td>${tl}</td>
       <td style="max-width:200px;font-size:13px">${det}</td>
       <td style="font-size:13px;color:var(--text2);max-width:120px">${r.reason||''}</td>
+      <td style="font-size:13px;color:var(--text2)">${(r.type==='leave'||r.type==='comp')?(r.substitute||'—'):'—'}</td>
       <td>${fmt(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canA?`<button class="btn btn-sm btn-ok" onclick="approveReq(${r.id})">승인</button> <button class="btn btn-sm btn-danger" onclick="rejectReq(${r.id})">반려</button>`:''}
@@ -4310,7 +4305,7 @@ function renderRequests(){
     </div>
     <div class="card">
       <div class="table-wrap"><table id="req-table">
-        <thead><tr><th>직원</th><th>부서</th><th>유형</th><th>내용</th><th>사유</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
+        <thead><tr><th>직원</th><th>부서</th><th>유형</th><th>내용</th><th>사유</th><th>대직자</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
     </div>
@@ -5955,6 +5950,8 @@ async function openAddLeave(empId){
   +'<div id="leave-remain-preview" style="background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#166534"></div>'
   // 사유
   +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
+  // 대직자 (필수)
+  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">대직자 <span style="color:#dc2626">*</span> <span style="font-size:11px;color:var(--text3);font-weight:400">필수 입력</span></label><input id="f-substitute" placeholder="대직자 이름을 입력하세요"></div>'
   // 첨부파일
   +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">첨부파일 <span style="font-size:11px;color:var(--text3);font-weight:400">(최대 1개, 10MB)</span></label>'
   +'<div id="leave-file-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;background:var(--bg);font-size:14px;color:var(--text3)" onclick="openLeaveFileDialog()" ondragover="event.preventDefault();this.style.borderColor=\'var(--accent)\'" ondragleave="this.style.borderColor=\'var(--border2)\'" ondrop="onLeaveFileDrop(event)">첨부할 파일을 마우스로 끌어 놓으세요</div>'
@@ -6292,7 +6289,9 @@ async function saveLeave(){
   const _startTime=document.getElementById('f-start-time')?.value||'';
   const _endTime=document.getElementById('f-end-time')?.value||'';
   const _hours=parseFloat(document.getElementById('f-hours').value)||8;
-  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
+  const _substitute=document.getElementById('f-substitute')?.value?.trim()||'';
+  if(!_substitute){ showToast('⚠️ 대직자를 입력해 주세요'); return; }
+  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',substitute:_substitute,reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
   const _saved=await sbInsert('requests',reqToDb(_r));
   if(_saved){
     _r.id=_saved.id;
@@ -6429,6 +6428,7 @@ async function openAddComp(empId){
     +'</div></div>'
     +'<div id="comp-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>'
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
+    +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">대직자 <span style="color:#dc2626">*</span> <span style="font-size:11px;color:var(--text3);font-weight:400">필수 입력</span></label><input id="f-substitute" placeholder="대직자 이름을 입력하세요"></div>'
     +'</div>'
     +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>'
   );
@@ -6505,8 +6505,10 @@ async function saveComp(){
   const _st=document.getElementById('f-start-time')?.value||'';
   const _et=document.getElementById('f-end-time')?.value||'';
   const _hrs=parseFloat(document.getElementById('f-hours').value)||8;
-  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,hours:_hrs,reason:document.getElementById('f-reason')?.value||'',reqDate:nowKST(),startTime:_st,endTime:_et};
-  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,hours:_r.hours,reason:_r.reason,req_date:_r.reqDate,start_time:_st,end_time:_et};
+  const _substitute=document.getElementById('f-substitute')?.value?.trim()||'';
+  if(!_substitute){ showToast('⚠️ 대직자를 입력해 주세요'); return; }
+  const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,hours:_hrs,reason:document.getElementById('f-reason')?.value||'',substitute:_substitute,reqDate:nowKST(),startTime:_st,endTime:_et};
+  const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,hours:_r.hours,reason:_r.reason,substitute:_substitute,req_date:_r.reqDate,start_time:_st,end_time:_et};
   let _saved = null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
