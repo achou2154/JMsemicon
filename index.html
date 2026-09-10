@@ -169,7 +169,7 @@ tbody tr:hover td{background:var(--surface2)}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
 .modal-bg.show{display:flex}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:28px 32px;width:480px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
-.modal.modal-lg{width:800px !important;max-width:95vw !important;max-height:90vh !important}
+.modal.modal-lg{width:960px !important;max-width:95vw !important;max-height:90vh !important}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:20px 24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .modal-title{font-size:18px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
@@ -409,7 +409,12 @@ async function loadAllData() {
       ]);
       db.summerPlans = (spRes.data||[]).map(r=>({id:r.id,empId:r.emp_id,year:r.year,startDate:r.start_date,endDate:r.end_date,days:Number(r.days)||0,memo:r.memo||''}));
       db.appSettings = {};
-      (asRes.data||[]).forEach(r=>{ db.appSettings[r.key]=r.value; });
+      (asRes.data||[]).forEach(r=>{
+        // JSON 문자열이면 파싱해서 저장 (배열 등)
+        if(typeof r.value==='string'&&(r.value.startsWith('[')||r.value.startsWith('{'))){
+          try{ db.appSettings[r.key]=JSON.parse(r.value); }catch(e){ db.appSettings[r.key]=r.value; }
+        } else { db.appSettings[r.key]=r.value; }
+      });
     } catch(e3){ console.warn('하계휴가/설정 로드 실패 (무시):', e3); db.summerPlans=db.summerPlans||[]; db.appSettings=db.appSettings||{}; }
     // 개인카드 내역 로드 (전 연도 포함, year 필터 없이)
     try {
@@ -2187,10 +2192,11 @@ function renderCardAdmin(yr, mo) {
     months.map(m=>`<button onclick="currentMonth=${m};renderCardAdmin(currentYear,${m})" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
   // 특정 순서로 정렬 (없는 사람은 ㄱㄴㄷ 뒤에 추가)
   const CARD_ORDER = ['이두원', '강상석', '김영은', '정기헌', '김호문', '초승열', '허은경', '문석상', '김용해', '이정호', '정숙희', '조완호', '공정찬', '장세현', '김미영', '초종복', '박희용', '신병택', '조수인', '류성윤', '정영희', '이선영', '유소영', '김국용', '이명걸', '김광태', '윤보성', '최창주', '강지현', '유용숙', '유도선', '박석수', '최연호', '류영균', '편경호', '오현묵', '고영남', '양구열', '장해라', '함헌평'];
-  const allActive=(db.employees||[]).filter(e=>!e.isExternal);
+  // CARD_ORDER에 있는 상임이사(김호문 등)는 포함
+  const allForCard=(db.employees||[]).filter(e=>!e.isExternal||CARD_ORDER.includes(e.name));
   const activeEmps=[
-    ...CARD_ORDER.map(n=>allActive.find(e=>e.name===n)).filter(Boolean),
-    ...allActive.filter(e=>!CARD_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
+    ...CARD_ORDER.map(n=>allForCard.find(e=>e.name===n)).filter(Boolean),
+    ...allForCard.filter(e=>!CARD_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
   ];
   const sc={작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
   const isAllMode = mo===0;
@@ -2230,38 +2236,26 @@ function renderCardAdmin(yr, mo) {
     </tr>`;
   }).join('');
   const submitted=(db.cardHeaders||[]).filter(h=>h.year===yr&&h.month===mo&&h.status!=='미제출').length;
-  const curRecvMail=(db.appSettings&&db.appSettings['card_submit_email'])||'';
+  let curRecvMail=(db.appSettings&&db.appSettings['card_submit_email'])||'';
+  if(Array.isArray(curRecvMail)) curRecvMail=curRecvMail.join(', ');
+  else{try{const _p=JSON.parse(curRecvMail);if(Array.isArray(_p))curRecvMail=_p.join(', ');}catch(e){}}
   setContent(`
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">📨 Resend 수신 메일 설정</div>
-      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일로 엑셀 파일이 첨부 발송됩니다.</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일로 엑셀 파일이 첨부 발송됩니다. <span style="color:var(--text3)">여러 명은 쉼표(,)로 구분해 주세요.</span></div>
       <div style="display:flex;gap:8px;align-items:center">
         <input id="card-recv-mail-admin" value="${Array.isArray(curRecvMail)?curRecvMail.join(', '):(curRecvMail||'')}"
           placeholder="예: finance@jmsemicon.co.kr, ceo@jmsemicon.co.kr"
           style="flex:1;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px">
         <button class="btn btn-primary" onclick="saveCardMailSettingAdmin()" style="white-space:nowrap">저장</button>
       </div>
-      <div style="font-size:12px;color:var(--text3);margin-top:4px">여러 명은 쉼표(,)로 구분해 주세요.</div>
     </div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
         <div class="card-title" style="margin:0">📋 ${yr}년 ${mo}월 개인카드사용내역 현황</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">${monthTabs}</div>
       </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-        <div style="flex:1;min-width:100px;background:#f0f9ff;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#0369a1">제출 인원</div>
-          <div style="font-size:20px;font-weight:700;color:#0369a1">${submitted} / ${activeEmps.length}명</div>
-        </div>
-        <div style="flex:1;min-width:100px;background:#fef2f2;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#b91c1c">미제출</div>
-          <div style="font-size:20px;font-weight:700;color:#b91c1c">${activeEmps.length-submitted}명</div>
-        </div>
-        <div style="flex:1;min-width:100px;background:#f0fdf4;border-radius:10px;padding:12px 16px">
-          <div style="font-size:12px;color:#15803d">확인 완료</div>
-          <div style="font-size:20px;font-weight:700;color:#15803d">${(db.cardHeaders||[]).filter(h=>h.year===yr&&h.month===mo&&h.status==='확인').length}명</div>
-        </div>
-      </div>
+
       <table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="background:var(--bg);color:var(--text2)">
           <th style="padding:8px 10px;text-align:left">이름</th>
@@ -2282,10 +2276,10 @@ function renderCardAdmin(yr, mo) {
 const CARD_FIXED_ORDER = ['이두원','강상석','김영은','정기헌','김호문','초승열','허은경','문석상','김용해','이정호','정숙희','조완호','공정찬','장세현','김미영','초종복','박희용','신병택','조수인','류성윤','정영희','이선영','유소영','김국용','이명걸','김광태','윤보성','최창주','강지현','유용숙','유도선','박석수','최연호','류영균','편경호','오현묵','고영남','양구열','장해라','함헌평'];
 
 function getSortedEmps(yr) {
-  const allActive=(db.employees||[]).filter(e=>!e.isExternal);
+  const allForCard=(db.employees||[]).filter(e=>!e.isExternal||CARD_FIXED_ORDER.includes(e.name));
   return [
-    ...CARD_FIXED_ORDER.map(n=>allActive.find(e=>e.name===n)).filter(Boolean),
-    ...allActive.filter(e=>!CARD_FIXED_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
+    ...CARD_FIXED_ORDER.map(n=>allForCard.find(e=>e.name===n)).filter(Boolean),
+    ...allForCard.filter(e=>!CARD_FIXED_ORDER.includes(e.name)).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
   ];
 }
 
@@ -8102,7 +8096,7 @@ function renderCardMailSetting() {
   const curStr=curArr.join(', ');
   return `<div class="card" style="max-width:600px">
     <div class="card-title">💳 개인카드내역 제출 알림 메일</div>
-    <div style="font-size:13px;color:var(--text3);margin-bottom:14px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일 주소로 엑셀 파일이 첨부 발송됩니다. 여러 명은 줄바꿈 또는 쉼표로 구분하세요.</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:14px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일 주소로 엑셀 파일이 첨부 발송됩니다. <span style="color:var(--text3)">여러 명은 쉼표(,)로 구분해 주세요.</span></div>
     <div class="field" style="margin-bottom:12px">
       <label>수신 메일 주소 <span style="font-size:12px;color:var(--text3);font-weight:400">— 여러 명은 쉼표(,)로 구분</span></label>
       <input id="card-recv-mail" value="${curStr}" placeholder="예: finance@jmsemicon.co.kr, ceo@jmsemicon.co.kr"
