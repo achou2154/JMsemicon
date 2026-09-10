@@ -1689,14 +1689,20 @@ function renderCardMy(yr, mo) {
 
   const canEdit = isAdmin || !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
   const headerId = header ? header.id : null;
-  const KEY = headerId || '_NEW_';
+  // 미저장 상태: empId+yr+mo 기반 고유 임시키 사용 (월/직원 간 충돌 방지)
+  const TEMP_KEY = `_NEW_${empId}_${yr}_${mo}`;
+  const KEY = headerId || TEMP_KEY;
+  // 기존 _NEW_ 키로 저장된 행을 이 KEY로 마이그레이션
+  if(!headerId){
+    (db.cardRows||[]).filter(r=>r.headerId==='_NEW_').forEach(r=>{ r.headerId=KEY; });
+  }
   const ccRows = getCardRows(KEY,'개인카드');
   const ctRows = getCardRows(KEY,'교통비');
   const bankInfo = header || getLastBankInfo(empId);
 
   // 월 선택 탭
   const months = Array.from({length:12},(_,i)=>i+1);
-  const monthTabs = months.map(m=>`<button onclick="currentMonth=${m};renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
+  const monthTabs = months.map(m=>`<button onclick="currentMonth=${m};window._cardHeaderId=null;renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
 
   setContent(`
     <div class="card" style="margin-bottom:14px">
@@ -1766,7 +1772,8 @@ function renderCardMy(yr, mo) {
       <button class="btn btn-primary" onclick="downloadCardExcel(${header.id})">📥 엑셀 다운로드</button>
     </div>` : '')}
   `);
-  window._cardYr=yr; window._cardMo=mo; window._cardEmpId=empId; window._cardHeaderId=headerId;
+  window._cardYr=yr; window._cardMo=mo; window._cardEmpId=empId;
+  window._cardHeaderId=headerId||(`_NEW_${empId}_${yr}_${mo}`);
 }
 
 function renderCardTable(type, rows, canEdit, headerId) {
@@ -1910,7 +1917,7 @@ function parseCardExcelSheet(aoa){
     const r0=String(row[0]||'').trim();
     const r1=String(row[1]||'').trim();
     if((r0==='NO'||r1==='NO') && row.some(c=>String(c||'').includes('사용일'))){
-      headerRows.push({ri, row});
+      headerRows.push({ri, row, _section:''});
     }
   });
 
@@ -1956,7 +1963,19 @@ function parseCardExcelSheet(aoa){
       if(!noStr||isNaN(Number(noStr))) continue;
 
       const useDate=parseCellDate(dataRow[dateCol]);
-      const amount=Number(String(dataRow[amtCol]||'').replace(/[^0-9.-]/g,''))||0;
+      let _amtRaw=dataRow[amtCol];
+      // SheetJS: 수식 결과가 숫자로 오거나, 수식 문자열(=...)로 올 수 있음
+      let amount=0;
+      if(typeof _amtRaw==='number') amount=_amtRaw;
+      else if(_amtRaw){
+        const _amtStr=String(_amtRaw).trim();
+        if(_amtStr.startsWith('=')){
+          // 수식: 간단한 덧셈/뺄셈만 계산 (예: =28636+2864)
+          try{ amount=Function('"use strict";return ('+_amtStr.slice(1)+')')(); }catch(e){ amount=0; }
+        } else {
+          amount=Number(_amtStr.replace(/[^0-9.-]/g,''))||0;
+        }
+      }
       // 날짜도 금액도 없으면 빈 행 → 스킵 (break 아님, 다음 번호 행이 있을 수 있음)
       if(!useDate&&!amount) continue;
 
@@ -1986,12 +2005,25 @@ async function _loadXLSX(input){
   const buf=await file.arrayBuffer();
   const wb=window.XLSX.read(buf,{type:'array',cellDates:true});
   // 마지막 시트 우선, 단 빈 시트(1행 이하)는 건너뜀
+  // 1순위: 'NO'+'사용일자' 헤더가 있는 시트 (마지막부터 검색)
+  // 2순위: 내용이 있는 마지막 시트
   let activeSheet=null;
   for(let i=wb.SheetNames.length-1;i>=0;i--){
     const ws2=wb.Sheets[wb.SheetNames[i]];
     const aoa2=window.XLSX.utils.sheet_to_json(ws2,{header:1,defval:''});
-    const nonEmpty=aoa2.filter(r=>r.some(c=>String(c||'').trim()));
-    if(nonEmpty.length>2){activeSheet=ws2;break;}
+    const hasCardHeader=aoa2.some(row=>{
+      const r0=String(row[0]||'').trim(), r1=String(row[1]||'').trim();
+      return (r0==='NO'||r1==='NO')&&row.some(c=>String(c||'').includes('사용일'));
+    });
+    if(hasCardHeader){activeSheet=ws2;break;}
+  }
+  // 2순위: 비어있지 않은 마지막 시트
+  if(!activeSheet){
+    for(let i=wb.SheetNames.length-1;i>=0;i--){
+      const ws2=wb.Sheets[wb.SheetNames[i]];
+      const aoa2=window.XLSX.utils.sheet_to_json(ws2,{header:1,defval:''});
+      if(aoa2.filter(r=>r.some(c=>String(c||'').trim())).length>2){activeSheet=ws2;break;}
+    }
   }
   if(!activeSheet) activeSheet=wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]];
   return window.XLSX.utils.sheet_to_json(activeSheet,{header:1,defval:''});
