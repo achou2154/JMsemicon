@@ -1759,8 +1759,8 @@ function renderCardMy(yr, mo) {
     <!-- 하단 버튼 -->
     ${canEdit ? `
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
-      <button class="btn" onclick="saveCardDraft()">💾 임시저장</button>
-      <button class="btn btn-primary" onclick="submitCard()">📤 제출</button>
+      <button class="btn btn-primary" onclick="saveCardDraft()" title="내용을 저장만 합니다">💾 저장</button>
+      <button class="btn" onclick="submitCard()" title="관리자에게 내역이 전송됩니다.">📤 전송</button>
     </div>` : (header?.status==='확인' ? `
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
       <button class="btn btn-primary" onclick="downloadCardExcel(${header.id})">📥 엑셀 다운로드</button>
@@ -1828,7 +1828,7 @@ function renderCardTable(type, rows, canEdit, headerId) {
           <input type="file" accept="image/*,application/pdf" style="display:none" onchange="uploadCardReceipt(this,'${type}',${i})">
         </label>
         ${r.hasAttachment?'<span title="첨부있음" style="color:#16a34a;margin-left:4px">✅</span>':''}
-        <button class="btn btn-sm btn-danger" onclick="deleteCardRowBySeq('${type}',${r.seq||i+1})" style="margin-left:4px">삭제</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteCardRowBySeq('${type}',${r.seq||i+1},this.dataset.hid)" data-hid="${headerId||'_NEW_'}" style="margin-left:4px">삭제</button>
       </td>
     </tr>`;
   }).join('');
@@ -2016,26 +2016,24 @@ function addCardRow(type) {
   renderCard();
 }
 
-function deleteCardRowBySeq(type, seq) {
+function deleteCardRowBySeq(type, seq, headerKey) {
   const category = type==='cc'?'개인카드':'교통비';
-  const KEY = window._cardHeaderId || '_NEW_';
-  const target = (db.cardRows||[]).find(r=>String(r.headerId)===String(KEY)&&r.category===category&&Number(r.seq)===Number(seq));
-  if (!target) {
-    // seq 못 찾으면 인덱스 기반으로 폴백
-    const rows=(db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
-    const t2=rows[seq-1]; if(!t2)return;
-    if(t2.id) sbDelete('card_expense_rows',t2.id).then(ok=>{if(ok){db.cardRows=db.cardRows.filter(r=>r!==t2);renderCard();}});
-    else{db.cardRows=db.cardRows.filter(r=>r!==t2);renderCard();}
-    return;
-  }
-  if (target.id) {
-    sbDelete('card_expense_rows', target.id).then(ok=>{
-      if(ok){db.cardRows=(db.cardRows||[]).filter(r=>r!==target);renderCard();}
-      else showToast('⚠️ 삭제 실패');
-    });
-  } else {
-    db.cardRows=(db.cardRows||[]).filter(r=>r!==target);
+  const KEY = (headerKey && headerKey!=='null' && headerKey!=='undefined' && headerKey!=='') ? String(headerKey) : (window._cardHeaderId || '_NEW_');
+  const allInSection = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
+  // seq로 찾기, 없으면 인덱스(seq-1)로 폴백
+  const target = allInSection.find(r=>Number(r.seq)===Number(seq)) || allInSection[Number(seq)-1];
+  if(!target){ console.warn('deleteCardRowBySeq: 행 없음', {type,seq,KEY,rows:allInSection.length}); return; }
+  const doRemove = () => {
+    db.cardRows = (db.cardRows||[]).filter(r=>r!==target);
+    // 삭제 후 남은 행 seq 재정렬 (1부터)
+    (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category)
+      .sort((a,b)=>a.seq-b.seq).forEach((r,i)=>{ r.seq=i+1; });
     renderCard();
+  };
+  if(target.id){
+    sbDelete('card_expense_rows',target.id).then(ok=>{ if(ok) doRemove(); else showToast('⚠️ 삭제 실패'); });
+  } else {
+    doRemove();
   }
 }
 
@@ -2480,9 +2478,9 @@ async function _openCardEditModal(empId, headerId) {
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
-      <button class="btn" onclick="saveCardAdminDraft()">💾 임시저장</button>
+      <button class="btn btn-primary" onclick="saveCardAdminDraft()" title="내용을 저장만 합니다">💾 저장</button>
       <button class="btn btn-danger" onclick="deleteCardAdminHeader()" style="${headerId?'':'display:none'}">🗑️ 전체 삭제</button>
-      <button class="btn btn-primary" onclick="saveCardAdminSubmit()">📤 저장 완료</button>
+      <button class="btn" onclick="saveCardAdminSubmit()" title="관리자에게 내역이 전송됩니다.">📤 전송</button>
     </div>
   `, true);
 }
