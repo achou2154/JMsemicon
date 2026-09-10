@@ -1786,32 +1786,32 @@ function renderCardTable(type, rows, canEdit, headerId) {
     return `<tr id="row-${type}-${i}" data-seq="${r.seq||i+1}" data-id="${r.id||''}">
       <td style="padding:4px 6px">
         <div style="display:flex;gap:2px;align-items:center">
-          <input type="number" class="card-date-y" value="${(r.useDate||'').slice(0,4)||''}" min="2000" max="2099" placeholder="YYYY"
+          <input type="number" class="card-date-y" value="${((r.useDate||'').slice(0,10)||'').slice(0,4)||''}" min="2000" max="2099" placeholder="YYYY"
             style="width:48px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,4);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
           <span style="color:var(--text3);font-size:12px">-</span>
-          <input type="number" class="card-date-m" value="${(r.useDate||'').slice(5,7)||''}" min="1" max="12" placeholder="MM"
+          <input type="number" class="card-date-m" value="${((r.useDate||'').slice(0,10)||'').slice(5,7)||''}" min="1" max="12" placeholder="MM"
             style="width:34px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,2);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
           <span style="color:var(--text3);font-size:12px">-</span>
-          <input type="number" class="card-date-d" value="${(r.useDate||'').slice(8,10)||''}" min="1" max="31" placeholder="DD"
+          <input type="number" class="card-date-d" value="${((r.useDate||'').slice(0,10)||'').slice(8,10)||''}" min="1" max="31" placeholder="DD"
             style="width:34px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,2);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
         </div>
         <input type="hidden" class="card-date-val" value="${r.useDate||''}">
       </td>
-      <td style="padding:4px 6px"><input value="${(r.detail||'').replace(/"/g,'&quot;')}" placeholder="상세내역" style="width:140px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
-      <td style="padding:4px 6px"><input value="${(r.cardCompany||'').replace(/"/g,'&quot;')}" placeholder="카드사" style="width:80px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
-      <td style="padding:4px 6px"><input value="${(r.cardNumber||'').replace(/"/g,'&quot;')}" placeholder="카드번호" style="width:150px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
-      <td style="padding:4px 6px"><input value="${(r.place||'').replace(/"/g,'&quot;')}" placeholder="사용처" style="width:110px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
-      <td style="padding:4px 6px"><input type="number" value="${r.amount||''}" placeholder="0" style="width:90px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:right" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input class="cd-detail" value="${(r.detail||'').replace(/"/g,'&quot;')}" placeholder="상세내역" style="width:140px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input class="cd-cardco" value="${(r.cardCompany||'').replace(/"/g,'&quot;')}" placeholder="카드사" style="width:80px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input class="cd-cardno" value="${(r.cardNumber||'').replace(/"/g,'&quot;')}" placeholder="카드번호" style="width:150px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input class="cd-place" value="${(r.place||'').replace(/"/g,'&quot;')}" placeholder="사용처" style="width:110px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})"></td>
+      <td style="padding:4px 6px"><input class="cd-amount" type="number" value="${r.amount||''}" placeholder="0" style="width:90px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:right" onchange="markRowDirty('${type}',${i})"></td>
       <td style="padding:4px 6px">
-        <select style="width:100px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
+        <select class="cd-rcpt" style="width:100px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
           ${['영수증','현금영수증','카드영수증','기타'].map(v=>`<option${v===r.receiptType?' selected':''}>${v}</option>`).join('')}
         </select>
       </td>
       ${isCc?`<td style="padding:4px 6px">
-        <select style="width:75px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
+        <select class="cd-branch" style="width:75px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px" onchange="markRowDirty('${type}',${i})">
           ${['본사','개인','양감'].map(v=>`<option${v===r.branch?' selected':''}>${v}</option>`).join('')}
         </select>
       </td>`:''}
@@ -1834,11 +1834,31 @@ function renderCardTable(type, rows, canEdit, headerId) {
 // 헤더 텍스트로 컬럼 위치를 찾아서 매핑 → 양식 구조 변경에 강인
 function parseCellDate(cell){
   if(!cell) return '';
-  if(cell instanceof Date) return cell.toISOString().slice(0,10);
-  if(typeof cell==='number'&&cell>1000){ const d=new Date(Math.round((cell-25569)*86400*1000)); return d.toISOString().slice(0,10); }
+  // Date 객체: toISOString()은 UTC 기준이라 한국(UTC+9)에서 하루 빠질 수 있음
+  // → 로컬 날짜 기준으로 추출
+  if(cell instanceof Date){
+    const y=cell.getFullYear();
+    const m=String(cell.getMonth()+1).padStart(2,'0');
+    const d=String(cell.getDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  // Excel serial number → 로컬 날짜
+  if(typeof cell==='number'&&cell>1000){
+    const jsDate=new Date(Math.round((cell-25569)*86400*1000));
+    // UTC 기준 날짜 사용 (serial은 UTC 기준)
+    const y=jsDate.getUTCFullYear();
+    const m=String(jsDate.getUTCMonth()+1).padStart(2,'0');
+    const d=String(jsDate.getUTCDate()).padStart(2,'0');
+    return `${y}-${m}-${d}`;
+  }
+  // 문자열: YYYY-MM-DD / YYYY.MM.DD / 20260806 등
   const str=String(cell).replace(/\./g,'-').trim();
   const m=str.match(/(\d{4})[^\d](\d{2})[^\d](\d{2})/);
-  return m?`${m[1]}-${m[2]}-${m[3]}`:str.slice(0,10);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // YYYYMMDD 붙어있는 경우
+  const m2=str.match(/^(\d{4})(\d{2})(\d{2})/);
+  if(m2) return `${m2[1]}-${m2[2]}-${m2[3]}`;
+  return str.slice(0,10);
 }
 
 function findColByKeywords(headers, keywords){
@@ -2203,8 +2223,7 @@ function renderCardAdmin(yr, mo) {
       <td style="padding:9px 10px;text-align:right">${cc?cc.toLocaleString()+'원':'—'}</td>
       <td style="padding:9px 10px;text-align:right">${ct?ct.toLocaleString()+'원':'—'}</td>
       <td style="padding:9px 10px;text-align:right;white-space:nowrap">
-        ${h?`<button class="btn btn-sm" onclick="openCardDetail(${h.id})">상세</button>`:'-'}
-        ${h?`<button class="btn btn-sm" onclick="openCardAdminEdit(${h.id})" style="margin-left:4px">편집</button>`:`<button class="btn btn-sm btn-primary" onclick="openCardAdminNew(${e.id})" style="margin-left:4px">등록</button>`}
+        ${h?`<button class="btn btn-sm" onclick="openCardAdminEdit(${h.id})">상세/편집</button>`:`<button class="btn btn-sm btn-primary" onclick="openCardAdminNew(${e.id})">등록</button>`}
         ${h&&h.status==='제출'?`<button class="btn btn-sm btn-primary" onclick="confirmCard(${h.id})" style="margin-left:4px">확인</button><button class="btn btn-sm btn-danger" onclick="rejectCard(${h.id})" style="margin-left:4px">반려</button>`:''}
         ${h?`<button class="btn btn-sm" onclick="downloadCardExcel(${h.id})" style="margin-left:4px">📥</button>`:''}
       </td>
@@ -2493,15 +2512,24 @@ function collectModalRows(type) {
   const trs=document.querySelectorAll(`#modal-${type}-wrap tr[id^="row-${type}-"]`);
   const result=[];
   trs.forEach((tr,i)=>{
-    const inputs=tr.querySelectorAll('input,select');
-    result.push({category,seq:i+1,useDate:(()=>{
-        const hid=tr.querySelector('.card-date-val');
-        if(hid&&hid.value) return hid.value;
-        const y=tr.querySelector('.card-date-y')?.value||'';
-        const m=(tr.querySelector('.card-date-m')?.value||'').padStart(2,'0');
-        const d=(tr.querySelector('.card-date-d')?.value||'').padStart(2,'0');
-        return (y&&m&&d)?`${y}-${m}-${d}`:'';
-      })(),detail:inputs[1]?.value||'',cardCompany:inputs[2]?.value||'',cardNumber:inputs[3]?.value||'',place:inputs[4]?.value||'',amount:parseInt(inputs[5]?.value)||0,receiptType:inputs[6]?.value||'영수증',branch:isCc?(inputs[7]?.value||'본사'):'',id:tr.dataset.id||null});
+    const getDate=()=>{
+      const hid=tr.querySelector('.card-date-val');
+      if(hid&&hid.value) return hid.value;
+      const y=tr.querySelector('.card-date-y')?.value||'';
+      const m=(tr.querySelector('.card-date-m')?.value||'').padStart(2,'0');
+      const d=(tr.querySelector('.card-date-d')?.value||'').padStart(2,'0');
+      return (y&&m&&d)?`${y}-${m}-${d}`:'';
+    };
+    result.push({category,seq:i+1,
+      useDate:getDate(),
+      detail:      tr.querySelector('.cd-detail')?.value||'',
+      cardCompany: tr.querySelector('.cd-cardco')?.value||'',
+      cardNumber:  tr.querySelector('.cd-cardno')?.value||'',
+      place:       tr.querySelector('.cd-place')?.value||'',
+      amount:      parseInt(tr.querySelector('.cd-amount')?.value)||0,
+      receiptType: tr.querySelector('.cd-rcpt')?.value||'영수증',
+      branch:      isCc?(tr.querySelector('.cd-branch')?.value||'본사'):'',
+      id:tr.dataset.id||null});
   });
   return result;
 }
