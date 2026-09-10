@@ -1880,34 +1880,64 @@ function findColByKeywords(headers, keywords){
 function parseCardExcelSheet(aoa){
   const ccParsed=[], ctParsed=[];
   const KEY=window._cardHeaderId||'_NEW_';
+  let bankInfo={bankName:'',accountNumber:'',accountHolder:''};
+
+  // ── 입금 정보 파싱 (은행명/계좌번호/예금주명 헤더 행 탐색) ──
+  aoa.forEach((row,ri)=>{
+    const rowText=row.map(c=>String(c||'').trim());
+    // '은행명' 헤더 행 찾기
+    if(rowText.some(c=>c==='은행명')&&rowText.some(c=>c.includes('계좌'))){
+      const bankCol  = row.findIndex(c=>String(c||'').trim()==='은행명');
+      const acctCol  = row.findIndex(c=>String(c||'').replace(/\s/g,'').includes('계좌번호'));
+      const holderCol= row.findIndex(c=>String(c||'').replace(/\s/g,'').includes('예금주'));
+      // 다음 행이 실제 데이터
+      const dataRow=aoa[ri+1]||[];
+      if(bankCol>=0&&dataRow[bankCol])   bankInfo.bankName     =String(dataRow[bankCol]).trim();
+      if(acctCol>=0&&dataRow[acctCol])   bankInfo.accountNumber=String(dataRow[acctCol]).trim();
+      if(holderCol>=0&&dataRow[holderCol])bankInfo.accountHolder=String(dataRow[holderCol]).trim();
+      // 헤더가 없이 바로 데이터가 있는 경우: 은행명 행 자체가 데이터인 경우
+      if(!bankInfo.bankName&&bankCol>=0&&aoa[ri][bankCol]&&aoa[ri][bankCol]!=='은행명'){
+        bankInfo.bankName     =String(aoa[ri][bankCol]).trim();
+        bankInfo.accountNumber=acctCol>=0?String(aoa[ri][acctCol]||'').trim():'';
+        bankInfo.accountHolder=holderCol>=0?String(aoa[ri][holderCol]||'').trim():'';
+      }
+    }
+  });
 
   // NO 헤더가 있는 행들을 모두 찾아서 섹션별로 처리
   const headerRows=[];
   aoa.forEach((row,ri)=>{
     const r0=String(row[0]||'').trim();
     const r1=String(row[1]||'').trim();
-    // NO가 첫 번째 또는 두 번째 컬럼에 있고, 사용일자 헤더가 있는 행
     if((r0==='NO'||r1==='NO') && row.some(c=>String(c||'').includes('사용일'))){
       headerRows.push({ri, row});
     }
   });
 
   for(const {ri, row} of headerRows){
-    // 헤더에서 컬럼 위치 동적 탐색
     const noCol    = row.findIndex(c=>String(c||'').trim()==='NO');
     const dateCol  = findColByKeywords(row,['사용일자']);
     const detailCol= findColByKeywords(row,['사용내역','적요']);
-    const cardCoCol= findColByKeywords(row,['카드사','카드사(은행)']);
-    const cardNoCol= findColByKeywords(row,['카드번호']);
-    const placeCol = findColByKeywords(row,['사용처']);
     const amtCol   = findColByKeywords(row,['사용금액']);
+    const placeCol = findColByKeywords(row,['사용처']);
     const rcptCol  = findColByKeywords(row,['지출증빙','영수증유']);
     const branchCol= findColByKeywords(row,['개인/본사','개인/본사/양감']);
 
-    if(dateCol<0||amtCol<0) continue; // 필수 컬럼 없으면 스킵
+    // 카드사/카드번호: 없을 수도 있음 (공백 셀 등) → 카드번호만 있는 경우도 처리
+    let cardCoCol = findColByKeywords(row,['카드사','카드사(은행)']);
+    let cardNoCol = findColByKeywords(row,['카드번호']);
+    // 카드사 컬럼이 공백(' ')이거나 -1인데 카드번호 옆에 의미있는 값이 있으면 카드사=카드번호-1
+    if(cardCoCol<0 && cardNoCol>0){
+      // 카드번호 바로 왼쪽 셀에 뭔가 있으면 카드사로 사용
+      const leftCell=String(row[cardNoCol-1]||'').trim();
+      if(leftCell&&leftCell!=='NO'&&!leftCell.includes('사용')&&!leftCell.includes('금액')){
+        cardCoCol=cardNoCol-1;
+      }
+    }
 
-    // 섹션 구분: 헤더 위쪽 행들에서 '교통비', '개인카드', '법인카드' 키워드 탐색
-    let sectionLabel='cc'; // 기본: 개인카드
+    if(dateCol<0||amtCol<0) continue;
+
+    let sectionLabel='cc';
     for(let look=ri-1;look>=Math.max(0,ri-5);look--){
       const cellText=String(aoa[look]?.[0]||aoa[look]?.[1]||'').replace(/\s/g,'');
       if(cellText.includes('교통비'))  { sectionLabel='ct'; break; }
@@ -1915,32 +1945,39 @@ function parseCardExcelSheet(aoa){
       if(cellText.includes('법인카드')){ sectionLabel='cc'; break; }
     }
 
-    // 헤더 다음 행부터 데이터 읽기
+    let seqCounter=0;
     for(let dr=ri+1; dr<aoa.length; dr++){
       const dataRow=aoa[dr];
       const noVal=noCol>=0?dataRow[noCol]:null;
-      // NO 컬럼이 숫자가 아니면 종료 (합계·빈 행 등)
-      if(!noVal||isNaN(Number(noVal))) break;
+      const noStr=String(noVal||'').trim();
+      // '합계', '교통비', '총 지출' 등이 나오면 이 섹션 종료
+      if(noStr&&isNaN(Number(noStr))) break;
+      // NO가 숫자가 아니거나 없으면 스킵 (빈 번호 행)
+      if(!noStr||isNaN(Number(noStr))) continue;
+
       const useDate=parseCellDate(dataRow[dateCol]);
       const amount=Number(String(dataRow[amtCol]||'').replace(/[^0-9.-]/g,''))||0;
-      if(!useDate&&!amount) continue; // 날짜·금액 모두 없으면 스킵
+      // 날짜도 금액도 없으면 빈 행 → 스킵 (break 아님, 다음 번호 행이 있을 수 있음)
+      if(!useDate&&!amount) continue;
+
+      seqCounter++;
       const item={
-        seq:Number(noVal),
+        seq:seqCounter,
         useDate,
-        detail:   detailCol>=0?String(dataRow[detailCol]||''):'',
-        cardCompany: cardCoCol>=0?String(dataRow[cardCoCol]||''):'',
-        cardNumber:  cardNoCol>=0?String(dataRow[cardNoCol]||''):'',
-        place:    placeCol>=0?String(dataRow[placeCol]||''):'',
+        detail:   detailCol>=0?String(dataRow[detailCol]||'').trim():'',
+        cardCompany: cardCoCol>=0?String(dataRow[cardCoCol]||'').trim():'',
+        cardNumber:  cardNoCol>=0?String(dataRow[cardNoCol]||'').trim():'',
+        place:    placeCol>=0?String(dataRow[placeCol]||'').trim():'',
         amount,
-        receiptType: rcptCol>=0?String(dataRow[rcptCol]||'영수증'):'영수증',
-        branch:   sectionLabel==='cc'?(branchCol>=0?String(dataRow[branchCol]||'본사'):'본사'):'',
+        receiptType: rcptCol>=0?String(dataRow[rcptCol]||'영수증').trim():'영수증',
+        branch:   sectionLabel==='cc'?(branchCol>=0?String(dataRow[branchCol]||'본사').trim():'본사'):'',
         id:null, headerId:KEY, category:sectionLabel==='ct'?'교통비':'개인카드', hasAttachment:false
       };
       if(sectionLabel==='ct') ctParsed.push(item);
       else ccParsed.push(item);
     }
   }
-  return {ccParsed, ctParsed};
+  return {ccParsed, ctParsed, bankInfo};
 }
 
 async function _loadXLSX(input){
@@ -1948,9 +1985,16 @@ async function _loadXLSX(input){
   if(!window.XLSX){await new Promise(res=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=res;document.head.appendChild(sc);});}
   const buf=await file.arrayBuffer();
   const wb=window.XLSX.read(buf,{type:'array',cellDates:true});
-  // 마지막 시트 = 열었을 때 활성 시트 우선
-  const ws=wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]];
-  return window.XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+  // 마지막 시트 우선, 단 빈 시트(1행 이하)는 건너뜀
+  let activeSheet=null;
+  for(let i=wb.SheetNames.length-1;i>=0;i--){
+    const ws2=wb.Sheets[wb.SheetNames[i]];
+    const aoa2=window.XLSX.utils.sheet_to_json(ws2,{header:1,defval:''});
+    const nonEmpty=aoa2.filter(r=>r.some(c=>String(c||'').trim()));
+    if(nonEmpty.length>2){activeSheet=ws2;break;}
+  }
+  if(!activeSheet) activeSheet=wb.Sheets[wb.SheetNames[wb.SheetNames.length-1]];
+  return window.XLSX.utils.sheet_to_json(activeSheet,{header:1,defval:''});
 }
 
 async function _dupCheckAndPush(ccParsed,ctParsed){
@@ -1968,6 +2012,12 @@ async function importCardExcel(input) {
   const {ccParsed,ctParsed}=parseCardExcelSheet(aoa);
   if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
   if(!await _dupCheckAndPush(ccParsed,ctParsed))return;
+  // 입금정보 폼에 반영
+  if(bankInfo&&bankInfo.bankName){
+    const bk=document.getElementById('card-bank'); if(bk&&!bk.value) bk.value=bankInfo.bankName;
+    const ac=document.getElementById('card-account'); if(ac&&!ac.value) ac.value=bankInfo.accountNumber;
+    const ho=document.getElementById('card-holder'); if(ho&&!ho.value) ho.value=bankInfo.accountHolder;
+  }
   showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 파싱 완료`);
   renderCard();
 }
@@ -1983,6 +2033,12 @@ async function importCardExcelModal(input) {
   const ccWrap=document.getElementById('modal-cc-wrap'), ctWrap=document.getElementById('modal-ct-wrap');
   if(ccWrap) ccWrap.innerHTML=renderCardTable('cc',ccRows,true,window._cardHeaderId);
   if(ctWrap) ctWrap.innerHTML=renderCardTable('ct',ctRows,true,window._cardHeaderId);
+  // 입금정보 모달 폼에 반영
+  if(bankInfo&&bankInfo.bankName){
+    const bk=document.getElementById('modal-bank'); if(bk&&!bk.value) bk.value=bankInfo.bankName;
+    const ac=document.getElementById('modal-account'); if(ac&&!ac.value) ac.value=bankInfo.accountNumber;
+    const ho=document.getElementById('modal-holder'); if(ho&&!ho.value) ho.value=bankInfo.accountHolder;
+  }
   showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 파싱 완료`);
 }
 
