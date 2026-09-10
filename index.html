@@ -1674,7 +1674,9 @@ function renderCardMy(yr, mo) {
   const header = getCardHeader(empId, yr, mo);
   const ds = cardDeadlineStatus(yr, mo);
   const { soft, hard } = cardDeadline(yr, mo);
-  const deadlineBanner = ds==='closed'
+  const deadlineBanner = isAdmin
+    ? `<div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8">🔓 관리자 모드: 마감일과 관계없이 업로드·수정 가능합니다.</div>`
+    : ds==='closed'
     ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626">⛔ 마감 완료 (${hard} 이후 제출 불가)</div>`
     : ds==='warning'
     ? `<div style="background:#fef3c7;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#d97706">⚠️ 제출 마감일(${soft})이 지났습니다. 최대 ${hard}까지 제출 가능합니다.</div>`
@@ -1685,7 +1687,7 @@ function renderCardMy(yr, mo) {
     ? `<span style="background:${statusColor[header.status]||'#64748b'}15;color:${statusColor[header.status]||'#64748b'};border:1px solid ${statusColor[header.status]||'#64748b'}40;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600">${header.status}</span>`
     : `<span style="background:#f1f5f9;color:#94a3b8;border-radius:20px;padding:3px 12px;font-size:13px">미작성</span>`;
 
-  const canEdit = !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
+  const canEdit = isAdmin || !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
   const headerId = header ? header.id : null;
   const KEY = headerId || '_NEW_';
   const ccRows = getCardRows(KEY,'개인카드');
@@ -2159,7 +2161,7 @@ async function saveCardDraft() {
 
 async function submitCard() {
   const ds=cardDeadlineStatus(window._cardYr,window._cardMo);
-  if(ds==='closed'){showToast('⛔ 제출 기한이 마감됐습니다');return;}
+  if(!isAdmin && ds==='closed'){showToast('⛔ 제출 기한이 마감됐습니다');return;}
   if(!confirm('제출하면 내용을 수정할 수 없습니다. 제출할까요?'))return;
   const ccRows=collectCardRows('cc'), ctRows=collectCardRows('ct');
   const headerId=await ensureCardHeader('제출');
