@@ -2447,30 +2447,43 @@ async function downloadCardSummaryExcel(yr, mo) {
 }
 
 async function sendCardSummaryMail(yr, mo) {
-  showToast('⏳ 엑셀 생성 중...');
+  const recvMails=_getCardRecvMails();
+  if(!recvMails.length){showToast('⚠️ 수신 메일 주소를 먼저 설정해 주세요');return;}
+  showToast('⏳ 엑셀 생성 및 업로드 중...');
   const result=await downloadCardSummaryExcel(yr,mo);
   if(!result)return;
   const {wbBin,fileName}=result;
   try{
-    let recvMailRaw=(db.appSettings&&db.appSettings['card_submit_email'])||'';
-    let recvMails=[];
-    if(Array.isArray(recvMailRaw)) recvMails=recvMailRaw;
-    else{ try{ const pp=JSON.parse(recvMailRaw); recvMails=Array.isArray(pp)?pp:[recvMailRaw]; }catch(e){ recvMails=String(recvMailRaw).split(',').map(e=>e.trim()).filter(Boolean); } }
-    if(!recvMails.length){showToast('⚠️ 수신 메일 주소를 먼저 설정해 주세요');return;}
-    const bytes=new Uint8Array(wbBin); let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b));
-    const b64=btoa(bin);
+    let fileUrl='';
+    if(_supa&&wbBin){
+      const blob=new Blob([wbBin],{type:'application/octet-stream'});
+      const path=`card_exports/${fileName}`;
+      const {error:upErr}=await _supa.storage.from('attachments').upload(path,blob,{upsert:true});
+      if(!upErr){
+        const {data:{publicUrl}}=_supa.storage.from('attachments').getPublicUrl(path);
+        fileUrl=publicUrl||'';
+      }
+    }
     const {data:{session}}=await _supa.auth.getSession();
     const moLabel=mo===0?'전체통계':`${mo}월현황`;
+    const payload={
+      to:recvMails,
+      subject:`[JM반도체] ${yr}년 ${moLabel} 개인카드비용 현황`,
+      html:`<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0">
+          <span style="color:#fff;font-size:18px;font-weight:700">JM반도체 개인카드 현황</span>
+        </div>
+        <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:20px">
+          <p>${yr}년 ${moLabel} 개인카드비용 현황입니다.</p>
+          ${fileUrl?`<p><a href="${fileUrl}" style="background:#1e40af;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">📥 엑셀 다운로드 (${fileName})</a></p>`:'<p>근태관리 시스템에서 확인하세요.</p>'}
+        </div>
+      </div>`,
+      text:`${yr}년 ${moLabel} 개인카드비용 현황입니다.${fileUrl?'\n다운로드: '+fileUrl:''}`
+    };
     await fetch(`${SUPA_URL}/functions/v1/notify-admin`,{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':`Bearer ${session?.access_token||SUPA_KEY}`},
-      body:JSON.stringify({
-        type:'card_summary',
-        to:recvMails.join(','),
-        subject:`[JM반도체] ${yr}년 ${moLabel} 개인카드비용 현황`,
-        html:`<p>${yr}년 ${moLabel} 개인카드비용 현황 파일을 첨부합니다.</p>`,
-        attachments:[{filename:fileName,content:b64}]
-      })
+      body:JSON.stringify(payload)
     });
     showToast(`📨 ${recvMails.length}명에게 메일 발송 완료`);
   }catch(err){console.error(err);showToast('⚠️ 메일 발송 실패: '+err.message);}
