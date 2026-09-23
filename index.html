@@ -452,7 +452,8 @@ function normalizeEmp(r) {
     birthdate:r.birthdate||'', birthdateLunar:r.birthdate_lunar||false,
     address:r.address||'', avatarUrl:r.avatar_url||'',
     muteNotify:r.mute_notify||false,
-    anniversaryType:r.anniversary_type||'birthday' };
+    anniversaryType:r.anniversary_type||'birthday',
+    isInactive:r.is_inactive||false };
 }
 function normalizeLa(r) {
   return { id:r.id, empId:r.emp_id, year:r.year, total:r.total||0, carryover:r.carryover||0, extinct:r.extinct||0 };
@@ -649,7 +650,7 @@ function exportExcel() {
 
   // 0-1. 전체현황 (직원 1명당 1행, 연차 잔여 내림차순 통합표)
   const yr0 = currentYear;
-  const activeEmps0 = db.employees.filter(e=>!e.isExternal);
+  const activeEmps0 = db.employees.filter(e=>!e.isExternal && !e.isInactive);
   const getOTTotalY = (empId,yr)=>db.requests.filter(r=>r.type==='ot'&&String(r.empId)===String(empId)&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
   const summerByEmp0={};
   db.requests.filter(r=>r.type==='leave'&&r.leaveType==='하계휴가'&&String(r.year)===String(yr0)).forEach(r=>{
@@ -1149,14 +1150,14 @@ function empOptions(sel=''){
     return `<option value="${currentEmp.id}" selected>${currentEmp.name} (${currentEmp.dept})</option>`;
   }
   return db.employees
-    .filter(e=>!e.isExternal)
+    .filter(e=>!e.isExternal&&!e.isInactive)
     .slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})</option>`)
     .join('');
 }
 // 전체 직원 (상임이사 포함, 건강검진·생일 등)
 function empOptionsAll(sel=''){
-  return db.employees.slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
+  return db.employees.filter(e=>!e.isInactive).sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'))
     .map(e=>`<option value="${e.id}"${String(e.id)===String(sel)?' selected':''}>${e.name} (${e.dept})${e.isExternal?' [상임이사]':''}</option>`)
     .join('');
 }
@@ -3270,7 +3271,7 @@ async function onAttendanceFileSelect(input){
 
     // 직원명 매칭용 맵 (isExternal 제외)
     const empByName = {};
-    db.employees.filter(e=>!e.isExternal).forEach(e=>{ empByName[e.name] = e.id; });
+    db.employees.filter(e=>!e.isExternal&&!e.isInactive).forEach(e=>{ empByName[e.name] = e.id; });
 
     const records = [];
     let skipped = 0;
@@ -3341,9 +3342,9 @@ function renderOverview(){
   const totalLU=db.employees.reduce((s,e)=>s+getLeaveUsed(e.id,yr),0);
   const totalExtinct=db.leaveAlloc.filter(a=>String(a.year)===String(yr)).reduce((s,a)=>s+(+a.extinct||0),0);
   // 전체 잔여연차 합계 (발생-소멸-사용)
-  const totalLeaveAlloc=db.employees.filter(e=>!e.isExternal).reduce((s,e)=>s+getLeaveRemain(e.id,yr),0);
+  const totalLeaveAlloc=db.employees.filter(e=>!e.isExternal&&!e.isInactive).reduce((s,e)=>s+getLeaveRemain(e.id,yr),0);
   const totalOT=db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
-  const totalComp=db.employees.filter(e=>!e.isExternal).reduce((s,e)=>s+getCompEarned(e.id,yr),0);
+  const totalComp=db.employees.filter(e=>!e.isExternal&&!e.isInactive).reduce((s,e)=>s+getCompEarned(e.id,yr),0);
   const totalCompUsed=db.employees.reduce((s,e)=>s+getCompUsed(e.id,yr),0);
   const totalCompRemain=db.employees.reduce((s,e)=>s+getCompRemain(e.id,yr),0);
   const totalTrips=db.requests.filter(r=>r.type==='trip'&&String(r.year)===String(yr)&&r.status==='approved').length;
@@ -3888,7 +3889,7 @@ function getSortedEmployees() {
 
 // 직책순-이름순 고정 정렬 (개인기록 시트용)
 function getSortedByPosition() {
-  return [...db.employees].sort((a,b) => {
+  return [...db.employees].filter(e=>!e.isInactive).sort((a,b) => {
     const ai = POS_ORDER.findIndex(p => (a.position||'').includes(p));
     const bi = POS_ORDER.findIndex(p => (b.position||'').includes(p));
     const posDiff = (ai===-1?99:ai) - (bi===-1?99:bi);
@@ -3905,19 +3906,27 @@ function renderRoster(){
     if (saved) rosterOrder = JSON.parse(saved);
   }
   const yr=currentYear;
-  // 직책순-이름순 고정 정렬
-  const sorted = getSortedByPosition();
+  // 직원명부: 비활성 포함 전체 표시 (비활성은 맨 뒤)
+  const sorted=[...db.employees].sort((a,b)=>{
+    if(a.isInactive&&!b.isInactive)return 1;
+    if(!a.isInactive&&b.isInactive)return -1;
+    const ai=POS_ORDER.findIndex(p=>(a.position||'').includes(p));
+    const bi=POS_ORDER.findIndex(p=>(b.position||'').includes(p));
+    const pd=(ai===-1?99:ai)-(bi===-1?99:bi);
+    return pd!==0?pd:(a.name||'').localeCompare(b.name||'','ko');
+  });
   const rows=sorted.map((e,idx)=>{
     const a=getAlloc(e.id,yr);
     const extBadge=e.isExternal?`<span class="badge" style="background:#f1f0ec;color:#666;border:1px solid #ddd;margin-left:5px;font-size:11px">⭐ 상임이사</span>`:(e.employmentType==='계약직'?`<span class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #93c5fd;margin-left:5px;font-size:11px">계약직</span>`:'');
-    return`<tr data-id="${e.id}" ${e.isExternal?'style="background:#fafafa"':''}>
+    const inactiveBadge=e.isInactive?`<span class="badge" style="background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;margin-left:5px;font-size:11px">비활성</span>`:'';
+    return`<tr data-id="${e.id}" style="${e.isInactive?'opacity:0.5;background:#fafafa':(e.isExternal?'background:#fafafa':'')}">
       <td style="color:var(--text3);font-size:13px;width:30px">${idx+1}</td>
       <td><div class="name-cell">${av(e.id)}
-        <span style="font-weight:500;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openEmpInfo(${e.id})">${e.name}</span>${extBadge}
+        <span style="font-weight:500;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openEmpInfo(${e.id})">${e.name}</span>${extBadge}${inactiveBadge}
         ${currentEmp&&String(e.id)===String(currentEmp.id)?`<span onclick="go('myprofile')" title="내 정보로 이동" style="cursor:pointer;margin-left:4px;background:var(--accent);color:#fff;font-size:11px;padding:1px 6px;border-radius:10px;font-weight:500">본인</span>`:''}
       </div></td>
-      <td>${e.dept}</td><td>${e.position}</td><td>${e.phone}</td><td>${e.email}</td><td>${fmt(e.joinDate)}</td>
-      ${isAdmin?`<td><button class="btn btn-sm btn-danger" onclick="deleteEmp(${e.id})">삭제</button></td>`:'<td></td>'}
+      <td>${e.dept}</td><td>${e.position}</td><td>${e.isInactive?'—':e.phone}</td><td>${e.isInactive?'—':e.email}</td><td>${fmt(e.joinDate)}</td>
+      ${isAdmin?`<td>${e.isInactive?`<button class="btn btn-sm" style="color:#16a34a;border-color:#16a34a" onclick="openEmpInfo(${e.id})">재입사</button>`:`<button class="btn btn-sm btn-danger" onclick="deleteEmp(${e.id})">삭제</button>`}</td>`:'<td></td>'}
     </tr>`;
   }).join('');
 
@@ -4101,6 +4110,64 @@ function openEmpProfile(empId){
   `, true);
 }
 
+// ── 비활성 처리 ──
+async function deactivateEmp(empId) {
+  const e = eid(empId); if(!e) return;
+  if(!confirm(`${e.name}님을 비활성 처리하시겠습니까?\n\n- 연차/특근/대휴/출장 등 모든 현황에서 제외됩니다.\n- 데이터는 5년간 보관됩니다.\n- 재입사 시 '재입사' 버튼으로 복구 가능합니다.`)) return;
+  const ok = await sbUpdate('employees', empId, {is_inactive: true});
+  if(!ok){ showToast('⚠️ 처리 실패'); return; }
+  e.isInactive = true;
+  closeModal();
+  showToast(`🚫 ${e.name}님이 비활성 처리되었습니다.`);
+  go('roster');
+}
+
+// ── 재입사 처리 ──
+async function reactivateEmp(empId) {
+  const e = eid(empId); if(!e) return;
+  // 새 입사일 입력 받기
+  const newJoinDate = prompt(`${e.name}님의 재입사일을 입력하세요 (YYYY-MM-DD):`);
+  if(!newJoinDate || !/^\d{4}-\d{2}-\d{2}$/.test(newJoinDate)) {
+    showToast('⚠️ 날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)'); return;
+  }
+  const newYear = parseInt(newJoinDate.slice(0,4));
+  const oldYear = parseInt((e.joinDate||'').slice(0,4));
+  const isSameYear = newYear === oldYear;
+  let resetMsg = isSameYear
+    ? `동일 연도(${newYear}년) 재입사: 기존 연차설정이 유지됩니다.`
+    : `다른 연도(${newYear}년) 재입사: 연차·특근·대휴 내역이 초년차 기준으로 초기화됩니다.`;
+  if(!confirm(`${e.name}님 재입사 처리\n입사일: ${newJoinDate}\n\n${resetMsg}\n\n계속하시겠습니까?`)) return;
+
+  // 활성화 + 입사일 업데이트
+  const ok = await sbUpdate('employees', empId, {is_inactive: false, join_date: newJoinDate});
+  if(!ok){ showToast('⚠️ 처리 실패'); return; }
+  e.isInactive = false;
+  e.joinDate = newJoinDate;
+
+  // 다른 연도 재입사: 해당 연도 연차 할당 초기화 (초년차 계산)
+  if(!isSameYear && _supa) {
+    // 기존 연차 할당 삭제 후 재계산
+    await _supa.from('leave_allocs').delete().eq('emp_id', empId).eq('year', newYear);
+    // 초년차 연차 산정 (입사월 기준 비례)
+    const joinMonth = parseInt(newJoinDate.slice(5,7));
+    const remainMonths = 13 - joinMonth; // 입사월~12월
+    const initDays = Math.floor(remainMonths); // 월 1일씩 부여
+    const initHours = initDays * 8;
+    if(initHours > 0) {
+      await _supa.from('leave_allocs').insert({emp_id:empId, year:newYear, total:initHours, carryover:0, extinct:0});
+    }
+    // 로컬 할당 업데이트
+    db.leaveAllocs = db.leaveAllocs.filter(a=>!(String(a.empId)===String(empId)&&a.year===newYear));
+    if(initHours > 0) db.leaveAllocs.push({empId, year:newYear, total:initHours, carryover:0, extinct:0});
+    showToast(`✅ ${e.name}님 재입사 완료 (${newYear}년 연차 ${initDays}일 초기화)`);
+  } else {
+    showToast(`✅ ${e.name}님 재입사 완료`);
+  }
+  closeModal();
+  go('roster');
+}
+
+
 // ── 직원명부용: 기본 정보 + 관리자 수정 ──
 function openEmpInfo(empId) {
   const e = eid(empId); if (!e) return;
@@ -4198,8 +4265,16 @@ function openEmpInfo(empId) {
       </div>
 
       <div class="modal-footer">
-        <button class="btn" onclick="closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="saveEmpInfo(${empId})">저장</button>
+        <div style="display:flex;gap:8px">
+          ${e.isInactive
+            ? `<button class="btn btn-primary" style="background:#16a34a;border-color:#16a34a" onclick="reactivateEmp(${empId})">✅ 재입사</button>`
+            : `<button class="btn btn-danger" onclick="deactivateEmp(${empId})">🚫 비활성</button>`
+          }
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="closeModal()">취소</button>
+          <button class="btn btn-primary" onclick="saveEmpInfo(${empId})">저장</button>
+        </div>
       </div>
     `);
   } else {
@@ -4750,7 +4825,7 @@ function renderOT(){
     </tr>`;
   }).join('');
   const totalOTHours0 = db.requests.filter(r=>r.type==='ot'&&String(r.year)===String(yr)&&r.status==='approved'&&canView(r)).reduce((s,r)=>s+(+r.hours||0),0);
-  const totalCompRemain0 = otEmps.filter(e=>!e.isExternal).reduce((s,e)=>s+getCompValidRemain(e.id,yr),0);
+  const totalCompRemain0 = otEmps.filter(e=>!e.isExternal&&!e.isInactive).reduce((s,e)=>s+getCompValidRemain(e.id,yr),0);
   setContent(`
     <div class="info-bar" style="background:var(--comp-bg);border:1px solid #f9a8d4;color:var(--comp)">📌 연장/특근 ×1.5배 | 주말연장 ×2배 | 교통비 선택 시 대휴 소멸 | 대체휴무 사용기한: 발생일로부터 1년</div>
     <div class="stats-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:12px">
@@ -4762,7 +4837,7 @@ function renderOT(){
         <div class="stat-label">🔄 잔여 대휴</div><div class="stat-val">${totalCompRemain0}h</div>
         <button class="btn btn-sm" style="position:absolute;top:10px;right:10px;font-size:12px;background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc" onclick="openAddComp()">+ 신청</button>
       </div>
-      <div class="stat-card"><div class="stat-label">👥 대상 인원</div><div class="stat-val">${otEmps.filter(e=>!e.isExternal).length}명</div></div>
+      <div class="stat-card"><div class="stat-label">👥 대상 인원</div><div class="stat-val">${otEmps.filter(e=>!e.isExternal&&!e.isInactive).length}명</div></div>
     </div>
     <div class="card"><div class="card-title">개인별 특근/대휴 현황 (${yr}년)</div>
       <div class="table-wrap"><table><thead><tr><th>직원</th><th>부서</th><th>특근</th><th>발생 대휴</th><th>이월 대휴</th><th>사용 대휴</th><th>잔여 대휴</th><th>교통비 전환</th>${(isAdmin||(currentEmp&&otEmps.some(e=>String(e.id)===String(currentEmp.id)&&!e.isExternal)))?'<th>신청</th>':''}</tr></thead><tbody>${sumRows}</tbody></table></div>
@@ -5121,7 +5196,7 @@ function renderHealth(){
 
   // 타기관 검진자 목록 (별도 집계)
   const otherClinicEmps = [];
-  db.employees.filter(e=>!e.isExternal).forEach(e=>{
+  db.employees.filter(e=>!e.isExternal&&!e.isInactive).forEach(e=>{
     const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
     // otherClinic: status 또는 members에서 확인 (두 경로 모두 지원)
     const _mainMember = h?.members?.find(m=>m.relation==='본인') || h?.members?.[0];
@@ -5147,7 +5222,7 @@ function renderHealth(){
 
   // 2번: 수검일 오름차순 정렬
   const showEmps = isAdmin
-    ? db.employees.filter(e=>!e.isExternal)
+    ? db.employees.filter(e=>!e.isExternal&&!e.isInactive)
     : db.employees.filter(e=>currentEmp && String(e.id)===String(currentEmp.id));
 
   const sortedEmps = showEmps.slice().sort((a,b)=>{
@@ -5202,7 +5277,7 @@ function renderHealth(){
   let costGrandTotal = 0;
   let costDeptMap = {};
   if (isAdmin) {
-    db.employees.filter(e=>!e.isExternal).forEach(e=>{
+    db.employees.filter(e=>!e.isExternal&&!e.isInactive).forEach(e=>{
       if(!costDeptMap[e.dept])costDeptMap[e.dept]={total:0,applied:0,empCost:0,famCost:0};
       costDeptMap[e.dept].total++;
       const h=db.health.find(r=>String(r.empId)===String(e.id)&&String(r.year)===String(yr));
