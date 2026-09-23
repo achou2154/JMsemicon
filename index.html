@@ -172,7 +172,7 @@ tbody tr:hover td{background:var(--surface2)}
 .modal.modal-lg{width:min(1400px,95vw) !important;max-width:95vw !important;max-height:92vh !important}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:20px 24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .modal-title{font-size:18px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
+.modal-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:99px}
 .upcoming-chip{display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:11px;font-weight:600;background:#fef9c3;color:#854d0e;margin-left:5px}
@@ -5773,26 +5773,45 @@ function chM(d){calMonth+=d;if(calMonth>12){calMonth=1;calYear++;}if(calMonth<1)
 // ══════════════════════════════════════════════
 //  MODALS
 // ══════════════════════════════════════════════
+
+// 시작일 바뀌면 종료일도 동일하게 자동세팅 (빈값이거나 시작일보다 이전일 때)
+function syncEndDate(){
+  const sy=document.getElementById('f-start-y')?.value||'';
+  const sm=document.getElementById('f-start-m')?.value||'';
+  const sd=document.getElementById('f-start-d')?.value||'';
+  if(!sy||!sm||!sd) return;
+  const ey=document.getElementById('f-end-y');
+  const em=document.getElementById('f-end-m');
+  const ed=document.getElementById('f-end-d');
+  if(!ey) return;
+  const curEnd=(ey.value||'')+(em?.value||'').padStart(2,'0')+(ed?.value||'').padStart(2,'0');
+  const curStart=sy+sm.padStart(2,'0')+sd.padStart(2,'0');
+  if(!curEnd||curEnd<curStart){
+    ey.value=sy; if(em) em.value=sm; if(ed) ed.value=sd;
+  }
+}
+
 function openModal(html, large=false){
   const box=document.getElementById('modal-box');
   box.innerHTML=html;
   if(large) box.classList.add('modal-lg');
   else box.classList.remove('modal-lg');
   document.getElementById('modal-bg').classList.add('show');
-  // 사유 입력창에서 Enter 키 → 신청/저장 버튼(btn-primary) 자동 클릭 (연차·특근·대휴·출장·교육 등)
-  box.querySelectorAll('#f-reason, [id^="edu-reason"], [id^="f-reason"]').forEach(inp=>{
-    inp.addEventListener('keydown', e=>{
-      if(e.key==='Enter'){
-        e.preventDefault();
-        const btn = box.querySelector('.modal-footer .btn-primary');
-        if(btn) btn.click();
-      }
-    });
+  // Enter 키 → 신청/저장 버튼 자동 클릭 (textarea 제외, 모든 input)
+  box.addEventListener('keydown', function _enter(e){
+    if(e.key!=='Enter') return;
+    if(e.target.tagName==='TEXTAREA') return;
+    e.preventDefault();
+    const btn=box.querySelector('.modal-footer .btn-primary');
+    if(btn) btn.click();
   });
 }
 function closeModal(){
   document.getElementById('modal-bg').classList.remove('show');
-  document.getElementById('modal-box').classList.remove('modal-lg');
+  const box=document.getElementById('modal-box');
+  box.classList.remove('modal-lg');
+  // 이벤트 리스너 초기화 (innerHTML 교체로 자동 제거됨)
+  box.innerHTML='';
 }
 
 function openAddEmp(){
