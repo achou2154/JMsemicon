@@ -3123,6 +3123,9 @@ function openSummerPlan(id){
       const el=document.getElementById(id);
       if(el){ el.addEventListener('input',autoCalcLeaveHours); el.addEventListener('input',updateLeaveRemainPreview); }
     });
+    ['f-start-y','f-start-m','f-start-d'].forEach(id=>{
+      document.getElementById(id)?.addEventListener('input', syncEndDate);
+    });
     document.getElementById('f-hours')?.addEventListener('input',updateLeaveRemainPreview);
     document.getElementById('f-emp')?.addEventListener('change',updateLeaveRemainPreview);
     updateLeaveRemainPreview();
@@ -5859,11 +5862,12 @@ function syncEndDate(){
   const em=document.getElementById('f-end-m');
   const ed=document.getElementById('f-end-d');
   if(!ey) return;
-  const curEnd=(ey.value||'')+(em?.value||'').padStart(2,'0')+(ed?.value||'').padStart(2,'0');
-  const curStart=sy+sm.padStart(2,'0')+sd.padStart(2,'0');
-  if(!curEnd||curEnd<curStart){
-    ey.value=sy; if(em) em.value=sm; if(ed) ed.value=sd;
-  }
+  // 시작일 변경 시 종료일을 항상 시작일과 동일하게 세팅
+  ey.value=sy;
+  if(em) em.value=sm;
+  if(ed) ed.value=sd;
+  // 자동계산 함수 재트리거
+  ey.dispatchEvent(new Event('input'));
 }
 
 // 모달 Enter 리스너 AbortController (중복 방지)
@@ -6163,6 +6167,9 @@ async function openAddLeave(empId){
       const el=document.getElementById(id);
       if(el) el.addEventListener('input',autoCalcLeaveHours);
       if(el) el.addEventListener('input',updateLeaveRemainPreview);
+    });
+    ['f-start-y','f-start-m','f-start-d'].forEach(id=>{
+      document.getElementById(id)?.addEventListener('input',syncEndDate);
     });
     document.getElementById('f-hours')?.addEventListener('input',updateLeaveRemainPreview);
     document.getElementById('f-emp')?.addEventListener('change',updateLeaveRemainPreview);
@@ -6636,6 +6643,9 @@ async function openAddComp(empId){
       if(el) el.addEventListener('input', autoCalcCompHours);
       if(el) el.addEventListener('input', updateCompRemainPreview);
     });
+    ['f-start-y','f-start-m','f-start-d'].forEach(id=>{
+      document.getElementById(id)?.addEventListener('input', syncEndDate);
+    });
     document.getElementById('f-hours')?.addEventListener('input', updateCompRemainPreview);
     document.getElementById('f-emp')?.addEventListener('change', updateCompRemainPreview);
     updateCompRemainPreview();
@@ -6751,9 +6761,14 @@ async function openAddTrip(kind,empId){
     +'</div>'
     +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveTrip(\''+kind+'\')">신청</button></div></div>'
   );
+  // 시작일 변경 → 복귀일 자동 동기화
+  setTimeout(()=>{
+    ['f-start-y','f-start-m','f-start-d'].forEach(id=>{
+      document.getElementById(id)?.addEventListener('input', syncEndDate);
+    });
+  }, 100);
 }
 async function saveTrip(kind){
-  kind=kind||'domestic';
   const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
   const e2=getDateVal('f-end')||s;
   if(!checkDateOrder(s,e2,'출장')) return;
