@@ -169,7 +169,7 @@ tbody tr:hover td{background:var(--surface2)}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:100;align-items:center;justify-content:center}
 .modal-bg.show{display:flex}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:28px 32px;width:480px;max-width:92vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.2)}
-.modal.modal-lg{width:960px !important;max-width:95vw !important;max-height:90vh !important}
+.modal.modal-lg{width:min(1400px,95vw) !important;max-width:95vw !important;max-height:92vh !important}
 .modal{background:var(--surface);border-radius:var(--radius-lg);padding:20px 24px;width:500px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.18)}
 .modal-title{font-size:18px;font-weight:600;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
 .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)}
@@ -3997,61 +3997,108 @@ function openEmpProfile(empId){
 
   const lRemAlert=lRem>=160; const cRemAlert=compRem>=40;
 
+  // 4단용 rows (컬럼 축약)
+  const leaveRows2 = leaveList.length ? leaveList.map(r=>`
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 3px;font-size:12px">${r.leaveType}</td>
+      <td style="padding:4px 3px;font-size:11px">${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?'~'+fmt(r.endDate):''}</td>
+      <td style="padding:4px 3px;font-size:12px;text-align:center">${['병가','특별휴가'].includes(r.leaveType)?'제외':`${Math.round((+r.hours)/8*10)/10}일`}</td>
+    </tr>`).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:8px;font-size:12px">없음</td></tr>`;
+
+  const otRows2 = otList.length ? otList.map(r=>{
+    const trans=r.useTransport;
+    return`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 3px;font-size:11px">${fmt(r.date)}</td>
+      <td style="padding:4px 3px;font-size:12px;text-align:center">${r.hours}h</td>
+      <td style="padding:4px 3px;font-size:11px">${trans?`₩${((+r.hours)*TRANSPORT_RATE/10000).toFixed(1)}만`:calcComp(r.hours,r.otType)+'h대휴'}</td>
+    </tr>`;}).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:8px;font-size:12px">없음</td></tr>`;
+
+  const compRows2 = compList.length ? compList.map(r=>`
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 3px;font-size:11px">${fmt(r.startDate)}</td>
+      <td style="padding:4px 3px;font-size:12px;text-align:center">${r.hours}h</td>
+      <td style="padding:4px 3px;font-size:11px;color:var(--text3)">${r.reason||'—'}</td>
+    </tr>`).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:8px;font-size:12px">없음</td></tr>`;
+
+  const tripRows2 = tripList.length ? tripList.map(r=>`
+    <tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:4px 3px;font-size:11px">${fmt(r.startDate)}${r.endDate&&r.endDate!==r.startDate?'~'+fmt(r.endDate):''}</td>
+      <td style="padding:4px 3px;font-size:12px">${r.dest||'—'}</td>
+      <td style="padding:4px 3px;font-size:11px;color:var(--text3)">${r.reason||'—'}</td>
+    </tr>`).join('')
+    :`<tr><td colspan="3" style="text-align:center;color:var(--text3);padding:8px;font-size:12px">없음</td></tr>`;
+
   openModal(`
     <div class="modal-title">
       <div style="display:flex;align-items:center;gap:10px">
-        ${av(empId,36)}
+        ${av(empId,40)}
         <div>
-          <div>${e.name} <span style="font-size:13px;color:var(--text2);font-weight:400">${e.position} · ${e.dept}</span></div>
-          <div style="font-size:12px;color:var(--text3);font-weight:400">입사일: ${fmt(e.joinDate)} · ${yr}년 기준</div>
+          <div style="font-size:18px">${e.name} <span style="font-size:14px;color:var(--text2);font-weight:400">${e.position} · ${e.dept}</span></div>
+          <div style="font-size:13px;color:var(--text3);font-weight:400">입사일: ${fmt(e.joinDate)} · ${yr}년 기준</div>
         </div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
-      <div style="background:var(--leave-bg);border-radius:var(--radius);padding:10px 12px">
-        <div style="font-size:11px;color:var(--leave);margin-bottom:3px">연차 잔여</div>
-        <div style="font-size:20px;font-weight:700;color:${lRemAlert?'var(--danger)':'var(--leave)'}">${Math.round(lRem/8*10)/10}일</div>
-        <div style="font-size:11px;color:var(--text3)">${lUsed/8}일 사용 / 총 ${lTotal/8}일</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">
+      <div style="background:var(--leave-bg);border-radius:var(--radius);padding:14px 16px">
+        <div style="font-size:12px;color:var(--leave);margin-bottom:4px;font-weight:600">🏖️ 연차 잔여</div>
+        <div style="font-size:26px;font-weight:700;color:${lRemAlert?'var(--danger)':'var(--leave)'}">${Math.round(lRem/8*10)/10}일</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${lUsed/8}일 사용 / 총 ${lTotal/8}일</div>
       </div>
-      <div style="background:var(--comp-bg);border-radius:var(--radius);padding:10px 12px">
-        <div style="font-size:11px;color:var(--comp);margin-bottom:3px">대체휴무 잔여</div>
-        <div style="font-size:20px;font-weight:700;color:${cRemAlert?'var(--danger)':'var(--comp)'}">${compRem}h</div>
-        <div style="font-size:11px;color:var(--text3)">발생 ${compEarned}h / 사용 ${compUsed}h</div>
+      <div style="background:var(--ot-bg);border-radius:var(--radius);padding:14px 16px">
+        <div style="font-size:12px;color:var(--ot);margin-bottom:4px;font-weight:600">⏰ 발생 특근</div>
+        <div style="font-size:26px;font-weight:700;color:var(--ot)">${compEarned}h</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">이월 ${compCarry}h · ${yr}년</div>
       </div>
-      <div style="background:var(--trip-bg);border-radius:var(--radius);padding:10px 12px">
-        <div style="font-size:11px;color:var(--trip);margin-bottom:3px">출장</div>
-        <div style="font-size:20px;font-weight:700;color:var(--trip)">${tripList.length}건</div>
-        <div style="font-size:11px;color:var(--text3)">${yr}년 누계</div>
+      <div style="background:var(--comp-bg);border-radius:var(--radius);padding:14px 16px">
+        <div style="font-size:12px;color:var(--comp);margin-bottom:4px;font-weight:600">🔄 대체휴무 잔여</div>
+        <div style="font-size:26px;font-weight:700;color:${cRemAlert?'var(--danger)':'var(--comp)'}">${compRem}h</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">발생 ${compEarned}h / 사용 ${compUsed}h</div>
+      </div>
+      <div style="background:var(--trip-bg);border-radius:var(--radius);padding:14px 16px">
+        <div style="font-size:12px;color:var(--trip);margin-bottom:4px;font-weight:600">✈️ 출장</div>
+        <div style="font-size:26px;font-weight:700;color:var(--trip)">${tripList.length}건</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:2px">${yr}년 누계</div>
       </div>
     </div>
-    <div style="font-size:14px;font-weight:600;color:var(--leave);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--leave-bg)">
-      🏖️ 연차 내역 (${yr}년) — 부여 ${a.total/8}일 + 이월 ${(+a.carryover||0)/8}일 = 총 ${lTotal/8}일
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--leave);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--leave-bg)">🏖️ 연차<span style="font-size:10px;font-weight:400;color:var(--text3);display:block">총 ${lTotal/8}일 (이월 ${(+a.carryover||0)/8}일)</span></div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--text3);font-size:11px;border-bottom:1px solid var(--border)">
+            <th style="padding:3px 3px;text-align:left;font-weight:500">구분</th><th style="padding:3px 3px;text-align:left;font-weight:500">날짜</th><th style="padding:3px 3px;text-align:center;font-weight:500">일수</th>
+          </tr></thead><tbody>${leaveRows2}</tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--ot);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--ot-bg)">⏰ 특근<span style="font-size:10px;font-weight:400;color:var(--text3);display:block">이월 ${compCarry}h / 발생 ${compEarned}h</span></div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--text3);font-size:11px;border-bottom:1px solid var(--border)">
+            <th style="padding:3px 3px;text-align:left;font-weight:500">날짜</th><th style="padding:3px 3px;text-align:center;font-weight:500">시간</th><th style="padding:3px 3px;text-align:left;font-weight:500">전환</th>
+          </tr></thead><tbody>${otRows2}</tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--comp);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--comp-bg)">🔄 대체휴무<span style="font-size:10px;font-weight:400;color:var(--text3);display:block">잔여 ${compRem}h / 사용 ${compUsed}h</span></div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--text3);font-size:11px;border-bottom:1px solid var(--border)">
+            <th style="padding:3px 3px;text-align:left;font-weight:500">사용일</th><th style="padding:3px 3px;text-align:center;font-weight:500">시간</th><th style="padding:3px 3px;text-align:left;font-weight:500">사유</th>
+          </tr></thead><tbody>${compRows2}</tbody>
+        </table>
+      </div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--trip);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--trip-bg)">✈️ 출장<span style="font-size:10px;font-weight:400;color:var(--text3);display:block">총 ${tripList.length}건 · ${yr}년</span></div>
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="color:var(--text3);font-size:11px;border-bottom:1px solid var(--border)">
+            <th style="padding:3px 3px;text-align:left;font-weight:500">기간</th><th style="padding:3px 3px;text-align:left;font-weight:500">목적지</th><th style="padding:3px 3px;text-align:left;font-weight:500">목적</th>
+          </tr></thead><tbody>${tripRows2}</tbody>
+        </table>
+      </div>
     </div>
-    <div class="table-wrap" style="margin-bottom:16px"><table>
-      <thead><tr><th>구분</th><th>사용 날짜</th><th>사용 일수</th><th>사유</th></tr></thead>
-      <tbody>${leaveRows}</tbody>
-    </table></div>
-    <div style="font-size:14px;font-weight:600;color:var(--ot);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--ot-bg)">
-      ⏰ 특근 내역 (${yr}년) — 이월 대휴 ${compCarry}h / 발생 ${compEarned}h / 잔여 ${compRem}h
-    </div>
-    <div class="table-wrap" style="margin-bottom:10px"><table>
-      <thead><tr><th>구분</th><th>발생일</th><th>시간</th><th>대휴/교통비</th><th>사유</th></tr></thead>
-      <tbody>${otRows}</tbody>
-    </table></div>
-    <div style="font-size:13px;font-weight:500;color:var(--comp);margin-bottom:4px">대체휴무 사용 내역</div>
-    <div class="table-wrap" style="margin-bottom:16px"><table>
-      <thead><tr><th>사용일</th><th>시간</th><th>사유</th></tr></thead>
-      <tbody>${compRows}</tbody>
-    </table></div>
-    <div style="font-size:14px;font-weight:600;color:var(--trip);margin-bottom:6px;padding-bottom:4px;border-bottom:2px solid var(--trip-bg)">
-      ✈️ 출장 내역 (${yr}년) — 총 ${tripList.length}건
-    </div>
-    <div class="table-wrap" style="margin-bottom:8px"><table>
-      <thead><tr><th>출장 기간</th><th>목적지</th><th>목적</th></tr></thead>
-      <tbody>${tripRows}</tbody>
-    </table></div>
     <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
-  `);
+  `, true);
 }
 
 // ── 직원명부용: 기본 정보 + 관리자 수정 ──
