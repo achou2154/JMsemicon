@@ -3117,7 +3117,7 @@ function openSummerPlan(id){
   // 사유
   +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" value="'+String(_reason).replace(/"/g,'&quot;')+'" placeholder="사유를 입력하세요"></div>'
   +'</div>'
-  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveSummerPlan('+(editing?editing.id:'null')+')">'+(editing?'수정':'신청')+'</button></div>');
+  +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveSummerPlan('+(editing?editing.id:"null")+')">'+(editing?'수정':'신청')+'</button></div></div>');
   setTimeout(()=>{
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
@@ -5866,26 +5866,32 @@ function syncEndDate(){
   }
 }
 
+// 모달 Enter 리스너 AbortController (중복 방지)
+let _modalAC = null;
 function openModal(html, large=false){
   const box=document.getElementById('modal-box');
+  // 기존 리스너 완전 제거 후 재등록
+  if(_modalAC){ _modalAC.abort(); _modalAC=null; }
   box.innerHTML=html;
   if(large) box.classList.add('modal-lg');
   else box.classList.remove('modal-lg');
   document.getElementById('modal-bg').classList.add('show');
-  // Enter 키 → 신청/저장 버튼 자동 클릭 (textarea 제외, 모든 input)
-  box.addEventListener('keydown', function _enter(e){
+  // Enter 키 → 신청/저장 버튼 (AbortController로 정확히 1개만 등록)
+  _modalAC = new AbortController();
+  box.addEventListener('keydown', function(e){
     if(e.key!=='Enter') return;
-    if(e.target.tagName==='TEXTAREA') return;
+    if(e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT') return;
     e.preventDefault();
+    e.stopPropagation();
     const btn=box.querySelector('.modal-footer .btn-primary');
-    if(btn) btn.click();
-  });
+    if(btn && !btn.disabled) btn.click();
+  }, {signal: _modalAC.signal});
 }
 function closeModal(){
   document.getElementById('modal-bg').classList.remove('show');
   const box=document.getElementById('modal-box');
   box.classList.remove('modal-lg');
-  // 이벤트 리스너 초기화 (innerHTML 교체로 자동 제거됨)
+  if(_modalAC){ _modalAC.abort(); _modalAC=null; }
   box.innerHTML='';
 }
 
@@ -5967,7 +5973,7 @@ function openAddRequest(){
   openModal(`<div class="modal-title">신청하기</div>
     <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>유형</label><select id="req-type" onchange="updateReqForm()"><option value="leave">연차</option><option value="ot">특근</option><option value="trip">출장</option><option value="comp">대체휴무</option></select></div></div>
     <div id="req-form-body"></div>
-    <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="submitReq()">신청</button></div>`);
+    <div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="submitReq()">신청</button></div></div>`);
   updateReqForm();
 }
 function updateReqForm(){
@@ -6151,7 +6157,7 @@ async function openAddLeave(empId){
   +'<div id="leave-file-name" style="font-size:13px;color:var(--accent);margin-top:4px"></div>'
   +'</div>'
   +'</div>'
-  +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div>');
+  +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveLeave()">신청</button></div></div>');
   setTimeout(()=>{
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
       const el=document.getElementById(id);
@@ -6536,7 +6542,7 @@ async function openAddOT(empId){
   </div>
   <div id="ot-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>
   <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
-  <div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div>`);
+  <div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div></div>`);
   setTimeout(()=>{
     document.querySelectorAll('input[name="otsub2"]').forEach(r=>r.addEventListener('change',updateOTRemainPreview));
     document.getElementById('f-emp')?.addEventListener('change',updateOTRemainPreview);
@@ -6622,7 +6628,7 @@ async function openAddComp(empId){
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">대직자 <span style="color:#dc2626">*</span> <span style="font-size:11px;color:var(--text3);font-weight:400">필수 입력</span></label><input id="f-substitute" placeholder="대직자 이름을 입력하세요"></div>'
     +'</div>'
-    +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div>'
+    +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div></div>'
   );
   setTimeout(()=>{
     ['f-start-y','f-start-m','f-start-d','f-end-y','f-end-m','f-end-d'].forEach(id=>{
@@ -6743,7 +6749,7 @@ async function openAddTrip(kind,empId){
       : '<input type="hidden" id="f-allowance" value="0">')
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">목적</label><input id="f-reason" placeholder="출장 목적을 입력하세요"></div>'
     +'</div>'
-    +'<div class="modal-footer"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveTrip(\''+kind+'\')">신청</button></div>'
+    +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveTrip(\''+kind+'\')">신청</button></div></div>'
   );
 }
 async function saveTrip(kind){
