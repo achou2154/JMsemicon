@@ -302,7 +302,13 @@ const LUNAR_NEW_YEAR = {
 // ══════════════════════════════════════════════
 let currentPage = 'calendar';
 let currentYear = 2026;
-let currentMonth = new Date().getMonth()+1;
+// 귀속월 자동 결정: 10일까지 → 직전월, 11일부터 → 당월
+function _calcDefaultCardMonth(){
+  const now=new Date(); const d=now.getDate(); const m=now.getMonth()+1;
+  if(d<=10){ return m===1?12:m-1; } // 10일까지는 직전월
+  return m; // 11일부터는 당월
+}
+let currentMonth = _calcDefaultCardMonth();
 let calYear = 2026, calMonth = new Date().getMonth()+1;
 let reqFilter = 'all', reqTypeFilter = 'all';
 let _overviewSort = 'default'; // default | name | joindate | leavedesc | compdesc
@@ -1579,7 +1585,7 @@ const NAV_ORDER=['overview','calendar','roster','requests','leave','summer','ot'
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
-  const adminOnly = ['overview','alerts','requests','notifysetting'];
+  const adminOnly = ['overview','alerts','requests','notifysetting','cardadmin'];
   if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
   // 교통비 관리는 전직원(관리자 포함) 숨김 처리
   if(page==='transport') { page='calendar'; }
@@ -1802,15 +1808,15 @@ function renderCardTable(type, rows, canEdit, headerId) {
       <td style="padding:4px 6px">
         <div style="display:flex;gap:2px;align-items:center">
           <input type="number" class="card-date-y" value="${((r.useDate||'').slice(0,10)||'').slice(0,4)||''}" min="2000" max="2099" placeholder="YYYY"
-            style="width:48px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
+            style="width:72px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:14px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,4);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
           <span style="color:var(--text3);font-size:12px">-</span>
           <input type="number" class="card-date-m" value="${((r.useDate||'').slice(0,10)||'').slice(5,7)||''}" min="1" max="12" placeholder="MM"
-            style="width:34px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
+            style="width:51px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:14px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,2);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
           <span style="color:var(--text3);font-size:12px">-</span>
           <input type="number" class="card-date-d" value="${((r.useDate||'').slice(0,10)||'').slice(8,10)||''}" min="1" max="31" placeholder="DD"
-            style="width:34px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:13px;text-align:center"
+            style="width:51px;padding:4px;border:1px solid var(--border2);border-radius:4px;font-size:14px;text-align:center"
             oninput="this.value=this.value.replace(/\D/g,'').slice(0,2);syncCardDate(this,'${type}',${i})" onchange="syncCardDate(this,'${type}',${i})">
         </div>
         <input type="hidden" class="card-date-val" value="${r.useDate||''}">
@@ -2147,9 +2153,9 @@ async function uploadCardReceipt(input, type, idx) {
   const headerId = window._cardHeaderId;
   if (!headerId) { showToast('⚠️ 먼저 임시저장해 주세요'); return; }
   const path = `${headerId}/${type}_${idx}_${Date.now()}_${file.name}`;
-  const { error } = await _supa.storage.from('card-receipts').upload(path, file, {upsert:true});
+  const { error } = await _supa.storage.from('attachments').upload(path, file, {upsert:true});
   if (error) { showToast('⚠️ 업로드 실패: '+error.message); return; }
-  const { data: urlData } = _supa.storage.from('card-receipts').getPublicUrl(path);
+  const { data: urlData } = _supa.storage.from('attachments').getPublicUrl(path);
   const category = type==='cc'?'개인카드':'교통비';
   const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(headerId)&&r.category===category).sort((a,b)=>a.seq-b.seq);
   const rowSeq = rows[idx]?.seq||idx+1;
@@ -2263,6 +2269,7 @@ async function submitCard() {
 
 // ── 관리자 총관리 화면 (nav: 개인카드내역 총관리) ──
 function renderCardAdmin2() {
+  if(!isAdmin){ go('card'); return; } // 관리자만 접근 가능
   const yr = currentYear;
   const mo = currentMonth || new Date().getMonth()+1;
   renderCardAdmin(yr, mo); // 기존 함수 재사용
@@ -5862,12 +5869,15 @@ function syncEndDate(){
   const em=document.getElementById('f-end-m');
   const ed=document.getElementById('f-end-d');
   if(!ey) return;
-  // 시작일 변경 시 종료일을 항상 시작일과 동일하게 세팅
+  // 시작일 변경 시 종료일을 시작일과 동일하게 세팅 (dispatchEvent 없이 값만 변경)
   ey.value=sy;
   if(em) em.value=sm;
   if(ed) ed.value=sd;
-  // 자동계산 함수 재트리거
-  ey.dispatchEvent(new Event('input'));
+  // 자동계산 함수만 직접 호출 (이벤트 발생 금지 — 포커스 이동 방지)
+  if(typeof autoCalcLeaveHours==='function') autoCalcLeaveHours();
+  if(typeof autoCalcCompHours==='function') autoCalcCompHours();
+  if(typeof updateLeaveRemainPreview==='function') updateLeaveRemainPreview();
+  if(typeof updateCompRemainPreview==='function') updateCompRemainPreview();
 }
 
 // 모달 Enter 리스너 AbortController (중복 방지)
@@ -7421,8 +7431,20 @@ function renderMyProfile() {
       <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:16px">
         <div style="font-size:14px;font-weight:600;margin-bottom:10px">🔒 비밀번호 변경</div>
         <div class="form-grid" style="margin-bottom:8px">
-          <div class="field"><label>새 비밀번호</label><input type="password" id="mp-pw1" placeholder="6자 이상"></div>
-          <div class="field"><label>비밀번호 확인</label><input type="password" id="mp-pw2" placeholder="동일하게 입력"></div>
+          <div class="field"><label>새 비밀번호</label>
+            <div style="position:relative">
+              <input type="password" id="mp-pw1" placeholder="6자 이상" style="width:100%;padding-right:42px">
+              <span onclick="const i=document.getElementById('mp-pw1');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'보기':'숨김'"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text3);cursor:pointer;user-select:none;font-weight:500">보기</span>
+            </div>
+          </div>
+          <div class="field"><label>비밀번호 확인</label>
+            <div style="position:relative">
+              <input type="password" id="mp-pw2" placeholder="동일하게 입력" style="width:100%;padding-right:42px">
+              <span onclick="const i=document.getElementById('mp-pw2');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'보기':'숨김'"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--text3);cursor:pointer;user-select:none;font-weight:500">보기</span>
+            </div>
+          </div>
         </div>
         <button class="btn btn-sm" onclick="changePassword()">비밀번호 변경</button>
       </div>
