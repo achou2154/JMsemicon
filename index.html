@@ -1635,7 +1635,15 @@ function changeYear(y){currentYear=y;go(currentPage);}
 
 // ── 마감일 헬퍼 ──
 function cardDeadline(year, month) {
-  return { soft: `${year}-${String(month).padStart(2,'0')}-05`, hard: `${year}-${String(month).padStart(2,'0')}-09` };
+  // 당월 사용분 → 다음달 10일까지 제출
+  // ex) 9월 사용분 → 10월 10일 마감
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear  = month === 12 ? year + 1 : year;
+  const mm = String(nextMonth).padStart(2,'0');
+  return {
+    soft: `${nextYear}-${mm}-05`,  // 다음달 5일: 조기 마감 권고
+    hard: `${nextYear}-${mm}-10`   // 다음달 10일: 최종 마감
+  };
 }
 function cardDeadlineStatus(year, month) {
   const today = todayStr();
@@ -1681,13 +1689,17 @@ function renderCardMy(yr, mo) {
   const header = getCardHeader(empId, yr, mo);
   const ds = cardDeadlineStatus(yr, mo);
   const { soft, hard } = cardDeadline(yr, mo);
+  // 안내 예시: N월 사용분 → 다음달 10일까지
+  const nextMo = mo===12?1:mo+1, nextYr = mo===12?yr+1:yr;
+  const exampleHint = `<div style="font-size:12px;color:var(--text3);margin-top:5px">(예) ${mo}월 사용분 내역 업로드 기한: ${mo}월 10일 ~ ${nextYr}년 ${nextMo}월 10일</div>`;
+
   const deadlineBanner = isAdmin
     ? `<div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8">🔓 관리자 모드: 마감일과 관계없이 업로드·수정 가능합니다.</div>`
     : ds==='closed'
-    ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626">⛔ 마감 완료 (${hard} 이후 제출 불가)</div>`
+    ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#dc2626">⛔ 마감 완료 (${hard} 이후 제출 불가)${exampleHint}</div>`
     : ds==='warning'
-    ? `<div style="background:#fef3c7;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#d97706">⚠️ 제출 마감일(${soft})이 지났습니다. 최대 ${hard}까지 제출 가능합니다.</div>`
-    : `<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#15803d">✅ 제출 기한: ${soft}까지 (최대 ${hard})</div>`;
+    ? `<div style="background:#fef3c7;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#d97706">⚠️ 제출 마감일(${soft})이 지났습니다. 최대 ${hard}까지 제출 가능합니다.${exampleHint}</div>`
+    : `<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#15803d">✅ 제출 기한: ${soft}까지 (최대 ${hard})${exampleHint}</div>`;
 
   const statusColor = {작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
   const statusBadge = header
