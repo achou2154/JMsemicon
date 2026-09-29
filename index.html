@@ -2093,63 +2093,45 @@ async function importCardExcel(input) {
   if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
 
   // ── 파싱 결과 확인 팝업 ──
-  function previewRows(rows, type) {
-    if(!rows.length) return `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:8px">없음</td></tr>`;
-    return rows.map(r=>`<tr style="border-bottom:1px solid var(--border)">
-      <td style="padding:5px 8px;font-size:13px">${r.useDate||''}</td>
-      <td style="padding:5px 8px;font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.detail||''}</td>
-      <td style="padding:5px 8px;font-size:13px">${r.cardCompany||''}</td>
-      <td style="padding:5px 8px;font-size:13px;text-align:right">${Number(r.amount||0).toLocaleString()}원</td>
-      <td style="padding:5px 8px;font-size:13px">${r.receiptType||''}</td>
-    </tr>`).join('');
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  function previewRows(rows) {
+    if(!rows.length) return '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:8px">없음</td></tr>';
+    return rows.map(r=>'<tr style="border-bottom:1px solid var(--border)">'
+      +'<td style="padding:5px 8px;font-size:13px">'+esc(r.useDate)+'</td>'
+      +'<td style="padding:5px 8px;font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.detail)+'</td>'
+      +'<td style="padding:5px 8px;font-size:13px">'+esc(r.cardCompany)+'</td>'
+      +'<td style="padding:5px 8px;font-size:13px;text-align:right">'+Number(r.amount||0).toLocaleString()+'원</td>'
+      +'<td style="padding:5px 8px;font-size:13px">'+esc(r.receiptType)+'</td>'
+      +'</tr>').join('');
   }
-  function tableHead() {
-    return `<thead><tr style="background:var(--primary);color:#fff">
-      <th style="padding:6px 8px;font-size:12px;text-align:left">사용일자</th>
-      <th style="padding:6px 8px;font-size:12px;text-align:left">사용내역</th>
-      <th style="padding:6px 8px;font-size:12px;text-align:left">카드사</th>
-      <th style="padding:6px 8px;font-size:12px;text-align:right">금액</th>
-      <th style="padding:6px 8px;font-size:12px;text-align:left">증빙</th>
-    </tr></thead>`;
-  }
+  const tHead = '<thead><tr style="background:var(--primary);color:#fff">'
+    +'<th style="padding:6px 8px;font-size:12px;text-align:left">사용일자</th>'
+    +'<th style="padding:6px 8px;font-size:12px;text-align:left">사용내역</th>'
+    +'<th style="padding:6px 8px;font-size:12px;text-align:left">카드사</th>'
+    +'<th style="padding:6px 8px;font-size:12px;text-align:right">금액</th>'
+    +'<th style="padding:6px 8px;font-size:12px;text-align:left">증빙</th>'
+    +'</tr></thead>';
 
-  openModal(`
-    <div class="modal-title">📂 엑셀 파싱 결과 확인</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
-      아래 내역을 확인 후 <strong>저장</strong>을 누르면 반영됩니다.
-    </div>
-    ${ccParsed.length?`
-    <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px">
-      💳 개인카드 지출 (${ccParsed.length}건)
-    </div>
-    <div style="overflow-x:auto;margin-bottom:14px">
-      <table style="width:100%;border-collapse:collapse">
-        ${tableHead()}
-        <tbody>${previewRows(ccParsed,'cc')}</tbody>
-      </table>
-    </div>`:''}
-    ${ctParsed.length?`
-    <div style="font-size:13px;font-weight:700;color:var(--teal,#0d9488);margin-bottom:6px">
-      🚗 교통비 (${ctParsed.length}건)
-    </div>
-    <div style="overflow-x:auto;margin-bottom:14px">
-      <table style="width:100%;border-collapse:collapse">
-        ${tableHead()}
-        <tbody>${previewRows(ctParsed,'ct')}</tbody>
-      </table>
-    </div>`:''}
-    ${bankInfo&&bankInfo.bankName?`
-    <div style="background:var(--bg,#f8fafc);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:4px">
-      🏦 입금정보: <strong>${bankInfo.bankName}</strong> ${bankInfo.accountNumber} (${bankInfo.accountHolder})
-    </div>`:''}
-    <div class="modal-footer">
-      <div style="font-size:12px;color:var(--text3)">총 ${ccParsed.length+ctParsed.length}건 파싱됨</div>
-      <div style="display:flex;gap:8px">
-        <button class="btn" onclick="closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="_confirmCardExcelImport()">저장</button>
-      </div>
-    </div>
-  `, true);
+  const ccSection = ccParsed.length
+    ? '<div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px">💳 개인카드 지출 ('+ccParsed.length+'건)</div>'
+      +'<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse">'+tHead+'<tbody>'+previewRows(ccParsed)+'</tbody></table></div>'
+    : '';
+  const ctSection = ctParsed.length
+    ? '<div style="font-size:13px;font-weight:700;color:#0d9488;margin-bottom:6px">🚗 교통비 ('+ctParsed.length+'건)</div>'
+      +'<div style="overflow-x:auto;margin-bottom:14px"><table style="width:100%;border-collapse:collapse">'+tHead+'<tbody>'+previewRows(ctParsed)+'</tbody></table></div>'
+    : '';
+  const bankSection = (bankInfo&&bankInfo.bankName)
+    ? '<div style="background:#f8fafc;border-radius:6px;padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:4px">🏦 입금정보: <strong>'+esc(bankInfo.bankName)+'</strong> '+esc(bankInfo.accountNumber)+' ('+esc(bankInfo.accountHolder)+')</div>'
+    : '';
+  const modalHtml = '<div class="modal-title">📂 엑셀 파싱 결과 확인</div>'
+    +'<div style="font-size:13px;color:var(--text2);margin-bottom:12px">아래 내역을 확인 후 <strong>저장</strong>을 누르면 반영됩니다.</div>'
+    +ccSection+ctSection+bankSection
+    +'<div class="modal-footer">'
+    +'<div style="font-size:12px;color:var(--text3)">총 '+(ccParsed.length+ctParsed.length)+'건 파싱됨</div>'
+    +'<div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="_confirmCardExcelImport()">저장</button></div>'
+    +'</div>';
+
+  openModal(modalHtml, true);
 
   // 확인 후 저장 함수 (전역 임시 보관)
   window._pendingCardImport = { ccParsed, ctParsed, bankInfo: bankInfo||{} };
@@ -2283,25 +2265,22 @@ function collectCardRows(type) {
   const rows = document.querySelectorAll(`#${type}-table-wrap tr[id^="row-${type}-"]`);
   const result = [];
   rows.forEach((tr,i)=>{
-    const inputs = tr.querySelectorAll('input,select');
+    // 클래스 셀렉터로 직접 접근 (날짜 input 3개+hidden 때문에 인덱스 오염 방지)
+    const hid=tr.querySelector('.card-date-val');
+    const y=tr.querySelector('.card-date-y')?.value||'';
+    const m=(tr.querySelector('.card-date-m')?.value||'').padStart(2,'0');
+    const d=(tr.querySelector('.card-date-d')?.value||'').padStart(2,'0');
+    const useDate=(hid?.value)||(y&&m&&d?`${y}-${m}-${d}`:'');
     result.push({
       category, seq:i+1,
-      useDate: (()=>{
-        // 3분리 날짜: hidden 값 우선, 없으면 조합
-        const hid=tr.querySelector('.card-date-val');
-        if(hid&&hid.value) return hid.value;
-        const y=tr.querySelector('.card-date-y')?.value||'';
-        const m=(tr.querySelector('.card-date-m')?.value||'').padStart(2,'0');
-        const d=(tr.querySelector('.card-date-d')?.value||'').padStart(2,'0');
-        return (y&&m&&d)?`${y}-${m}-${d}`:'';
-      })(),
-      detail: inputs[1]?.value||'',
-      cardCompany: inputs[2]?.value||'',
-      cardNumber: inputs[3]?.value||'',
-      place: inputs[4]?.value||'',
-      amount: parseInt(inputs[5]?.value)||0,
-      receiptType: inputs[6]?.value||'영수증',
-      branch: isCc?(inputs[7]?.value||'본사'):'',
+      useDate,
+      detail:      tr.querySelector('.cd-detail')?.value||'',
+      cardCompany: tr.querySelector('.cd-cardco')?.value||'',
+      cardNumber:  tr.querySelector('.cd-cardno')?.value||'',
+      place:       tr.querySelector('.cd-place')?.value||'',
+      amount:      parseInt(tr.querySelector('.cd-amount')?.value)||0,
+      receiptType: tr.querySelector('.cd-rcpt')?.value||'영수증',
+      branch:      isCc?(tr.querySelector('.cd-branch')?.value||'본사'):'',
       id: tr.dataset.id||null
     });
   });
