@@ -1657,9 +1657,18 @@ function cardDeadlineStatus(year, month) {
 function getCardHeader(empId, year, month) {
   return (db.cardHeaders||[]).find(h => String(h.empId)===String(empId) && h.year===year && h.month===month) || null;
 }
-function getCardRows(headerId, category) {
-  return (db.cardRows||[]).filter(r => String(r.headerId)===String(headerId) && (!category || r.category===category))
-    .sort((a,b)=>a.seq-b.seq);
+function getCardRows(headerId, category, filterYear, filterMonth) {
+  return (db.cardRows||[]).filter(r => {
+    if(String(r.headerId)!==String(headerId)) return false;
+    if(category && r.category!==category) return false;
+    // useDate가 있고 filterYear/filterMonth가 지정된 경우 해당 월 데이터만 표시
+    if(filterYear && filterMonth && r.useDate){
+      const d = String(r.useDate).slice(0,7); // 'YYYY-MM'
+      const expected = `${filterYear}-${String(filterMonth).padStart(2,'0')}`;
+      if(d && d!==expected) return false;
+    }
+    return true;
+  }).sort((a,b)=>a.seq-b.seq);
 }
 function getCardAttachments(headerId) {
   return (db.cardAttachments||[]).filter(a => String(a.headerId)===String(headerId));
@@ -1725,8 +1734,8 @@ function renderCardMy(yr, mo) {
   if(!headerId){
     (db.cardRows||[]).filter(r=>r.headerId==='_NEW_').forEach(r=>{ r.headerId=KEY; });
   }
-  const ccRows = getCardRows(KEY,'개인카드');
-  const ctRows = getCardRows(KEY,'교통비');
+  const ccRows = getCardRows(KEY,'개인카드', yr, mo);
+  const ctRows = getCardRows(KEY,'교통비', yr, mo);
   const bankInfo = header || getLastBankInfo(empId);
 
   // 월 선택 탭
@@ -2563,8 +2572,8 @@ async function _openCardEditModal(empId, headerId) {
   }
   const h = headerId ? db.cardHeaders.find(h=>h.id===headerId) : null;
   const KEY = headerId || '_NEW_';
-  const ccRows = getCardRows(KEY,'개인카드');
-  const ctRows = getCardRows(KEY,'교통비');
+  const ccRows = getCardRows(KEY,'개인카드', window._cardYr, window._cardMo);
+  const ctRows = getCardRows(KEY,'교통비', window._cardYr, window._cardMo);
   const bankInfo = h || getLastBankInfo(empId);
   const emp = eid(empId);
   const canEdit = true; // 관리자는 항상 편집 가능
