@@ -1676,7 +1676,9 @@ function getCardAttachments(headerId) {
 
 // ── 직전 제출 은행정보 불러오기 ──
 function getLastBankInfo(empId) {
-  const headers = (db.cardHeaders||[]).filter(h=>String(h.empId)===String(empId) && h.status!=='작성중')
+  // 상태 무관하게 계좌정보가 있는 가장 최근 헤더에서 가져옴 (월이 바뀌어도 유지)
+  const headers = (db.cardHeaders||[])
+    .filter(h=>String(h.empId)===String(empId) && (h.bankName||h.accountNumber||h.accountHolder))
     .sort((a,b)=>{ if(a.year!==b.year) return b.year-a.year; return b.month-a.month; });
   if (!headers.length) return { bankName:'', accountNumber:'', accountHolder:'' };
   const h = headers[0];
@@ -2081,6 +2083,76 @@ async function importCardExcel(input) {
   const aoa=await _loadXLSX(input); if(!aoa)return;
   const {ccParsed,ctParsed}=parseCardExcelSheet(aoa);
   if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
+
+  // ── 파싱 결과 확인 팝업 ──
+  function previewRows(rows, type) {
+    if(!rows.length) return `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:8px">없음</td></tr>`;
+    return rows.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:5px 8px;font-size:13px">${r.useDate||''}</td>
+      <td style="padding:5px 8px;font-size:13px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.detail||''}</td>
+      <td style="padding:5px 8px;font-size:13px">${r.cardCompany||''}</td>
+      <td style="padding:5px 8px;font-size:13px;text-align:right">${Number(r.amount||0).toLocaleString()}원</td>
+      <td style="padding:5px 8px;font-size:13px">${r.receiptType||''}</td>
+    </tr>`).join('');
+  }
+  function tableHead() {
+    return `<thead><tr style="background:var(--primary);color:#fff">
+      <th style="padding:6px 8px;font-size:12px;text-align:left">사용일자</th>
+      <th style="padding:6px 8px;font-size:12px;text-align:left">사용내역</th>
+      <th style="padding:6px 8px;font-size:12px;text-align:left">카드사</th>
+      <th style="padding:6px 8px;font-size:12px;text-align:right">금액</th>
+      <th style="padding:6px 8px;font-size:12px;text-align:left">증빙</th>
+    </tr></thead>`;
+  }
+
+  openModal(`
+    <div class="modal-title">📂 엑셀 파싱 결과 확인</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:12px">
+      아래 내역을 확인 후 <strong>저장</strong>을 누르면 반영됩니다.
+    </div>
+    ${ccParsed.length?`
+    <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:6px">
+      💳 개인카드 지출 (${ccParsed.length}건)
+    </div>
+    <div style="overflow-x:auto;margin-bottom:14px">
+      <table style="width:100%;border-collapse:collapse">
+        ${tableHead()}
+        <tbody>${previewRows(ccParsed,'cc')}</tbody>
+      </table>
+    </div>`:''}
+    ${ctParsed.length?`
+    <div style="font-size:13px;font-weight:700;color:var(--teal,#0d9488);margin-bottom:6px">
+      🚗 교통비 (${ctParsed.length}건)
+    </div>
+    <div style="overflow-x:auto;margin-bottom:14px">
+      <table style="width:100%;border-collapse:collapse">
+        ${tableHead()}
+        <tbody>${previewRows(ctParsed,'ct')}</tbody>
+      </table>
+    </div>`:''}
+    ${bankInfo&&bankInfo.bankName?`
+    <div style="background:var(--bg,#f8fafc);border-radius:6px;padding:8px 12px;font-size:12px;color:var(--text2);margin-bottom:4px">
+      🏦 입금정보: <strong>${bankInfo.bankName}</strong> ${bankInfo.accountNumber} (${bankInfo.accountHolder})
+    </div>`:''}
+    <div class="modal-footer">
+      <div style="font-size:12px;color:var(--text3)">총 ${ccParsed.length+ctParsed.length}건 파싱됨</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn" onclick="closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="_confirmCardExcelImport()">저장</button>
+      </div>
+    </div>
+  `, true);
+
+  // 확인 후 저장 함수 (전역 임시 보관)
+  window._pendingCardImport = { ccParsed, ctParsed, bankInfo: bankInfo||{} };
+}
+
+async function _confirmCardExcelImport() {
+  const pending = window._pendingCardImport;
+  if(!pending) return;
+  const {ccParsed, ctParsed, bankInfo} = pending;
+  window._pendingCardImport = null;
+  closeModal();
   if(!await _dupCheckAndPush(ccParsed,ctParsed))return;
   // 입금정보 폼에 반영
   if(bankInfo&&bankInfo.bankName){
@@ -2088,7 +2160,7 @@ async function importCardExcel(input) {
     const ac=document.getElementById('card-account'); if(ac&&!ac.value) ac.value=bankInfo.accountNumber;
     const ho=document.getElementById('card-holder'); if(ho&&!ho.value) ho.value=bankInfo.accountHolder;
   }
-  showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 파싱 완료`);
+  showToast(`✅ ${ccParsed.length}건(개인카드) + ${ctParsed.length}건(교통비) 등록 완료`);
   renderCard();
 }
 
@@ -2767,6 +2839,84 @@ async function openCardDetail(headerId) {
 }
 
 // ── 엑셀 다운로드 (xlsx: 시트1=귀속분, 시트2=증빙) ──
+
+// ── ZIP styles.xml 교체 유틸 (서식 적용 xlsx 생성) ──
+async function _replaceZipStyles(zipBytes, stylesXml) {
+  const enc=new TextEncoder(); const dec=new TextDecoder();
+  const newBytes=enc.encode(stylesXml);
+  const filename='xl/styles.xml';
+  const u8=zipBytes instanceof Uint8Array?zipBytes:new Uint8Array(zipBytes);
+  const view=new DataView(u8.buffer,u8.byteOffset,u8.byteLength);
+  const entries=[]; let offset=0;
+  while(offset<u8.length-4){
+    if(view.getUint32(offset,true)!==0x04034b50)break;
+    const comp=view.getUint16(offset+8,true);
+    const cSize=view.getUint32(offset+18,true);
+    const uSize=view.getUint32(offset+22,true);
+    const fnLen=view.getUint16(offset+26,true);
+    const exLen=view.getUint16(offset+28,true);
+    const dOff=offset+30+fnLen+exLen;
+    const name=dec.decode(u8.slice(offset+30,offset+30+fnLen));
+    entries.push({name,comp,hOff:offset,dOff,cSize,uSize,
+      hd:u8.slice(offset,dOff),data:u8.slice(dOff,dOff+cSize)});
+    offset=dOff+cSize;
+  }
+  function crc32(data){
+    const t=new Uint32Array(256);
+    for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[i]=c;}
+    let c=0xFFFFFFFF;
+    for(let i=0;i<data.length;i++)c=t[(c^data[i])&0xFF]^(c>>>8);
+    return(c^0xFFFFFFFF)>>>0;
+  }
+  let compNew=newBytes;
+  try{
+    const cs=new CompressionStream('deflate-raw');
+    const w=cs.writable.getWriter(); w.write(newBytes); w.close();
+    const chunks=[]; const r=cs.readable.getReader();
+    while(true){const {done,value}=await r.read();if(done)break;chunks.push(value);}
+    const tl=chunks.reduce((s,c)=>s+c.length,0); compNew=new Uint8Array(tl);
+    let p=0; chunks.forEach(c=>{compNew.set(c,p);p+=c.length;});
+  }catch(e){compNew=newBytes;}
+  const crc=crc32(newBytes);
+  const fnB=enc.encode(filename);
+  const nh=new Uint8Array(30+fnB.length); const nhv=new DataView(nh.buffer);
+  nhv.setUint32(0,0x04034b50,true); nhv.setUint16(4,20,true); nhv.setUint16(6,0,true);
+  nhv.setUint16(8,8,true); nhv.setUint16(10,0,true); nhv.setUint16(12,0,true);
+  nhv.setUint32(14,crc,true); nhv.setUint32(18,compNew.length,true); nhv.setUint32(22,newBytes.length,true);
+  nhv.setUint16(26,fnB.length,true); nhv.setUint16(28,0,true); nh.set(fnB,30);
+  const parts=[]; let nOff=0; const offMap={};
+  entries.forEach(e=>{
+    offMap[e.name]=nOff;
+    if(e.name===filename){parts.push(nh);parts.push(compNew);nOff+=nh.length+compNew.length;}
+    else{parts.push(e.hd);parts.push(e.data);nOff+=e.hd.length+e.data.length;}
+  });
+  const cdParts=[]; let cdSz=0;
+  entries.forEach(e=>{
+    const fnB2=enc.encode(e.name); const cd=new Uint8Array(46+fnB2.length);
+    const cdv=new DataView(cd.buffer);
+    cdv.setUint32(0,0x02014b50,true); cdv.setUint16(4,20,true); cdv.setUint16(6,20,true);
+    cdv.setUint16(8,0,true);
+    if(e.name===filename){
+      cdv.setUint16(10,8,true); cdv.setUint32(14,crc,true);
+      cdv.setUint32(18,compNew.length,true); cdv.setUint32(22,newBytes.length,true);
+    }else{
+      const ohv=new DataView(e.hd.buffer,e.hd.byteOffset,e.hd.byteLength);
+      cdv.setUint16(10,e.comp,true); cdv.setUint32(14,ohv.getUint32(14,true),true);
+      cdv.setUint32(18,e.cSize,true); cdv.setUint32(22,e.uSize,true);
+    }
+    cdv.setUint16(26,fnB2.length,true); cdv.setUint32(42,offMap[e.name],true);
+    cd.set(fnB2,46); cdParts.push(cd); cdSz+=cd.length;
+  });
+  const eocd=new Uint8Array(22); const ev=new DataView(eocd.buffer);
+  ev.setUint32(0,0x06054b50,true); ev.setUint16(8,entries.length,true); ev.setUint16(10,entries.length,true);
+  ev.setUint32(12,cdSz,true); ev.setUint32(16,nOff,true);
+  const all=[...parts,...cdParts,eocd];
+  const tot=all.reduce((s,p)=>s+p.length,0); const res=new Uint8Array(tot);
+  let pos=0; all.forEach(p=>{res.set(p,pos);pos+=p.length;});
+  return res;
+}
+const _CARD_STYLES_XML=`<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0"/></numFmts><fonts count="5"><font><name val="Calibri"/><family val="2"/><color theme="1"/><sz val="11"/><scheme val="minor"/></font><font><name val="맑은 고딕"/><b val="1"/><sz val="14"/></font><font><name val="맑은 고딕"/><b val="1"/><sz val="10"/></font><font><name val="맑은 고딕"/><sz val="10"/></font><font><name val="맑은 고딕"/><b val="1"/><sz val="11"/></font></fonts><fills count="2"><fill><patternFill/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="20"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="medium"/><right style="hair"/><top style="medium"/><bottom style="medium"/></border><border><left style="hair"/><right style="hair"/><top style="medium"/><bottom style="medium"/></border><border><left/><right/><top style="medium"/><bottom style="medium"/></border><border><left/><right style="hair"/><top style="medium"/><bottom style="medium"/></border><border><left style="hair"/><right style="medium"/><top style="medium"/><bottom style="medium"/></border><border><left style="medium"/><right style="hair"/><top style="hair"/><bottom style="hair"/></border><border><left style="hair"/><right style="hair"/><top style="hair"/><bottom style="hair"/></border><border><left style="medium"/><right style="hair"/><top/><bottom style="hair"/></border><border><left style="medium"/><right style="hair"/><top style="thin"/><bottom style="medium"/></border><border><left/><right/><top style="thin"/><bottom style="medium"/></border><border><left/><right style="hair"/><top style="thin"/><bottom style="medium"/></border><border><left style="hair"/><right style="hair"/><top style="thin"/><bottom style="medium"/></border><border><left style="hair"/><right style="medium"/><top style="thin"/><bottom style="double"/></border><border><left style="medium"/><right style="hair"/><top style="double"/><bottom style="medium"/></border><border><left/><right/><top style="double"/><bottom style="medium"/></border><border><left/><right style="hair"/><top style="double"/><bottom style="medium"/></border><border><left style="hair"/><right style="hair"/><top style="double"/><bottom style="medium"/></border><border><left style="hair"/><right style="medium"/><top style="double"/><bottom style="medium"/></border><border><left style="medium"/><right style="hair"/><top style="medium"/><bottom style="hair"/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="22"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="164" fontId="2" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="164" fontId="3" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="4" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="1" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="2" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="3" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="4" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="5" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="19" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="164" fontId="2" fillId="0" borderId="6" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="7" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="164" fontId="3" fillId="0" borderId="7" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="8" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="0" borderId="0" applyAlignment="1" xfId="0"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="9" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="164" fontId="2" fillId="0" borderId="9" applyAlignment="1" xfId="0"><alignment horizontal="center" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0" hidden="0"/></cellStyles></styleSheet>`;
+
 async function downloadCardExcel(headerId) {
   const h=db.cardHeaders.find(h=>h.id===headerId); if(!h)return;
   const e=eid(h.empId); if(!e)return;
@@ -2852,8 +3002,11 @@ async function downloadCardExcel(headerId) {
   XL.utils.book_append_sheet(wb,ws2,'증빙');
 
   // 파일 저장
-  const wbBin=XL.write(wb,{bookType:'xlsx',type:'array'});
-  const blob=new Blob([wbBin],{type:'application/octet-stream'});
+  const wbBinRaw=XL.write(wb,{bookType:'xlsx',type:'array'});
+  // 서식(테두리/폰트) 적용: styles.xml 교체
+  let finalBin=wbBinRaw;
+  try{ finalBin=await _replaceZipStyles(wbBinRaw,_CARD_STYLES_XML); }catch(e2){ console.warn('스타일 적용 실패, 기본 xlsx 사용',e2); }
+  const blob=new Blob([finalBin],{type:'application/octet-stream'});
   const fileName=`개인카드사용대장_${e.name}_${yr}${mo}.xlsx`;
   const url=URL.createObjectURL(blob); const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); URL.revokeObjectURL(url);
   showToast('📥 xlsx 다운로드 완료');
