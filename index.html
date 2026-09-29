@@ -2081,7 +2081,15 @@ async function _dupCheckAndPush(ccParsed,ctParsed){
 
 async function importCardExcel(input) {
   const aoa=await _loadXLSX(input); if(!aoa)return;
-  const {ccParsed,ctParsed}=parseCardExcelSheet(aoa);
+  input.value=''; // 같은 파일 재선택 가능하게
+  let ccParsed=[],ctParsed=[],bankInfo={};
+  try {
+    ({ccParsed,ctParsed,bankInfo}=parseCardExcelSheet(aoa));
+  } catch(e2) {
+    console.error('파싱 오류:', e2);
+    showToast('⚠️ 파싱 중 오류가 발생했습니다: '+e2.message);
+    return;
+  }
   if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
 
   // ── 파싱 결과 확인 팝업 ──
