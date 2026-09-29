@@ -212,7 +212,7 @@ tbody tr:hover td{background:var(--surface2)}
     <button class="nav-item" onclick="go('trip')"><span class="nav-icon">✈️</span>출장/교육 관리</button>
     <!-- 교통비 관리 메뉴 숨김 처리 (요청에 따라, 기능은 보존) -->
     <button id="nav-transport" class="nav-item" style="display:none" onclick="go('transport')"><span class="nav-icon">🚗</span>교통비 관리</button>
-    <button class="nav-item" onclick="go('card')"><span class="nav-icon">💳</span>개인카드내역</button>
+    <button class="nav-item" onclick="go('card')"><span class="nav-icon">💳</span>개인카드내역 <span style="font-size:11px;color:var(--text3);font-weight:400">(Test 사용X)</span></button>
     <div class="nav-sec">회사 관리</div>
     <button class="nav-item" onclick="go('health')"><span class="nav-icon">🏥</span>건강검진</button>
     <button class="nav-item" onclick="go('bday')"><span class="nav-icon">🎂</span>기념일</button>
@@ -1674,6 +1674,16 @@ function getLastBankInfo(empId) {
   return { bankName: h.bankName||'', accountNumber: h.accountNumber||'', accountHolder: h.accountHolder||'' };
 }
 
+
+// 월 탭 전환: 이전 월의 미저장 임시 rows 제거 후 렌더
+function switchCardMonth(m){
+  // _NEW_ 계열 임시 rows 전부 제거 (DB에 없는 것들이므로 재렌더하면 사라져야 함)
+  db.cardRows=(db.cardRows||[]).filter(r=>!String(r.headerId).startsWith('_NEW_'));
+  currentMonth=m;
+  window._cardHeaderId=null;
+  renderCard();
+}
+
 // ── renderCard ──
 function renderCard() {
   const yr = currentYear;
@@ -1721,7 +1731,7 @@ function renderCardMy(yr, mo) {
 
   // 월 선택 탭
   const months = Array.from({length:12},(_,i)=>i+1);
-  const monthTabs = months.map(m=>`<button onclick="currentMonth=${m};window._cardHeaderId=null;renderCard()" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
+  const monthTabs = months.map(m=>`<button onclick="switchCardMonth(${m})" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
 
   setContent(`
     <div class="card" style="margin-bottom:14px">
