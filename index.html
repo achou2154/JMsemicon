@@ -2161,7 +2161,7 @@ async function importCardExcelModal(input) {
   if(!ccParsed.length&&!ctParsed.length){showToast('⚠️ 파싱된 내역이 없습니다. 양식을 확인해 주세요.');return;}
   if(!await _dupCheckAndPush(ccParsed,ctParsed))return;
   const KEY=window._cardHeaderId||'_NEW_';
-  const ccRows=getCardRows(KEY,'개인카드'), ctRows=getCardRows(KEY,'교통비');
+  const ccRows=getCardRows(KEY,'개인카드',window._cardYr,window._cardMo), ctRows=getCardRows(KEY,'교통비',window._cardYr,window._cardMo);
   const ccWrap=document.getElementById('modal-cc-wrap'), ctWrap=document.getElementById('modal-ct-wrap');
   if(ccWrap) ccWrap.innerHTML=renderCardTable('cc',ccRows,true,window._cardHeaderId);
   if(ctWrap) ctWrap.innerHTML=renderCardTable('ct',ctRows,true,window._cardHeaderId);
@@ -2384,8 +2384,8 @@ function renderCardAdmin(yr, mo) {
     if(isAllMode){
       // 전체 모드: 모든 월 합산
       const headers=(db.cardHeaders||[]).filter(h=>h.year===yr&&String(h.empId)===String(e.id));
-      const totalCc=headers.reduce((s,h)=>s+getCardRows(h.id,'개인카드').reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
-      const totalCt=headers.reduce((s,h)=>s+getCardRows(h.id,'교통비').reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
+      const totalCc=headers.reduce((s,h)=>s+getCardRows(h.id,'개인카드',h.year,h.month).reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
+      const totalCt=headers.reduce((s,h)=>s+getCardRows(h.id,'교통비',h.year,h.month).reduce((ss,r)=>ss+(Number(r.amount)||0),0),0);
       const total=totalCc+totalCt;
       const lastH=headers.sort((a,b)=>b.month-a.month)[0];
       return `<tr>
@@ -2399,8 +2399,8 @@ function renderCardAdmin(yr, mo) {
     }
     const h=getCardHeader(e.id,yr,mo);
     const st=h?h.status:'미제출';
-    const cc=(h?getCardRows(h.id,'개인카드'):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
-    const ct=(h?getCardRows(h.id,'교통비'):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const cc=(h?getCardRows(h.id,'개인카드',yr,mo):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
+    const ct=(h?getCardRows(h.id,'교통비',yr,mo):[]).reduce((s,r)=>s+(Number(r.amount)||0),0);
     const color=sc[st]||(st==='미제출'?'#94a3b8':'#64748b');
     return `<tr>
       <td style="padding:9px 10px">${e.name}</td>
@@ -2483,8 +2483,8 @@ async function downloadCardSummaryExcel(yr, mo) {
     let totalSum=0;
     emps.forEach((e,i)=>{
       const h=headers.find(h=>String(h.empId)===String(e.id));
-      const ccAmt=h?getCardRows(h.id,'개인카드').reduce((s,r)=>s+(Number(r.amount)||0),0):0;
-      const ctAmt=h?getCardRows(h.id,'교통비').reduce((s,r)=>s+(Number(r.amount)||0),0):0;
+      const ccAmt=h?getCardRows(h.id,'개인카드',yr,m).reduce((s,r)=>s+(Number(r.amount)||0),0):0;
+      const ctAmt=h?getCardRows(h.id,'교통비',yr,m).reduce((s,r)=>s+(Number(r.amount)||0),0):0;
       const total=ccAmt+ctAmt;
       totalSum+=total;
       const bankInfo=h||getLastBankInfo(e.id);
