@@ -2429,6 +2429,31 @@ async function saveCardRowsToDb(headerId, ccRows, ctRows) {
   }
   db.cardRows=(db.cardRows||[]).filter(r=>String(r.headerId)!==String(headerId));
   db.cardRows.push(...[...ccRows,...ctRows].map(r=>({...r,headerId})));
+
+  // ── useDate 기준으로 헤더의 month 자동 보정 ──
+  // rows의 useDate 중 최빈 월을 귀속월로 사용 (탭 선택 월과 다를 경우 보정)
+  const allRows=[...ccRows,...ctRows].filter(r=>r.useDate);
+  if(allRows.length>0){
+    const moCounts={};
+    allRows.forEach(r=>{
+      const m=parseInt(String(r.useDate).slice(5,7));
+      if(m>=1&&m<=12) moCounts[m]=(moCounts[m]||0)+1;
+    });
+    const dominantMo=Object.entries(moCounts).sort((a,b)=>b[1]-a[1])[0]?.[0];
+    const dominantYr=parseInt(String(allRows[0].useDate).slice(0,4));
+    if(dominantMo&&_supa){
+      const correctMo=parseInt(dominantMo);
+      const h=db.cardHeaders.find(h=>h.id===headerId);
+      // 헤더의 month가 실제 데이터 월과 다르면 보정
+      if(h && (h.month!==correctMo || h.year!==dominantYr)){
+        await sbUpdate('card_expense_headers',headerId,{year:dominantYr,month:correctMo});
+        h.month=correctMo; h.year=dominantYr;
+        // window._cardMo도 보정
+        window._cardMo=correctMo; window._cardYr=dominantYr;
+        console.log(`카드 헤더 귀속월 보정: ${h.year}년 ${correctMo}월`);
+      }
+    }
+  }
 }
 
 async function saveCardDraft() {
