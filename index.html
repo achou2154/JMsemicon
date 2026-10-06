@@ -6629,8 +6629,18 @@ function onLeaveTimeChange(){
   if(!s||!e) return;
   const [sh,sm]=s.split(':').map(Number);
   const [eh,em]=e.split(':').map(Number);
-  const diff=(eh*60+em)-(sh*60+sm);
-  if(diff>0){const hEl=document.getElementById('f-hours');if(hEl)hEl.value=Math.round(diff/60*10)/10;}
+  const startMin=sh*60+sm, endMin=eh*60+em;
+  let diff=endMin-startMin;
+  if(diff>0){
+    // 점심시간(12:00~13:00) 차감: 근무구간이 점심과 겹치는 분만큼 빼기
+    const lunchStart=12*60, lunchEnd=13*60;
+    const overlapStart=Math.max(startMin,lunchStart);
+    const overlapEnd=Math.min(endMin,lunchEnd);
+    const lunchOverlap=Math.max(0,overlapEnd-overlapStart);
+    diff-=lunchOverlap;
+    const hEl=document.getElementById('f-hours');
+    if(hEl&&diff>0) hEl.value=Math.round(diff/60*10)/10;
+  }
   updateLeaveRemainPreview();
 }
 
@@ -6644,8 +6654,17 @@ function onLeaveHoursInput(){
   let sv=sT.value;
   if(!sv){const nowK=new Date(Date.now()+9*3600*1000);sv=String(nowK.getUTCHours()).padStart(2,'0')+':'+String(nowK.getUTCMinutes()).padStart(2,'0');sT.value=sv;}
   const [sh,sm]=sv.split(':').map(Number);
-  const tot=sh*60+sm+Math.round(hours*60);
-  eT.value=String(Math.floor(tot/60)%24).padStart(2,'0')+':'+String(tot%60).padStart(2,'0');
+  let cur=sh*60+sm;
+  let rem=Math.round(hours*60);
+  // 점심시간(720~780분=12:00~13:00)을 건너뛰면서 rem만큼 진행
+  const lunchS=720, lunchE=780;
+  if(cur<lunchS){
+    const beforeLunch=lunchS-cur;
+    if(rem<=beforeLunch){ cur+=rem; rem=0; }
+    else{ cur=lunchE; rem-=beforeLunch; } // 점심 건너뜀
+  }
+  cur+=rem;
+  eT.value=String(Math.floor(cur/60)%24).padStart(2,'0')+':'+String(cur%60).padStart(2,'0');
   updateLeaveRemainPreview();
 }
 
