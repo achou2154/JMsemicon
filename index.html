@@ -6210,6 +6210,14 @@ function updateReqForm(){
       <div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-annual" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차 (8h)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-half" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차 (4h)</label>
+        <div id="half-ampm-wrap" style="display:none;align-items:center;gap:6px;margin-left:4px">
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 10px">
+            <input type="radio" name="half_ampm" value="오전" onchange="onHalfAmpmChange()" checked style="width:13px;height:13px"> 오전<span style="color:var(--text3);font-size:11px;margin-left:2px">09:00-14:00</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 10px">
+            <input type="radio" name="half_ampm" value="오후" onchange="onHalfAmpmChange()" style="width:13px;height:13px"> 오후<span style="color:var(--text3);font-size:11px;margin-left:2px">14:00-18:00</span>
+          </label>
+        </div>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-out" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출 (1h~)</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-sick" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" id="lt-special" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>
@@ -6343,6 +6351,10 @@ async function openAddLeave(empId){
   +'<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap">'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="연차" checked onchange="onLtypeChange()" style="width:15px;height:15px"> 연차</label>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="반차" onchange="onLtypeChange()" style="width:15px;height:15px"> 반차</label>'
+  +'<div id="half-ampm-wrap" style="display:none;align-items:center;gap:6px;margin-left:4px">'
+  +'<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 10px"><input type="radio" name="half_ampm" value="오전" onchange="onHalfAmpmChange()" checked style="width:13px;height:13px"> 오전<span style="color:#94a3b8;font-size:11px;margin-left:2px">09:00-14:00</span></label>'
+  +'<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:3px 10px"><input type="radio" name="half_ampm" value="오후" onchange="onHalfAmpmChange()" style="width:13px;height:13px"> 오후<span style="color:#94a3b8;font-size:11px;margin-left:2px">14:00-18:00</span></label>'
+  +'</div>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="외출" onchange="onLtypeChange()" style="width:15px;height:15px"> 외출</label>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="병가" onchange="onLtypeChange()" style="width:15px;height:15px"> 병가</label>'
   +'<label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:14px"><input type="radio" name="ltype" value="특별휴가" onchange="onLtypeChange()" style="width:15px;height:15px"> 특별휴가</label>'
@@ -6565,6 +6577,10 @@ function onLtypeChange(){
   if(sTimeWrap) sTimeWrap.style.display=isFullDay?'none':'';
   if(eTimeWrap) eTimeWrap.style.display=isFullDay?'none':'';
 
+  // 반차 아닐 때 오전/오후 wrap 숨김
+  const ampmWrap=document.getElementById('half-ampm-wrap');
+  if(ampmWrap) ampmWrap.style.display=sel.value==='반차'?'flex':'none';
+
   // 시각 기본값 세팅 (비종일)
   if(!isFullDay){
     const nowK=new Date(Date.now()+9*3600*1000);
@@ -6581,10 +6597,15 @@ function onLtypeChange(){
   if(sel.value==='연차'||sel.value==='하계휴가') hEl.value=8;
   else if(sel.value==='반차'){
     hEl.value=4;
+    // 오전/오후 wrap 표시
+    const ampmWrap=document.getElementById('half-ampm-wrap');
+    if(ampmWrap) ampmWrap.style.display='flex';
+    // 현재 선택된 오전/오후에 따라 시간 설정
+    const ampmSel=document.querySelector('input[name="half_ampm"]:checked')?.value||'오전';
     const sT=document.getElementById('f-start-time');
     const eT=document.getElementById('f-end-time');
-    if(sT) sT.value='14:00';
-    if(eT) eT.value='18:00';
+    if(ampmSel==='오전'){ if(sT) sT.value='09:00'; if(eT) eT.value='14:00'; }
+    else                 { if(sT) sT.value='14:00'; if(eT) eT.value='18:00'; }
   }
   else if(sel.value==='외출'){
     hEl.value=1;
@@ -6601,6 +6622,19 @@ function onLtypeChange(){
   else if(sel.value==='특별휴가') hEl.value=0;
 
   if(!isFullDay && sel.value!=='외출') onLeaveTimeChange();
+  updateLeaveRemainPreview();
+}
+
+
+// 오전/오후 반차 선택 시 시간 자동 세팅
+function onHalfAmpmChange(){
+  const ampm=document.querySelector('input[name="half_ampm"]:checked')?.value||'오전';
+  const sT=document.getElementById('f-start-time');
+  const eT=document.getElementById('f-end-time');
+  if(ampm==='오전'){ if(sT) sT.value='09:00'; if(eT) eT.value='14:00'; }
+  else              { if(sT) sT.value='14:00'; if(eT) eT.value='18:00'; }
+  const hEl=document.getElementById('f-hours');
+  if(hEl) hEl.value=4;
   updateLeaveRemainPreview();
 }
 
