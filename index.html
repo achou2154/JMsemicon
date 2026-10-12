@@ -500,12 +500,25 @@ async function saveAll() {
 
 async function sbInsert(table, row) {
   if (!_supa) return null;
+  // header_id나 id 컬럼에 TEMP_KEY가 들어오면 차단
+  const checkId = row?.id ?? row?.header_id;
+  if (checkId && String(checkId).startsWith('_')) {
+    console.error(`sbInsert 차단: TEMP_KEY가 포함됨 (table=${table}, id=${checkId})`);
+    return null;
+  }
   const { data, error } = await _supa.from(table).insert(row).select().single();
   if (error) { console.error('insert error:', error); return null; }
   return data;
 }
 async function sbUpdate(table, id, row) {
   if (!_supa) return false;
+  // 숫자(bigint) 또는 UUID만 허용 — 문자열 TEMP_KEY 차단
+  const idStr = String(id ?? '');
+  const isValidId = idStr && /^[0-9a-f-]{1,}$/i.test(idStr) && !idStr.startsWith('_');
+  if (!isValidId) {
+    console.error(`sbUpdate 차단: 유효하지 않은 id (table=${table}, id=${idStr})`);
+    return false;
+  }
   const { data, error } = await _supa.from(table).update(row).eq('id', id).select();
   if (error) { console.error('update error:', error); return false; }
   if (!data || data.length === 0) {
@@ -1739,14 +1752,15 @@ function renderCardMy(yr, mo) {
     ? `<span style="background:${statusColor[header.status]||'#64748b'}15;color:${statusColor[header.status]||'#64748b'};border:1px solid ${statusColor[header.status]||'#64748b'}40;border-radius:20px;padding:3px 12px;font-size:13px;font-weight:600">${header.status}</span>`
     : `<span style="background:#f1f5f9;color:#94a3b8;border-radius:20px;padding:3px 12px;font-size:13px">미작성</span>`;
 
-  const canEdit = isAdmin || !header || (header.status==='작성중'||header.status==='반려') && ds!=='closed';
+  // 기일 내라면 작성중/반려/제출 모두 수정 가능 (확인 완료만 잠금)
+  const canEdit = isAdmin || !header || (header.status!=='확인' && ds!=='closed');
   const headerId = header ? header.id : null;
   // 미저장 상태: empId+yr+mo 기반 고유 임시키 사용 (월/직원 간 충돌 방지)
   const TEMP_KEY = `_NEW_${empId}_${yr}_${mo}`;
   const KEY = headerId || TEMP_KEY;
-  // 기존 _NEW_ 키로 저장된 행을 이 KEY로 마이그레이션
+  // 기존 _NEW_ 키로 저장된 행을 이 KEY로 마이그레이션 (startsWith로 모든 TEMP_KEY 패턴 처리)
   if(!headerId){
-    (db.cardRows||[]).filter(r=>r.headerId==='_NEW_').forEach(r=>{ r.headerId=KEY; });
+    (db.cardRows||[]).filter(r=>String(r.headerId).startsWith('_NEW_')).forEach(r=>{ r.headerId=KEY; });
   }
   const ccRows = getCardRows(KEY,'개인카드', yr, mo);
   const ctRows = getCardRows(KEY,'교통비', yr, mo);
@@ -1818,11 +1832,14 @@ function renderCardMy(yr, mo) {
     ${canEdit ? `
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
       <button class="btn btn-primary" onclick="saveCardDraft()" title="내용을 저장만 합니다">💾 저장</button>
-      <button class="btn" onclick="submitCard()" title="관리자에게 내역이 전송됩니다.">📤 전송</button>
+      <button class="btn btn-success" onclick="submitCard()" title="저장 후 엑셀 파일을 내려받습니다" style="background:#16a34a;color:#fff;border-color:#16a34a">📥 내려받기</button>
     </div>` : (header?.status==='확인' ? `
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
       <button class="btn btn-primary" onclick="downloadCardExcel(${header.id})">📥 엑셀 다운로드</button>
-    </div>` : '')}
+    </div>` : `
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-bottom:24px">
+      <button class="btn btn-primary" onclick="downloadCardExcel(${header?.id})">📥 엑셀 다운로드</button>
+    </div>`)}
   `);
   window._cardYr=yr; window._cardMo=mo; window._cardEmpId=empId;
   window._cardHeaderId=headerId||(`_NEW_${empId}_${yr}_${mo}`);
@@ -2206,7 +2223,8 @@ function addCardRow(type) {
   if (!window._cardEmpId) return;  // 로그인 체크
   const isCc = type==='cc';
   const category = isCc?'개인카드':'교통비';
-  const KEY = window._cardHeaderId || '_NEW_'; // headerId 없으면 임시키
+  const KEY = window._cardHeaderId; // renderCard()에서 항상 설정됨 (실제 headerId 또는 TEMP_KEY)
+  if (!KEY) return;
   const existing = (db.cardRows||[]).filter(r=>(String(r.headerId)===String(KEY)));
   const seqList = existing.filter(r=>r.category===category).map(r=>r.seq);
   const newSeq = seqList.length ? Math.max(...seqList)+1 : 1;
@@ -2233,7 +2251,7 @@ function deleteCardRowByUid(uid) {
 
 function deleteCardRow(type, idx) {
   const category = type==='cc'?'개인카드':'교통비';
-  const KEY = window._cardHeaderId || '_NEW_';
+  const KEY = window._cardHeaderId;
   const rows = (db.cardRows||[]).filter(r=>String(r.headerId)===String(KEY)&&r.category===category).sort((a,b)=>a.seq-b.seq);
   const target = rows[idx];
   if (!target) { console.warn('deleteCardRow: 대상 행 없음', type, idx, rows.length); return; }
@@ -2299,6 +2317,30 @@ function collectCardRows(type) {
   return result;
 }
 
+// ── 카드 데이터 재로드 (저장 후 호출) ──
+async function reloadCardData() {
+  if (!_supa) return;
+  try {
+    const meId = currentEmp ? currentEmp.id : null;
+    let chQ = _supa.from('card_expense_headers').select('*').order('year',{ascending:false}).order('month',{ascending:false});
+    if (!isAdmin && meId) chQ = chQ.eq('emp_id', meId);
+    const { data: chData, error: chErr } = await chQ;
+    if (chErr) { console.error('카드 헤더 재로드 실패:', chErr); return; }
+    const headerIds = (chData||[]).map(r=>r.id);
+    db.cardHeaders = (chData||[]).map(r=>({id:r.id,empId:r.emp_id,year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
+    if (headerIds.length) {
+      const {data:crData,error:crErr} = await _supa.from('card_expense_rows').select('*').in('header_id',headerIds).order('seq');
+      if (crErr) { console.error('카드 행 재로드 실패:', crErr); return; }
+      db.cardRows = (crData||[]).map(r=>({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}));
+    } else {
+      db.cardRows = [];
+    }
+    // 저장된 headerId로 window._cardHeaderId 동기화
+    const currentHeader = (db.cardHeaders||[]).find(h=>String(h.empId)===String(window._cardEmpId)&&h.year===window._cardYr&&h.month===window._cardMo);
+    if (currentHeader) window._cardHeaderId = currentHeader.id;
+  } catch(e) { console.error('reloadCardData 오류:', e); }
+}
+
 // ── 헤더 저장/업데이트 ──
 async function ensureCardHeader(status) {
   const yr=window._cardYr, mo=window._cardMo, empId=window._cardEmpId;
@@ -2308,13 +2350,25 @@ async function ensureCardHeader(status) {
   const row={emp_id:empId,year:yr,month:mo,bank_name:bankName,account_number:accountNumber,account_holder:accountHolder,status,updated_at:new Date().toISOString()};
   if (status==='제출') row.submitted_at=new Date().toISOString();
   let headerId=window._cardHeaderId;
-  if (!headerId) {
-    const ins=await sbInsert('card_expense_headers',row);
-    if (!ins) return null;
-    headerId=ins.id;
-    db.cardHeaders=db.cardHeaders||[];
-    db.cardHeaders.push({id:headerId,empId,year:yr,month:mo,bankName,accountNumber,accountHolder,status,submittedAt:row.submitted_at||null});
-    window._cardHeaderId=headerId;
+  // TEMP_KEY(_NEW_로 시작)는 실제 DB ID가 아니므로 INSERT 필요
+  const isTempKey = !headerId || String(headerId).startsWith('_NEW_');
+  if (isTempKey) {
+    // 혹시 DB에 이미 같은 emp_id/year/month 헤더가 있으면 재사용
+    const existing = (db.cardHeaders||[]).find(h=>String(h.empId)===String(empId)&&h.year===yr&&h.month===mo);
+    if (existing) {
+      headerId = existing.id;
+      await sbUpdate('card_expense_headers',headerId,row);
+      const h=db.cardHeaders.find(h=>h.id===headerId);
+      if(h){h.bankName=bankName;h.accountNumber=accountNumber;h.accountHolder=accountHolder;h.status=status;}
+      window._cardHeaderId=headerId;
+    } else {
+      const ins=await sbInsert('card_expense_headers',row);
+      if (!ins) return null;
+      headerId=ins.id;
+      db.cardHeaders=db.cardHeaders||[];
+      db.cardHeaders.push({id:headerId,empId,year:yr,month:mo,bankName,accountNumber,accountHolder,status,submittedAt:row.submitted_at||null});
+      window._cardHeaderId=headerId;
+    }
   } else {
     await sbUpdate('card_expense_headers',headerId,row);
     const h=db.cardHeaders.find(h=>h.id===headerId);
@@ -2325,8 +2379,13 @@ async function ensureCardHeader(status) {
 
 // ── 행 일괄 저장 ──
 async function saveCardRowsToDb(headerId, ccRows, ctRows) {
-  // 임시키(_NEW_)로 등록된 행들을 실제 headerId로 교체
-  (db.cardRows||[]).forEach(r=>{ if(String(r.headerId)==='_NEW_') r.headerId=headerId; });
+  // TEMP_KEY 또는 유효하지 않은 headerId면 저장 중단
+  if (!headerId || String(headerId).startsWith('_NEW_') || String(headerId).startsWith('_')) {
+    console.error('saveCardRowsToDb 차단: 유효하지 않은 headerId', headerId);
+    return;
+  }
+  // TEMP_KEY(_NEW_로 시작) 임시키를 실제 headerId로 교체
+  (db.cardRows||[]).forEach(r=>{ if(String(r.headerId).startsWith('_NEW_')) r.headerId=headerId; });
   const allNew=[...ccRows,...ctRows].filter(r=>!r.id);
   const allEdit=[...ccRows,...ctRows].filter(r=>r.id);
   for(const r of allNew){
@@ -2337,7 +2396,7 @@ async function saveCardRowsToDb(headerId, ccRows, ctRows) {
     await sbUpdate('card_expense_rows',r.id,{seq:r.seq,use_date:r.useDate||null,detail:r.detail,card_company:r.cardCompany,card_number:r.cardNumber,place:r.place,amount:r.amount,receipt_type:r.receiptType,branch:r.branch});
   }
   db.cardRows=(db.cardRows||[]).filter(r=>String(r.headerId)!==String(headerId));
-  db.cardRows.push(...[...ccRows,...ctRows].map(r=>({...r,headerId})));
+  db.cardRows.push(...[...ccRows,...ctRows].map(r=>({...r,headerId,_uid:r._uid||Math.random().toString(36).slice(2)})));
 
   // ── useDate 기준으로 헤더의 month 자동 보정 ──
   // rows의 useDate 중 최빈 월을 귀속월로 사용 (탭 선택 월과 다를 경우 보정)
@@ -2367,29 +2426,43 @@ async function saveCardRowsToDb(headerId, ccRows, ctRows) {
 
 async function saveCardDraft() {
   const ccRows=collectCardRows('cc'), ctRows=collectCardRows('ct');
+  console.log('[saveCardDraft] 시작 - _cardHeaderId:', window._cardHeaderId, '| empId:', window._cardEmpId, '| yr:', window._cardYr, '| mo:', window._cardMo);
+  console.log('[saveCardDraft] ccRows:', ccRows.length, '개 | ctRows:', ctRows.length, '개');
+  showToast('⏳ 저장 중...');
   const headerId=await ensureCardHeader('작성중');
-  if(!headerId){showToast('⚠️ 저장 실패');return;}
+  console.log('[saveCardDraft] ensureCardHeader 결과 headerId:', headerId);
+  if(!headerId || String(headerId).startsWith('_')){
+    showToast('⚠️ 저장 실패 — 네트워크 또는 권한 오류');
+    console.error('[saveCardDraft] 저장 중단: headerId가 유효하지 않음', headerId);
+    return;
+  }
   await saveCardRowsToDb(headerId,ccRows,ctRows);
-  showToast('💾 임시저장 완료');renderCard();
+  // 저장 후 DB에서 최신 데이터 다시 로드하여 화면 갱신
+  await reloadCardData();
+  showToast('💾 저장 완료');
+  console.log('[saveCardDraft] 완료 - 최종 _cardHeaderId:', window._cardHeaderId);
+  renderCard();
 }
 
 async function submitCard() {
   const ds=cardDeadlineStatus(window._cardYr,window._cardMo);
   if(!isAdmin && ds==='closed'){showToast('⛔ 제출 기한이 마감됐습니다');return;}
-  if(!confirm('제출하면 내용을 수정할 수 없습니다. 제출할까요?'))return;
   const ccRows=collectCardRows('cc'), ctRows=collectCardRows('ct');
+  if(ccRows.length===0 && ctRows.length===0){showToast('⚠️ 저장된 내역이 없습니다');return;}
+  showToast('⏳ 저장 중...');
   const headerId=await ensureCardHeader('제출');
-  if(!headerId){showToast('⚠️ 제출 실패');return;}
+  if(!headerId){showToast('⚠️ 저장 실패');return;}
   await saveCardRowsToDb(headerId,ccRows,ctRows);
-  showToast('✅ 제출 완료 — 엑셀 생성 중...');
-  // 제출 완료 후 엑셀 생성 + 메일 발송
+  await reloadCardData();
+  showToast('✅ 저장 완료 — 엑셀 생성 중...');
+  // 저장 완료 후 엑셀 생성 + 메일 발송
   try {
     const result = await downloadCardExcel(headerId);
     if (result && result.wbBin) {
       await sendCardSubmitMail(headerId, result.wbBin, result.fileName, currentEmp?.name||'');
       showToast('📨 담당자에게 메일 발송 완료');
     }
-  } catch(exErr){ console.warn('제출 후 엑셀/메일 실패:', exErr); }
+  } catch(exErr){ console.warn('엑셀/메일 실패:', exErr); }
   renderCard();
 }
 
@@ -2667,18 +2740,18 @@ async function _openCardEditModal(empId, headerId) {
     (data||[]).forEach(r=>{ db.cardRows=db.cardRows||[]; db.cardRows.push({_uid:Math.random().toString(36).slice(2),id:r.id,headerId:r.header_id,category:r.category,seq:r.seq,useDate:r.use_date||'',detail:r.detail||'',cardCompany:r.card_company||'',cardNumber:r.card_number||'',place:r.place||'',amount:Number(r.amount)||0,receiptType:r.receipt_type||'영수증',branch:r.branch||'',hasAttachment:false}); });
   }
   const h = headerId ? db.cardHeaders.find(h=>h.id===headerId) : null;
-  const KEY = headerId || '_NEW_';
+  // 전역 세팅 (saveCardRowsToDb 등이 참조)
+  window._cardYr = currentYear;
+  window._cardMo = currentMonth || new Date().getMonth()+1;
+  window._cardEmpId = empId;
+  const TEMP_KEY_ADMIN = `_NEW_${empId}_${window._cardYr}_${window._cardMo}`;
+  window._cardHeaderId = headerId || TEMP_KEY_ADMIN;
+  const KEY = window._cardHeaderId;
   const ccRows = getCardRows(KEY,'개인카드', window._cardYr, window._cardMo);
   const ctRows = getCardRows(KEY,'교통비', window._cardYr, window._cardMo);
   const bankInfo = h || getLastBankInfo(empId);
   const emp = eid(empId);
   const canEdit = true; // 관리자는 항상 편집 가능
-
-  // 전역 세팅 (saveCardRowsToDb 등이 참조)
-  window._cardYr = currentYear;
-  window._cardMo = currentMonth || new Date().getMonth()+1;
-  window._cardEmpId = empId;
-  window._cardHeaderId = headerId;
 
   openModal(`
     <div class="modal-title">💳 ${emp?.name||''}님 ${currentYear}년 ${currentMonth||new Date().getMonth()+1}월 내역 편집</div>
@@ -2767,13 +2840,24 @@ async function _saveCardAdminModal(status) {
   const row={emp_id:empId,year:yr,month:mo,bank_name:bankName,account_number:accountNumber,account_holder:accountHolder,status,updated_at:new Date().toISOString()};
   if(status==='제출') row.submitted_at=new Date().toISOString();
   let headerId=window._cardHeaderId;
-  if(!headerId){
-    const ins=await sbInsert('card_expense_headers',row);
-    if(!ins){showToast('⚠️ 저장 실패');return null;}
-    headerId=ins.id;
-    db.cardHeaders=db.cardHeaders||[];
-    db.cardHeaders.push({id:headerId,empId,year:yr,month:mo,bankName,accountNumber,accountHolder,status});
-    window._cardHeaderId=headerId;
+  // TEMP_KEY(_NEW_로 시작)는 실제 DB ID가 아니므로 INSERT 필요
+  const isTempKey = !headerId || String(headerId).startsWith('_NEW_');
+  if(isTempKey){
+    const existing=(db.cardHeaders||[]).find(h=>String(h.empId)===String(empId)&&h.year===yr&&h.month===mo);
+    if(existing){
+      headerId=existing.id;
+      await sbUpdate('card_expense_headers',headerId,row);
+      const h=db.cardHeaders.find(h=>h.id===headerId);
+      if(h){h.bankName=bankName;h.accountNumber=accountNumber;h.accountHolder=accountHolder;h.status=status;}
+      window._cardHeaderId=headerId;
+    } else {
+      const ins=await sbInsert('card_expense_headers',row);
+      if(!ins){showToast('⚠️ 저장 실패');return null;}
+      headerId=ins.id;
+      db.cardHeaders=db.cardHeaders||[];
+      db.cardHeaders.push({id:headerId,empId,year:yr,month:mo,bankName,accountNumber,accountHolder,status});
+      window._cardHeaderId=headerId;
+    }
   } else {
     await sbUpdate('card_expense_headers',headerId,row);
     const h=db.cardHeaders.find(h=>h.id===headerId);
@@ -2786,11 +2870,11 @@ async function _saveCardAdminModal(status) {
 
 async function saveCardAdminDraft() {
   const hid=await _saveCardAdminModal('작성중');
-  if(hid){showToast('💾 임시저장 완료');closeModal();renderCardAdmin(currentYear,currentMonth||new Date().getMonth()+1);}
+  if(hid){await reloadCardData();showToast('💾 임시저장 완료');closeModal();renderCardAdmin(currentYear,currentMonth||new Date().getMonth()+1);}
 }
 async function saveCardAdminSubmit() {
   const hid=await _saveCardAdminModal('제출');
-  if(hid){showToast('✅ 저장 완료');closeModal();renderCardAdmin(currentYear,currentMonth||new Date().getMonth()+1);}
+  if(hid){await reloadCardData();showToast('✅ 저장 완료');closeModal();renderCardAdmin(currentYear,currentMonth||new Date().getMonth()+1);}
 }
 async function deleteCardAdminHeader() {
   const hid=window._cardHeaderId;
@@ -3025,18 +3109,15 @@ async function downloadCardExcel(headerId) {
   ws2['!cols']=[{wch:6},{wch:50},{wch:6},{wch:50},{wch:6},{wch:50}];
   XL.utils.book_append_sheet(wb,ws2,'증빙');
 
-  // 파일 저장
-  const wbBinRaw=XL.write(wb,{bookType:'xlsx',type:'array'});
-  // 서식(테두리/폰트) 적용: styles.xml 교체
-  let finalBin=wbBinRaw;
-  try{ finalBin=await _replaceZipStyles(wbBinRaw,_CARD_STYLES_XML); }catch(e2){ console.warn('스타일 적용 실패, 기본 xlsx 사용',e2); }
-  const blob=new Blob([finalBin],{type:'application/octet-stream'});
+  // 파일 저장 (SheetJS 기본 xlsx — ZIP 직접 조작 제거로 손상 방지)
+  const finalBin=XL.write(wb,{bookType:'xlsx',type:'array'});
+  const blob=new Blob([finalBin],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const fileName=`개인카드사용대장_${e.name}_${yr}${mo}.xlsx`;
   const url=URL.createObjectURL(blob); const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); URL.revokeObjectURL(url);
   showToast('📥 xlsx 다운로드 완료');
 
   // Resend 메일 발송 (submitCard 호출 시에만 → sendCardMail로 별도 처리)
-  return {wb, wbBin, fileName};
+  return {wb, wbBin: finalBin, fileName};
 }
 
 // ── 제출 시 Resend 메일 발송 ──
