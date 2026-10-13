@@ -3047,36 +3047,133 @@ async function downloadCardExcel(headerId) {
   const wb=XL.utils.book_new();
   const sheetName=`${String(yr).slice(2)}${mo}귀속분_${e.name}`;
 
-  // ── 시트1: 지출결의서 ──
+  // ── 시트1: 지출결의서 (파일2 서식 기준: 9컬럼 A~I) ──
   const aoa=[];
-  aoa.push(['개인카드 지출결의서','','','','','','','소속기관','㈜제이엠반도체','','']);
-  aoa.push(['','','','','','','','작성자',e.name,'','']);
-  aoa.push(['','','','','','','','작성일자',todayStr2,'','']);
-  aoa.push([]);
-  aoa.push([`${yr}년 ${h.month}월귀속`]);
-  aoa.push([]);
-  aoa.push(['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','','','개인/본사/양감']);
-  aoa.push([]);
+  // 행1: A~G 빈셀, E1에 제목, H=소속기관, I=값
+  aoa.push(['','','','','개인카드 지출결의서','','','소속기관','㈜제이엠반도체']); // row1
+  aoa.push(['','','','','','','','작성자',e.name]);                              // row2
+  aoa.push(['','','','','','','','작성일자',todayStr2]);                          // row3
+  aoa.push([]);                                                                 // row4
+  aoa.push([`${yr}년 ${h.month}월귀속`]);                                        // row5
+  aoa.push([]);                                                                 // row6
+  // 헤더행: 9컬럼
+  aoa.push(['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','개인/본사/양감']); // row7
+  // 개인카드 데이터
   const ccR=[...ccRows]; const ctR=[...ctRows];
-  if(ccR.length) ccR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','','',r.branch||'']));
-  else aoa.push(['','','','','','','','','','','']);
-  for(let i=ccR.length;i<5;i++) aoa.push([]);
-  aoa.push(['합계','','','','','',ccTotal,'','','','']);
+  const CC_DATA_ROWS=5;
+  if(ccR.length){
+    ccR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'',r.branch||'']));
+  } else {
+    aoa.push(['','','','','','','','','']);
+  }
+  for(let i=ccR.length;i<CC_DATA_ROWS;i++) aoa.push(['','','','','','','','','']);
+  aoa.push(['합계','','','','','',ccTotal,'','']);   // 합계행
   aoa.push([]);
-  aoa.push(['교통비','(개인차량)']);
-  aoa.push(['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','','','']);
-  if(ctR.length) ctR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','','','']));
-  else aoa.push([]);
-  for(let i=ctR.length;i<5;i++) aoa.push([]);
-  aoa.push(['합계','','','','','',ctTotal,'','','','']);
-  aoa.push(['총 지출 금액','','','','','',ccTotal+ctTotal,'','','','']);
+  aoa.push(['교통비','(차량번호:           )']);
+  // 교통비 헤더: 9컬럼 (I열 빈셀)
+  aoa.push(['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','']);
+  const CT_DATA_ROWS=5;
+  if(ctR.length){
+    ctR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','']));
+  } else {
+    aoa.push(['','','','','','','','','']);
+  }
+  for(let i=ctR.length;i<CT_DATA_ROWS;i++) aoa.push(['','','','','','','','','']);
+  aoa.push(['합계','','','','','',ctTotal,'','']);
+  aoa.push([]);
+  aoa.push(['총 금액','','','','','',ccTotal+ctTotal,'','']);
   aoa.push([]);
   aoa.push(['*입금 정보*']);
-  aoa.push(['은행명','','계좌번호','예금주명','','','','','','','']);
-  aoa.push([h.bankName||'','',h.accountNumber||'',h.accountHolder||'','','','','','','','']);
+  aoa.push(['은행명','','계좌번호','예금주명','','','','','']);
+  aoa.push([h.bankName||'','',h.accountNumber||'',h.accountHolder||'','','','','','']);
   const ws=XL.utils.aoa_to_sheet(aoa);
-  ws['!cols']=[{wch:6},{wch:12},{wch:28},{wch:10},{wch:22},{wch:18},{wch:12},{wch:18},{wch:4},{wch:4},{wch:12}];
+  // 컬럼 너비 (9컬럼)
+  ws['!cols']=[{wch:6.8},{wch:12.8},{wch:28.8},{wch:10.8},{wch:22.8},{wch:18.8},{wch:12.8},{wch:18.8},{wch:14.3}];
+  // 숫자 서식 (G열=index 6)
   aoa.forEach((row,ri)=>{ const cell=ws[XL.utils.encode_cell({r:ri,c:6})]; if(cell&&typeof cell.v==='number') cell.z='#,##0'; });
+
+  // ── 스타일 적용 헬퍼 ──
+  function _cs(ws, addr, halign, bold, borderType){
+    if(!ws[addr]) ws[addr]={t:'s',v:''};
+    const cell=ws[addr];
+    const align={horizontal:halign||'center',vertical:'center'};
+    const font={name:'맑은 고딕',sz:10,bold:!!bold};
+    let border={};
+    if(borderType==='header'){
+      border={left:{style:'medium'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='header-mid'){
+      border={left:{style:'thin'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='header-right'){
+      border={left:{style:'thin'},right:{style:'medium'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='data-left'){
+      border={left:{style:'medium'},right:{style:'thin'},bottom:{style:'thin'}};
+    } else if(borderType==='data-mid'){
+      border={left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
+    } else if(borderType==='data-right'){
+      border={left:{style:'thin'},right:{style:'medium'},bottom:{style:'thin'}};
+    } else if(borderType==='sum'){
+      border={left:{style:'medium'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='sum-mid'){
+      border={left:{style:'thin'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='sum-right'){
+      border={left:{style:'thin'},right:{style:'medium'},top:{style:'medium'},bottom:{style:'medium'}};
+    } else if(borderType==='info'){
+      border={left:{style:'thin'},right:{style:'thin'},top:{style:'thin'},bottom:{style:'thin'}};
+    }
+    cell.s={alignment:align,font:font,border:border};
+  }
+  // 우측 정보 박스 (H1:I3)
+  ['H1','I1','H2','I2','H3','I3'].forEach(a=>_cs(ws,a,'center',false,'info'));
+  // 제목행 헤더 (A7~I7)
+  const hdrCols=['A','B','C','D','E','F','G','H','I'];
+  hdrCols.forEach((c,ci)=>{
+    const bt = ci===0?'header': ci===8?'header-right':'header-mid';
+    _cs(ws,c+'7','center',false,bt);
+  });
+  // 개인카드 데이터 행 (row8 ~ row8+CC_DATA_ROWS-1)
+  const ccDataStart=8;
+  for(let ri=0;ri<CC_DATA_ROWS;ri++){
+    hdrCols.forEach((c,ci)=>{
+      const bt=ci===0?'data-left':ci===8?'data-right':'data-mid';
+      _cs(ws,c+(ccDataStart+ri),'center',false,bt);
+    });
+  }
+  // 개인카드 합계행
+  const ccSumRow=ccDataStart+CC_DATA_ROWS;
+  hdrCols.forEach((c,ci)=>{
+    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
+    _cs(ws,c+ccSumRow,'center',false,bt);
+  });
+  // 교통비 헤더행 = ccSumRow+3 (빈행, 교통비 레이블, 헤더)
+  const ctHdrRow=ccSumRow+3;
+  hdrCols.forEach((c,ci)=>{
+    const bt=ci===0?'header':ci===8?'header-right':'header-mid';
+    _cs(ws,c+ctHdrRow,'center',false,bt);
+  });
+  // 교통비 데이터 행
+  const ctDataStart=ctHdrRow+1;
+  for(let ri=0;ri<CT_DATA_ROWS;ri++){
+    hdrCols.forEach((c,ci)=>{
+      const bt=ci===0?'data-left':ci===8?'data-right':'data-mid';
+      _cs(ws,c+(ctDataStart+ri),'center',false,bt);
+    });
+  }
+  // 교통비 합계
+  const ctSumRow=ctDataStart+CT_DATA_ROWS;
+  hdrCols.forEach((c,ci)=>{
+    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
+    _cs(ws,c+ctSumRow,'center',false,bt);
+  });
+  // 총 금액행
+  const totalRow=ctSumRow+2;
+  hdrCols.forEach((c,ci)=>{
+    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
+    _cs(ws,c+totalRow,'center',false,bt);
+  });
+  // 행 높이 설정
+  ws['!rows']=[];
+  aoa.forEach((_,ri)=>{ ws['!rows'][ri]={hpt: (ri===6||ri===ctHdrRow||ri===ccSumRow||ri===ctSumRow||ri===totalRow)?18:17.25}; });
+
   XL.utils.book_append_sheet(wb,ws,sheetName);
 
   // ── 시트2: 증빙 (영수증 이미지 URL 목록) ──
