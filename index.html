@@ -3055,18 +3055,22 @@ async function downloadCardExcel(headerId) {
   const BD_THIN={style:'thin'};
   const BD_MED={style:'medium'};
 
-  // 테두리 헬퍼: l/r/t/b 각각 'thin'|'medium'|null
+  // 테두리 헬퍼: l/r/t/b 각각 'thin'|'medium'|null (undefined 키 제거 — ExcelJS 필수)
   function _bd(l,r,t,b){
-    const s=v=>v?{style:v}:undefined;
-    return {left:s(l),right:s(r),top:s(t),bottom:s(b)};
+    const o={};
+    if(l) o.left={style:l};
+    if(r) o.right={style:r};
+    if(t) o.top={style:t};
+    if(b) o.bottom={style:b};
+    return o;
   }
 
   // 셀 스타일 적용 헬퍼
   function _st(cell, {font,align,border,numFmt}={}){
-    if(font)  cell.font   = font;
-    if(align) cell.alignment = align;
-    if(border)cell.border  = border;
-    if(numFmt)cell.numFmt  = numFmt;
+    if(font)   cell.font      = font;
+    if(align)  cell.alignment = align;
+    if(border && Object.keys(border).length) cell.border = border;
+    if(numFmt) cell.numFmt    = numFmt;
   }
 
   // 헤더행 한 줄 스타일 적용 (A~I)
