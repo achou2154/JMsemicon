@@ -3039,182 +3039,243 @@ async function downloadCardExcel(headerId) {
   const yr=h.year, mo=String(h.month).padStart(2,'0');
   const today=new Date(); const todayStr2=`${yr}-${mo}-${String(today.getDate()).padStart(2,'0')}`;
 
-  // SheetJS import
-  if(!window.XLSX){ await new Promise(res=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload=res; document.head.appendChild(sc); }); }
-  const XL=window.XLSX;
-
-  // 워크북 생성
-  const wb=XL.utils.book_new();
+  // ExcelJS 로드 (스타일/테두리 완전 지원)
+  if(!window.ExcelJS){
+    await new Promise(res=>{ const sc=document.createElement('script'); sc.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'; sc.onload=res; document.head.appendChild(sc); });
+  }
+  const EX=window.ExcelJS;
+  const wb=new EX.Workbook();
   const sheetName=`${String(yr).slice(2)}${mo}귀속분_${e.name}`;
 
-  // ── 시트1: 지출결의서 (파일2 서식 기준: 9컬럼 A~I) ──
-  const aoa=[];
-  // 행1: A~G 빈셀, E1에 제목, H=소속기관, I=값
-  aoa.push(['','','','','개인카드 지출결의서','','','소속기관','㈜제이엠반도체']); // row1
-  aoa.push(['','','','','','','','작성자',e.name]);                              // row2
-  aoa.push(['','','','','','','','작성일자',todayStr2]);                          // row3
-  aoa.push([]);                                                                 // row4
-  aoa.push([`${yr}년 ${h.month}월귀속`]);                                        // row5
-  aoa.push([]);                                                                 // row6
-  // 헤더행: 9컬럼
-  aoa.push(['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','개인/본사/양감']); // row7
-  // 개인카드 데이터
-  const ccR=[...ccRows]; const ctR=[...ctRows];
-  const CC_DATA_ROWS=5;
-  if(ccR.length){
-    ccR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'',r.branch||'']));
-  } else {
-    aoa.push(['','','','','','','','','']);
-  }
-  for(let i=ccR.length;i<CC_DATA_ROWS;i++) aoa.push(['','','','','','','','','']);
-  aoa.push(['합계','','','','','',ccTotal,'','']);   // 합계행
-  aoa.push([]);
-  aoa.push(['교통비','(차량번호:           )']);
-  // 교통비 헤더: 9컬럼 (I열 빈셀)
-  aoa.push(['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','']);
-  const CT_DATA_ROWS=5;
-  if(ctR.length){
-    ctR.forEach((r,i)=>aoa.push([i+1,r.useDate||'',r.detail||'',r.cardCompany||'',r.cardNumber||'',r.place||'',Number(r.amount)||0,r.receiptType||'','']));
-  } else {
-    aoa.push(['','','','','','','','','']);
-  }
-  for(let i=ctR.length;i<CT_DATA_ROWS;i++) aoa.push(['','','','','','','','','']);
-  aoa.push(['합계','','','','','',ctTotal,'','']);
-  aoa.push([]);
-  aoa.push(['총 금액','','','','','',ccTotal+ctTotal,'','']);
-  aoa.push([]);
-  aoa.push(['*입금 정보*']);
-  aoa.push(['은행명','','계좌번호','예금주명','','','','','']);
-  aoa.push([h.bankName||'','',h.accountNumber||'',h.accountHolder||'','','','','','']);
-  const ws=XL.utils.aoa_to_sheet(aoa);
-  // 컬럼 너비 (9컬럼)
-  ws['!cols']=[{wch:6.8},{wch:12.8},{wch:28.8},{wch:10.8},{wch:22.8},{wch:18.8},{wch:12.8},{wch:18.8},{wch:14.3}];
-  // 숫자 서식 (G열=index 6)
-  aoa.forEach((row,ri)=>{ const cell=ws[XL.utils.encode_cell({r:ri,c:6})]; if(cell&&typeof cell.v==='number') cell.z='#,##0'; });
+  // ── 스타일 상수 ──
+  const FONT_BASE={name:'맑은 고딕',size:10};
+  const FONT_TITLE={name:'맑은 고딕',size:12,bold:true};
+  const ALIGN_C={horizontal:'center',vertical:'middle'};
+  const ALIGN_L={horizontal:'left',vertical:'middle'};
+  const BD_THIN={style:'thin'};
+  const BD_MED={style:'medium'};
 
-  // ── 스타일 적용 헬퍼 ──
-  function _cs(ws, addr, halign, bold, borderType){
-    if(!ws[addr]) ws[addr]={t:'s',v:''};
-    const cell=ws[addr];
-    const align={horizontal:halign||'center',vertical:'center'};
-    const font={name:'맑은 고딕',sz:10,bold:!!bold};
-    let border={};
-    if(borderType==='header'){
-      border={left:{style:'medium'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='header-mid'){
-      border={left:{style:'thin'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='header-right'){
-      border={left:{style:'thin'},right:{style:'medium'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='data-left'){
-      border={left:{style:'medium'},right:{style:'thin'},bottom:{style:'thin'}};
-    } else if(borderType==='data-mid'){
-      border={left:{style:'thin'},right:{style:'thin'},bottom:{style:'thin'}};
-    } else if(borderType==='data-right'){
-      border={left:{style:'thin'},right:{style:'medium'},bottom:{style:'thin'}};
-    } else if(borderType==='sum'){
-      border={left:{style:'medium'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='sum-mid'){
-      border={left:{style:'thin'},right:{style:'thin'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='sum-right'){
-      border={left:{style:'thin'},right:{style:'medium'},top:{style:'medium'},bottom:{style:'medium'}};
-    } else if(borderType==='info'){
-      border={left:{style:'thin'},right:{style:'thin'},top:{style:'thin'},bottom:{style:'thin'}};
+  // 테두리 헬퍼: l/r/t/b 각각 'thin'|'medium'|null
+  function _bd(l,r,t,b){
+    const s=v=>v?{style:v}:undefined;
+    return {left:s(l),right:s(r),top:s(t),bottom:s(b)};
+  }
+
+  // 셀 스타일 적용 헬퍼
+  function _st(cell, {font,align,border,numFmt}={}){
+    if(font)  cell.font   = font;
+    if(align) cell.alignment = align;
+    if(border)cell.border  = border;
+    if(numFmt)cell.numFmt  = numFmt;
+  }
+
+  // 헤더행 한 줄 스타일 적용 (A~I)
+  function _stHdrRow(ws, rowNum){
+    const row=ws.getRow(rowNum);
+    [1,2,3,4,5,6,7,8,9].forEach((c,ci)=>{
+      const cell=row.getCell(c);
+      _st(cell,{font:FONT_BASE, align:ALIGN_C,
+        border:_bd(ci===0?'medium':'thin', ci===8?'medium':'thin','medium','medium')});
+    });
+  }
+
+  // 데이터행 한 줄 스타일 적용 (A~I)
+  function _stDataRow(ws, rowNum){
+    const row=ws.getRow(rowNum);
+    [1,2,3,4,5,6,7,8,9].forEach((c,ci)=>{
+      const cell=row.getCell(c);
+      _st(cell,{font:FONT_BASE, align:ALIGN_C,
+        border:_bd(ci===0?'medium':'thin', ci===8?'medium':'thin',null,'thin')});
+    });
+  }
+
+  // 합계/총금액행 한 줄 스타일 (A~I)
+  function _stSumRow(ws, rowNum){
+    const row=ws.getRow(rowNum);
+    [1,2,3,4,5,6,7,8,9].forEach((c,ci)=>{
+      const cell=row.getCell(c);
+      _st(cell,{font:{...FONT_BASE,bold:true}, align:ALIGN_C,
+        border:_bd(ci===0?'medium':'thin', ci===8?'medium':'thin','medium','medium')});
+      if(c===7) cell.numFmt='#,##0';
+    });
+  }
+
+  // ── 시트1: 지출결의서 ──
+  const ws=wb.addWorksheet(sheetName);
+  ws.views=[{showGridLines:false}]; // 그리드선 숨김
+
+  // 컬럼 너비 (A~I)
+  [6.8,12.8,28.8,10.8,22.8,18.8,12.8,18.8,14.3].forEach((w,i)=>{ ws.getColumn(i+1).width=w; });
+
+  const CC_DATA_ROWS=5, CT_DATA_ROWS=5;
+  const ccR=[...ccRows], ctR=[...ctRows];
+
+  // ── 행 배치 계획 ──
+  // R1~R3: 헤더 정보
+  // R4: 빈행
+  // R5: 귀속년월
+  // R6: 빈행
+  // R7: 개인카드 컬럼 헤더
+  // R8 ~ R8+CC_DATA_ROWS-1: 개인카드 데이터 (5행)
+  // R(8+CC_DATA_ROWS): 개인카드 합계
+  // R(9+CC_DATA_ROWS): 빈행
+  // R(10+CC_DATA_ROWS): 교통비 레이블
+  // R(11+CC_DATA_ROWS): 교통비 컬럼 헤더
+  // R(12+CC_DATA_ROWS) ~ R(12+CC+CT-1): 교통비 데이터 (5행)
+  // R(12+CC+CT): 교통비 합계
+  // R(13+CC+CT): 빈행
+  // R(14+CC+CT): 총 금액
+  // R(15+CC+CT): 빈행
+  // R(16+CC+CT): *입금 정보*
+  // R(17+CC+CT): 은행명/계좌번호/예금주명 레이블
+  // R(18+CC+CT): 실제 값
+
+  const CC_HDR=7, CC_DATA_S=8, CC_SUM=CC_DATA_S+CC_DATA_ROWS;
+  const CT_LBL=CC_SUM+2, CT_HDR=CC_SUM+3, CT_DATA_S=CC_SUM+4, CT_SUM=CT_DATA_S+CT_DATA_ROWS;
+  const TOTAL_R=CT_SUM+2, BANK_LBL=CT_SUM+4, BANK_HDR=CT_SUM+5, BANK_VAL=CT_SUM+6;
+
+  // R1: 제목 + 소속기관
+  { const r=ws.getRow(1); r.height=17.25;
+    r.getCell(5).value='개인카드 지출결의서'; _st(r.getCell(5),{font:FONT_TITLE,align:ALIGN_L});
+    r.getCell(8).value='소속기관'; _st(r.getCell(8),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')});
+    r.getCell(9).value='㈜제이엠반도체'; _st(r.getCell(9),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')}); }
+  // R2: 작성자
+  { const r=ws.getRow(2); r.height=17.25;
+    r.getCell(8).value='작성자'; _st(r.getCell(8),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')});
+    r.getCell(9).value=e.name; _st(r.getCell(9),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')}); }
+  // R3: 작성일자
+  { const r=ws.getRow(3); r.height=17.25;
+    r.getCell(8).value='작성일자'; _st(r.getCell(8),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')});
+    r.getCell(9).value=todayStr2; _st(r.getCell(9),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')}); }
+  // R4: 빈행
+  ws.getRow(4).height=17.25;
+  // R5: 귀속년월
+  { const r=ws.getRow(5); r.height=17.25;
+    r.getCell(1).value=`${yr}년 ${h.month}월귀속`; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L}); }
+  // R6: 빈행
+  ws.getRow(6).height=17.25;
+
+  // R7: 개인카드 헤더
+  { const r=ws.getRow(CC_HDR); r.height=18;
+    const hdrs=['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','개인/본사/양감'];
+    hdrs.forEach((v,i)=>{ r.getCell(i+1).value=v; }); _stHdrRow(ws,CC_HDR); }
+
+  // R8~: 개인카드 데이터
+  for(let i=0;i<CC_DATA_ROWS;i++){
+    const rn=CC_DATA_S+i; const row=ws.getRow(rn); row.height=17.25;
+    const d=ccR[i];
+    if(d){
+      row.getCell(1).value=i+1; row.getCell(2).value=d.useDate||'';
+      row.getCell(3).value=d.detail||''; row.getCell(4).value=d.cardCompany||'';
+      row.getCell(5).value=d.cardNumber||''; row.getCell(6).value=d.place||'';
+      row.getCell(7).value=Number(d.amount)||0; row.getCell(8).value=d.receiptType||'';
+      row.getCell(9).value=d.branch||'';
     }
-    cell.s={alignment:align,font:font,border:border};
+    _stDataRow(ws,rn);
+    row.getCell(7).numFmt='#,##0';
   }
-  // 우측 정보 박스 (H1:I3)
-  ['H1','I1','H2','I2','H3','I3'].forEach(a=>_cs(ws,a,'center',false,'info'));
-  // 제목행 헤더 (A7~I7)
-  const hdrCols=['A','B','C','D','E','F','G','H','I'];
-  hdrCols.forEach((c,ci)=>{
-    const bt = ci===0?'header': ci===8?'header-right':'header-mid';
-    _cs(ws,c+'7','center',false,bt);
-  });
-  // 개인카드 데이터 행 (row8 ~ row8+CC_DATA_ROWS-1)
-  const ccDataStart=8;
-  for(let ri=0;ri<CC_DATA_ROWS;ri++){
-    hdrCols.forEach((c,ci)=>{
-      const bt=ci===0?'data-left':ci===8?'data-right':'data-mid';
-      _cs(ws,c+(ccDataStart+ri),'center',false,bt);
-    });
-  }
+
   // 개인카드 합계행
-  const ccSumRow=ccDataStart+CC_DATA_ROWS;
-  hdrCols.forEach((c,ci)=>{
-    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
-    _cs(ws,c+ccSumRow,'center',false,bt);
-  });
-  // 교통비 헤더행 = ccSumRow+3 (빈행, 교통비 레이블, 헤더)
-  const ctHdrRow=ccSumRow+3;
-  hdrCols.forEach((c,ci)=>{
-    const bt=ci===0?'header':ci===8?'header-right':'header-mid';
-    _cs(ws,c+ctHdrRow,'center',false,bt);
-  });
-  // 교통비 데이터 행
-  const ctDataStart=ctHdrRow+1;
-  for(let ri=0;ri<CT_DATA_ROWS;ri++){
-    hdrCols.forEach((c,ci)=>{
-      const bt=ci===0?'data-left':ci===8?'data-right':'data-mid';
-      _cs(ws,c+(ctDataStart+ri),'center',false,bt);
-    });
+  { const r=ws.getRow(CC_SUM); r.height=18;
+    r.getCell(1).value='합계'; r.getCell(7).value=ccTotal; _stSumRow(ws,CC_SUM); }
+
+  // 빈행
+  ws.getRow(CC_SUM+1).height=17.25;
+
+  // 교통비 레이블
+  { const r=ws.getRow(CT_LBL); r.height=17.25;
+    r.getCell(1).value='교통비'; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L});
+    r.getCell(2).value='(차량번호:           )'; _st(r.getCell(2),{font:FONT_BASE,align:ALIGN_L}); }
+
+  // 교통비 헤더
+  { const r=ws.getRow(CT_HDR); r.height=18;
+    const hdrs=['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)',''];
+    hdrs.forEach((v,i)=>{ r.getCell(i+1).value=v; }); _stHdrRow(ws,CT_HDR); }
+
+  // 교통비 데이터
+  for(let i=0;i<CT_DATA_ROWS;i++){
+    const rn=CT_DATA_S+i; const row=ws.getRow(rn); row.height=17.25;
+    const d=ctR[i];
+    if(d){
+      row.getCell(1).value=i+1; row.getCell(2).value=d.useDate||'';
+      row.getCell(3).value=d.detail||''; row.getCell(4).value=d.cardCompany||'';
+      row.getCell(5).value=d.cardNumber||''; row.getCell(6).value=d.place||'';
+      row.getCell(7).value=Number(d.amount)||0; row.getCell(8).value=d.receiptType||'';
+      row.getCell(9).value='';
+    }
+    _stDataRow(ws,rn);
+    row.getCell(7).numFmt='#,##0';
   }
+
   // 교통비 합계
-  const ctSumRow=ctDataStart+CT_DATA_ROWS;
-  hdrCols.forEach((c,ci)=>{
-    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
-    _cs(ws,c+ctSumRow,'center',false,bt);
-  });
-  // 총 금액행
-  const totalRow=ctSumRow+2;
-  hdrCols.forEach((c,ci)=>{
-    const bt=ci===0?'sum':ci===8?'sum-right':'sum-mid';
-    _cs(ws,c+totalRow,'center',false,bt);
-  });
-  // 행 높이 설정
-  ws['!rows']=[];
-  aoa.forEach((_,ri)=>{ ws['!rows'][ri]={hpt: (ri===6||ri===ctHdrRow||ri===ccSumRow||ri===ctSumRow||ri===totalRow)?18:17.25}; });
+  { const r=ws.getRow(CT_SUM); r.height=18;
+    r.getCell(1).value='합계'; r.getCell(7).value=ctTotal; _stSumRow(ws,CT_SUM); }
 
-  XL.utils.book_append_sheet(wb,ws,sheetName);
+  // 빈행
+  ws.getRow(CT_SUM+1).height=17.25;
 
-  // ── 시트2: 증빙 (영수증 이미지 URL 목록) ──
-  const attachments=getCardAttachments(headerId);
-  // 실시간 로드 보완
-  if(!attachments.length && _supa){
+  // 총 금액
+  { const r=ws.getRow(TOTAL_R); r.height=18;
+    r.getCell(1).value='총 금액'; r.getCell(7).value=ccTotal+ctTotal; _stSumRow(ws,TOTAL_R); }
+
+  // 빈행
+  ws.getRow(TOTAL_R+1).height=17.25;
+
+  // *입금 정보*
+  { const r=ws.getRow(BANK_LBL); r.height=17.25;
+    r.getCell(1).value='*입금 정보*'; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L}); }
+
+  // 입금정보 레이블행
+  { const r=ws.getRow(BANK_HDR); r.height=17.25;
+    r.getCell(1).value='은행명'; r.getCell(3).value='계좌번호'; r.getCell(4).value='예금주명';
+    [1,3,4].forEach(c=>_st(r.getCell(c),{font:FONT_BASE,align:ALIGN_L})); }
+
+  // 입금정보 값행
+  { const r=ws.getRow(BANK_VAL); r.height=17.25;
+    r.getCell(1).value=h.bankName||''; r.getCell(3).value=h.accountNumber||''; r.getCell(4).value=h.accountHolder||'';
+    [1,3,4].forEach(c=>_st(r.getCell(c),{font:FONT_BASE,align:ALIGN_L})); }
+
+  // ── 시트2: 증빙 ──
+  // 실시간 첨부 로드
+  if(!getCardAttachments(headerId).length && _supa){
     try{
       const {data:ad}=await _supa.from('card_expense_attachments').select('*').eq('header_id',headerId);
       (ad||[]).forEach(a=>{ if(!db.cardAttachments.find(x=>x.id===a.id)) db.cardAttachments.push({id:a.id,headerId:a.header_id,rowSeq:a.row_seq,fileName:a.file_name,fileUrl:a.file_url}); });
     }catch(e2){}
   }
   const allAttach=getCardAttachments(headerId);
-  // 증빙 시트: A=연번, B=증빙자료(URL), C=연번, D=증빙자료, E=연번, F=증빙자료 (3열 배치)
-  const proofAoa=[
-    ['지 출 증 빙 자 료'],
-    [],
-    ['연번','증빙자료','연번','증빙자료','연번','증빙자료']
-  ];
-  // 3개씩 가로 배치
-  for(let i=0;i<Math.max(allAttach.length,1);i+=3){
-    const row=[];
+  const ws2=wb.addWorksheet('증빙');
+  ws2.getColumn(1).width=6; ws2.getColumn(2).width=50;
+  ws2.getColumn(3).width=6; ws2.getColumn(4).width=50;
+  ws2.getColumn(5).width=6; ws2.getColumn(6).width=50;
+  // 제목
+  { const r=ws2.getRow(1); r.getCell(1).value='지 출 증 빙 자 료';
+    _st(r.getCell(1),{font:{name:'맑은 고딕',size:12,bold:true},align:ALIGN_L}); }
+  ws2.getRow(2).height=8;
+  // 헤더
+  { const r=ws2.getRow(3); ['연번','증빙자료','연번','증빙자료','연번','증빙자료'].forEach((v,i)=>{
+      r.getCell(i+1).value=v; _st(r.getCell(i+1),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')}); }); }
+  // 데이터 (3열 배치)
+  const proofList=allAttach.length?allAttach:[null];
+  for(let i=0;i<proofList.length;i+=3){
+    const r=ws2.addRow([]);
     for(let j=0;j<3;j++){
-      const a=allAttach[i+j];
-      row.push(a?i+j+1:''); row.push(a?a.fileUrl||a.fileName||'':'');
+      const a=proofList[i+j];
+      r.getCell(j*2+1).value=a?(i+j+1):'';
+      r.getCell(j*2+2).value=a?(a.fileUrl||a.fileName||'(첨부 없음)'):'';
+      _st(r.getCell(j*2+1),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')});
+      _st(r.getCell(j*2+2),{font:FONT_BASE,align:ALIGN_L,border:_bd('thin','thin','thin','thin')});
     }
-    proofAoa.push(row);
   }
-  if(!allAttach.length) proofAoa.push([1,'(첨부 없음)','','','','']);
-  const ws2=XL.utils.aoa_to_sheet(proofAoa);
-  ws2['!cols']=[{wch:6},{wch:50},{wch:6},{wch:50},{wch:6},{wch:50}];
-  XL.utils.book_append_sheet(wb,ws2,'증빙');
 
-  // 파일 저장 (SheetJS 기본 xlsx — ZIP 직접 조작 제거로 손상 방지)
-  const finalBin=XL.write(wb,{bookType:'xlsx',type:'array'});
-  const blob=new Blob([finalBin],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  // ── 파일 저장 ──
   const fileName=`개인카드사용대장_${e.name}_${yr}${mo}.xlsx`;
+  const arrayBuf=await wb.xlsx.writeBuffer();
+  const finalBin=new Uint8Array(arrayBuf);
+  const blob=new Blob([finalBin],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url=URL.createObjectURL(blob); const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); URL.revokeObjectURL(url);
   showToast('📥 xlsx 다운로드 완료');
-
-  // Resend 메일 발송 (submitCard 호출 시에만 → sendCardMail로 별도 처리)
-  return {wb, wbBin: finalBin, fileName};
+  return {wbBin:finalBin, fileName};
 }
 
 // ── 제출 시 Resend 메일 발송 ──
