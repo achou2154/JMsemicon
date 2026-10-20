@@ -9755,7 +9755,7 @@ function vParseJson(x, def){ if(x==null) return def; if(typeof x==='object') ret
 function normalizeVehicle(r){
   return { id:r.id, kind:r.kind||'personal', empId:r.emp_id??null,
     managerIds:(vParseJson(r.manager_ids,[])||[]).map(String),
-    plate:r.plate||'', model:r.model||'', carType:r.car_type||'승용', carSize:r.car_size||'소형',
+    plate:r.plate||'', vin:r.vin||'', model:r.model||'', carType:r.car_type||'승용', carSize:r.car_size||'소형',
     modelYear:r.model_year||'', firstRegDate:r.first_reg_date||'',
     insurer:r.insurer||'', insStart:r.ins_start||'', insEnd:r.ins_end||'',
     lastInspectDate:r.last_inspect_date||'', inspectExpire:r.inspect_expire||'',
@@ -9932,7 +9932,7 @@ function vehCardHtml(v, opt){
   return '<div class="card">'
     +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
     +'<div><div style="font-size:20px;font-weight:700">'+vEsc(v.plate)+' <span style="font-size:14px;color:var(--text2);font-weight:500">'+vEsc(v.model)+'</span></div>'
-    +'<div style="font-size:13px;color:var(--text3);margin-top:2px">'+vEsc(v.carType)+' · '+vEsc(v.carSize)+(v.modelYear?' · '+vEsc(v.modelYear)+'년식':'')+(v.firstRegDate?' · 최초등록 '+fmt(v.firstRegDate):'')+'</div></div>'
+    +(v.vin?'<div style="font-size:12px;color:var(--text3);margin-top:2px">차대번호 '+vEsc(v.vin)+'</div>':'')+'<div style="font-size:13px;color:var(--text3);margin-top:2px">'+vEsc(v.carType)+' · '+vEsc(v.carSize)+(v.modelYear?' · '+vEsc(v.modelYear)+'년식':'')+(v.firstRegDate?' · 최초등록 '+fmt(v.firstRegDate):'')+'</div></div>'
     +'<div style="font-size:13px;color:var(--text2)">'+(v.kind==='shared'?'<span class="badge badge-trip">공용</span> ':'<span class="badge badge-leave">개인</span> ')+vehOwnerText(v)+'</div></div>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px">'
     +tile('🛡️ 보험','#0369a1','<div style="font-size:14px;font-weight:600">'+(vEsc(v.insurer)||'—')+'</div><div style="font-size:12px;color:var(--text3);margin:2px 0 6px">'+(v.insStart?fmt(v.insStart):'—')+' ~ '+(v.insEnd?fmt(v.insEnd):'—')+'</div>'+vehDdayBadge(v.insEnd)+pendBadge('insurance'))
@@ -10050,7 +10050,7 @@ async function applyVehUpdate(u, v){
   return true;
 }
 function vehToDb(v){
-  return { kind:v.kind, emp_id:v.empId||null, manager_ids:v.managerIds||[], plate:v.plate, model:v.model, car_type:v.carType, car_size:v.carSize,
+  return { kind:v.kind, emp_id:v.empId||null, manager_ids:v.managerIds||[], plate:v.plate, vin:v.vin||'', model:v.model, car_type:v.carType, car_size:v.carSize,
     model_year:v.modelYear?Number(v.modelYear):null, first_reg_date:v.firstRegDate||null, insurer:v.insurer, ins_start:v.insStart||null, ins_end:v.insEnd||null,
     last_inspect_date:v.lastInspectDate||null, inspect_expire:v.inspectExpire||null, mileage:v.mileage, mileage_date:v.mileageDate||null, memo:v.memo, is_active:v.isActive };
 }
@@ -10097,6 +10097,7 @@ function renderVehApprovalCard(){
 
 // ── 공용차량 관리 ──
 function renderSharedVehicle(){
+  window._vehLogCtx='page';
   if(window._vehTablesMissing){ setContent(vehMissingHtml()); return; }
   const list=(db.vehicles||[]).filter(v=>v.isActive&&v.kind==='shared').sort((a,b)=>a.plate.localeCompare(b.plate,'ko'));
   if(!list.length){ setContent('<div class="card" style="text-align:center;color:var(--text3);padding:32px">등록된 공용차량이 없습니다.'+(isAdmin?'<br><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="go(\'vehicleadmin\')">차량 총관리에서 등록</button>':'')+'</div>'); return; }
@@ -10168,6 +10169,19 @@ function vlRead(f){
   if(f.type==='number'||f.type==='money') return el.value===''?null:Number(el.value);
   return el.value.trim();
 }
+function vehLogRefresh(cat){
+  if(window._vehLogCtx==='modal') openVehLogModal(window._vehSelId, cat);
+  else renderSharedVehicle();
+}
+// 관리자: 공용차량 일지 모달 (차량번호/차대번호 클릭)
+function openVehLogModal(vid, tab){
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(vid)); if(!v) return;
+  window._vehSelId=v.id; window._vehTab=tab||'drive'; window._vehLogCtx='modal';
+  const tabs=Object.entries(VEH_LOG_CATS).map(([k,c])=>'<div class="folder-tab'+(k===window._vehTab?' active':'')+'" onclick="openVehLogModal('+v.id+',\''+k+'\')">'+c.icon+' '+c.label+'</div>').join('');
+  openModal('<div class="modal-title">🚙 '+vEsc(v.plate)+' <span style="font-size:14px;color:var(--text2);font-weight:500">'+vEsc(v.model)+(v.vin?' · 차대번호 '+vEsc(v.vin):'')+'</span></div>'
+    +'<div style="max-height:72vh;overflow-y:auto"><div class="folder-tabs" style="flex-wrap:wrap">'+tabs+'</div><div class="folder-body">'+renderVehLogTab(v,window._vehTab)+'</div></div>'
+    +'<div class="modal-footer"><button class="btn" onclick="closeModal();openVehDetail('+v.id+')">차량 정보 보기</button><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>',true);
+}
 function openVehLog(cat, logId){
   const c=VEH_LOG_CATS[cat]; const v=(db.vehicles||[]).find(x=>String(x.id)===String(window._vehSelId)); if(!v) return;
   const l=logId?(db.vehicleLogs||[]).find(x=>String(x.id)===String(logId)):null;
@@ -10178,7 +10192,7 @@ function openVehLog(cat, logId){
     +'<div class="form-grid" style="margin-bottom:12px">'+grid+'</div>'
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:600">사진/영수증 (선택)</label><input id="vl-photo" type="file" accept="image/*,application/pdf">'
     +(l&&l.photoUrl?'<div style="margin-top:4px">'+vehPhotoLink(l.photoUrl)+' <span style="font-size:12px;color:var(--text3)">(새 파일을 고르면 교체됩니다)</span></div>':'')+'</div>'
-    +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 저장됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" id="vl-save-btn" onclick="saveVehLog(\''+cat+'\','+(l?l.id:'null')+')">저장</button></div></div>');
+    +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 저장됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal();if(window._vehLogCtx===\'modal\')openVehLogModal(window._vehSelId,\''+cat+'\')">취소</button><button class="btn btn-primary" id="vl-save-btn" onclick="saveVehLog(\''+cat+'\','+(l?l.id:'null')+')">저장</button></div></div>');
 }
 async function saveVehLog(cat, logId){
   const c=VEH_LOG_CATS[cat]; const vid=window._vehSelId;
@@ -10206,7 +10220,7 @@ async function saveVehLog(cat, logId){
     db.vehicleLogs.unshift(normalizeVehLog(ins));
     showToast('✅ 등록되었습니다');
   }
-  closeModal(); renderSharedVehicle();
+  closeModal(); vehLogRefresh(cat);
 }
 async function deleteVehLog(id){
   if(!isAdmin){ showToast('⚠️ 삭제는 관리자만 가능합니다'); return; }
@@ -10214,46 +10228,76 @@ async function deleteVehLog(id){
   const ok=await sbDelete('vehicle_logs',id);
   if(!ok){ showToast('⚠️ 삭제 실패'); return; }
   db.vehicleLogs=(db.vehicleLogs||[]).filter(l=>String(l.id)!==String(id));
-  showToast('🗑️ 삭제됨'); renderSharedVehicle();
+  showToast('🗑️ 삭제됨'); vehLogRefresh(window._vehTab||'drive');
 }
 
 // ── 차량 총관리 (관리자) ──
-let _vehAdminFilter='all';
+let _vehAdminShowInactive=false;
+// 직원명부와 같은 정렬 (직책순 → 이름순)
+function vehRosterCompare(a,b){
+  const ea=a.empId?eid(a.empId):null, eb=b.empId?eid(b.empId):null;
+  if(!ea&&!eb) return a.plate.localeCompare(b.plate,'ko');
+  if(!ea) return 1; if(!eb) return -1;
+  if(ea.isInactive!==eb.isInactive) return ea.isInactive?1:-1;
+  const ai=POS_ORDER.findIndex(p=>(ea.position||'').includes(p)), bi=POS_ORDER.findIndex(p=>(eb.position||'').includes(p));
+  const pd=(ai===-1?99:ai)-(bi===-1?99:bi);
+  return pd!==0?pd:(ea.name||'').localeCompare(eb.name||'','ko');
+}
+function vehAdminRow(v, idx){
+  const pend=vehPending(v.id).length, km=vehCurrentKm(v);
+  const isShared=v.kind==='shared';
+  const plateCell=isShared
+    ?'<span style="font-weight:700;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openVehLogModal('+v.id+',\'drive\')" title="클릭하면 운행일지를 볼 수 있습니다">'+vEsc(v.plate)+'</span>'
+     +(v.vin?'<div style="font-size:11px;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openVehLogModal('+v.id+',\'drive\')">'+vEsc(v.vin)+'</div>':'')
+    :'<span style="font-weight:700;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openVehDetail('+v.id+')">'+vEsc(v.plate)+'</span>'
+     +(v.vin?'<div style="font-size:11px;color:var(--text3)">'+vEsc(v.vin)+'</div>':'');
+  const ownerCell=isShared?vehOwnerText(v):(v.empId?'<div class="name-cell">'+av(v.empId,24)+'<span>'+ename(v.empId)+'</span><span style="font-size:12px;color:var(--text3)">'+vEsc((eid(v.empId)||{}).position||'')+'</span></div>':'<span style="color:var(--text3)">미배정</span>');
+  let extra='';
+  if(isShared){
+    const logs=(db.vehicleLogs||[]).filter(l=>String(l.vehicleId)===String(v.id)&&l.category==='drive');
+    const last=logs.slice().sort((a,b)=>String(b.data.date||'').localeCompare(String(a.data.date||'')))[0];
+    extra='<td style="font-size:13px">'+(last?fmt(last.data.date)+' · '+ename(last.data.driver||last.empId):'<span style="color:var(--text3)">—</span>')+'<div style="font-size:11px;color:var(--text3)">총 '+logs.length+'건</div></td>';
+  }
+  return '<tr'+(v.isActive?'':' style="opacity:.5"')+'><td style="color:var(--text3);font-size:13px">'+(idx+1)+'</td>'
+    +'<td>'+plateCell+(pend?'<div><span class="badge badge-warn">승인대기 '+pend+'</span></div>':'')+(v.isActive?'':'<div><span class="badge badge-neutral">비활성</span></div>')+'</td>'
+    +'<td style="font-size:13px">'+vEsc(v.model)+'<div style="font-size:11px;color:var(--text3)">'+vEsc(v.carType)+'·'+vEsc(v.carSize)+(v.modelYear?'·'+vEsc(v.modelYear):'')+'</div></td>'
+    +'<td style="font-size:13px">'+ownerCell+'</td>'
+    +'<td style="font-size:13px">'+(vEsc(v.insurer)||'—')+'<div style="font-size:12px;color:var(--text3)">'+(v.insEnd?fmt(v.insEnd):'')+'</div></td><td>'+vehDdayBadge(v.insEnd)+'</td>'
+    +'<td style="font-size:13px">'+(v.inspectExpire?fmt(v.inspectExpire):'—')+vehInspectWindowBadge(v)+'</td><td>'+vehDdayBadge(v.inspectExpire)+'</td>'
+    +'<td style="font-size:13px">'+(km!=null?km.toLocaleString()+'km':'—')+'</td>'
+    +extra
+    +'<td style="white-space:nowrap"><button class="btn btn-sm" onclick="openVehDetail('+v.id+')">상세</button> <button class="btn btn-sm" onclick="openVehEdit('+v.id+')">✏️ 수정</button> <button class="btn btn-sm btn-danger" onclick="deleteVeh('+v.id+')">삭제</button></td></tr>';
+}
 function renderVehicleAdmin(){
   if(!isAdmin){ go('vehicle'); return; }
   if(window._vehTablesMissing){ setContent(vehMissingHtml()); return; }
-  const all=(db.vehicles||[]);
-  let list=all.slice();
-  if(_vehAdminFilter==='personal') list=list.filter(v=>v.kind==='personal');
-  else if(_vehAdminFilter==='shared') list=list.filter(v=>v.kind==='shared');
-  else if(_vehAdminFilter==='soon') list=list.filter(v=>[v.insEnd,v.inspectExpire].some(d=>d&&vehDays(d)<=60));
-  else if(_vehAdminFilter==='inactive') list=list.filter(v=>!v.isActive);
-  if(_vehAdminFilter!=='inactive') list=list.filter(v=>v.isActive);
-  const near=v=>Math.min(...[v.insEnd,v.inspectExpire].filter(Boolean).map(vehDays).concat([99999]));
-  list.sort((a,b)=>near(a)-near(b));
-  const cnt=k=>k==='soon'?all.filter(v=>v.isActive&&[v.insEnd,v.inspectExpire].some(d=>d&&vehDays(d)<=60)).length
-    :k==='inactive'?all.filter(v=>!v.isActive).length:all.filter(v=>v.isActive&&(k==='all'||v.kind===k)).length;
-  const fbtn=(k,l)=>'<button class="filter-btn '+(_vehAdminFilter===k?'active':'')+'" onclick="_vehAdminFilter=\''+k+'\';renderVehicleAdmin()">'+l+' ('+cnt(k)+')</button>';
-  const rows=list.map(v=>{
-    const pend=vehPending(v.id).length;
-    return '<tr'+(v.isActive?'':' style="opacity:.5"')+'><td>'+(v.kind==='shared'?'<span class="badge badge-trip">공용</span>':'<span class="badge badge-leave">개인</span>')+'</td>'
-      +'<td><span style="font-weight:700;color:var(--accent);cursor:pointer;text-decoration:underline" onclick="openVehDetail('+v.id+')">'+vEsc(v.plate)+'</span>'+(pend?' <span class="badge badge-warn">승인대기 '+pend+'</span>':'')+'</td>'
-      +'<td style="font-size:13px">'+vEsc(v.model)+'<div style="font-size:11px;color:var(--text3)">'+vEsc(v.carType)+'·'+vEsc(v.carSize)+(v.modelYear?'·'+vEsc(v.modelYear):'')+'</div></td>'
-      +'<td style="font-size:13px">'+vehOwnerText(v)+'</td>'
-      +'<td style="font-size:13px">'+(vEsc(v.insurer)||'—')+'<div style="font-size:12px;color:var(--text3)">'+(v.insEnd?fmt(v.insEnd):'')+'</div></td><td>'+vehDdayBadge(v.insEnd)+'</td>'
-      +'<td style="font-size:13px">'+(v.inspectExpire?fmt(v.inspectExpire):'—')+'</td><td>'+vehDdayBadge(v.inspectExpire)+'</td>'
-      +'<td style="font-size:13px">'+(vehCurrentKm(v)!=null?vehCurrentKm(v).toLocaleString()+'km':'—')+'</td>'
-      +'<td style="white-space:nowrap"><button class="btn btn-sm" onclick="openVehEdit('+v.id+')">✏️ 수정</button> <button class="btn btn-sm btn-danger" onclick="deleteVeh('+v.id+')">삭제</button></td></tr>';
-  }).join('')||emptyRow(10,'차량이 없습니다');
-  setContent(renderVehApprovalCard()
-    +'<div class="card" style="margin-top:8px"><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">'
-    +'<div class="card-title" style="margin:0">🚗 전체 차량 현황</div>'
+  const all=(db.vehicles||[]).filter(v=>_vehAdminShowInactive||v.isActive);
+  const shared=all.filter(v=>v.kind==='shared').sort((a,b)=>a.plate.localeCompare(b.plate,'ko'));
+  const personal=all.filter(v=>v.kind!=='shared').sort(vehRosterCompare);
+  const act=(db.vehicles||[]).filter(v=>v.isActive);
+  const soon=act.filter(v=>[v.insEnd,v.inspectExpire].some(d=>d&&vehDays(d)<=60)).length;
+  const over=act.filter(v=>[v.insEnd,v.inspectExpire].some(d=>d&&vehDays(d)<0)).length;
+  const pendCnt=(db.vehicleUpdates||[]).filter(u=>u.status==='pending').length;
+  const head=(extra)=>'<thead><tr><th>#</th><th>차량번호 / 차대번호</th><th>모델</th><th>'+(extra?'담당자':'사용자')+'</th><th>보험</th><th>보험 D-day</th><th>검사 만료</th><th>검사 D-day</th><th>주행거리</th>'+(extra?'<th>최근 운행</th>':'')+'<th>관리</th></tr></thead>';
+  const stat=(label,val,color)=>'<div class="stat-card"><div class="stat-label">'+label+'</div><div class="stat-val" style="color:'+color+'">'+val+'</div></div>';
+  setContent(
+    '<div class="stats-row" style="grid-template-columns:repeat(5,1fr)">'
+    +stat('🚙 공용차량',act.filter(v=>v.kind==='shared').length+'대','var(--trip)')
+    +stat('🚗 개인차량',act.filter(v=>v.kind!=='shared').length+'대','var(--leave)')
+    +stat('⏳ 60일 이내 만료',soon+'대','#ca8a04')
+    +stat('⛔ 만료 경과',over+'대','#dc2626')
+    +stat('📋 승인 대기',pendCnt+'건','var(--ot)')+'</div>'
+    +(pendCnt?renderVehApprovalCard():'')
+    +'<div class="card" style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">'
+    +'<label style="display:flex;align-items:center;gap:6px;font-size:14px;cursor:pointer"><input type="checkbox"'+(_vehAdminShowInactive?' checked':'')+' onchange="_vehAdminShowInactive=this.checked;renderVehicleAdmin()"> 비활성 차량 포함</label>'
     +'<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-sm" onclick="downloadVehTemplate()">📄 양식 다운로드</button>'
     +'<label style="cursor:pointer"><span class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe">📂 엑셀 일괄 업로드</span><input type="file" accept=".xlsx,.xls" style="display:none" onchange="importVehExcel(this)"></label>'
     +'<button class="btn btn-sm" onclick="exportVehExcel()">📥 현황 엑셀</button>'
     +'<button class="btn btn-primary btn-sm" onclick="openVehEdit()">+ 차량 등록</button></div></div>'
-    +'<div class="req-filter">'+fbtn('all','전체')+fbtn('personal','개인')+fbtn('shared','공용')+fbtn('soon','60일 이내 만료')+fbtn('inactive','비활성')+'</div>'
-    +'<div class="table-wrap"><table><thead><tr><th>구분</th><th>차량번호</th><th>모델</th><th>사용자/담당자</th><th>보험</th><th>보험 D-day</th><th>검사 만료</th><th>검사 D-day</th><th>주행거리</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>');
+    +'<div class="card"><div class="card-title">🚙 공용차량 ('+shared.length+'대) <span style="font-size:12px;color:var(--text3);font-weight:400">차량번호·차대번호를 클릭하면 운행일지를 볼 수 있습니다</span></div>'
+    +'<div class="table-wrap"><table>'+head(true)+'<tbody>'+(shared.map(vehAdminRow).join('')||emptyRow(11,'등록된 공용차량이 없습니다'))+'</tbody></table></div></div>'
+    +'<div class="card"><div class="card-title">🚗 개인차량 ('+personal.length+'대) <span style="font-size:12px;color:var(--text3);font-weight:400">직원명부 순서 (직책순 → 이름순)</span></div>'
+    +'<div class="table-wrap"><table>'+head(false)+'<tbody>'+(personal.map(vehAdminRow).join('')||emptyRow(10,'등록된 개인차량이 없습니다'))+'</tbody></table></div></div>');
 }
 function openVehDetail(id){
   const v=(db.vehicles||[]).find(x=>String(x.id)===String(id)); if(!v) return;
@@ -10273,6 +10317,7 @@ function openVehEdit(id){
     +'<div id="ve-shared-wrap" class="field" style="margin-bottom:12px;display:none"><label style="font-weight:700">담당자 <span style="font-size:11px;color:var(--text3);font-weight:400">(알림 수신 · 미지정 시 관리자에게만)</span></label><div style="border:1px solid var(--border2);border-radius:var(--radius);padding:8px 10px;max-height:130px;overflow-y:auto">'+mgr+'</div></div>'
     +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">차량번호 *</label><input id="ve-plate" value="'+vEsc(d.plate)+'" placeholder="예) 12가 3456"></div>'
     +'<div class="field"><label>모델</label><input id="ve-model" value="'+vEsc(d.model)+'" placeholder="예) 그랜저 IG"></div></div>'
+    +'<div class="field" style="margin-bottom:12px"><label>차대번호</label><input id="ve-vin" value="'+vEsc(d.vin)+'" placeholder="예) KMHxxxxxxxxxxxxxx" style="text-transform:uppercase"></div>'
     +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>차종</label>'+sel('ve-type',['승용','승합','화물'],d.carType)+'</div>'
     +'<div class="field"><label>규모</label>'+sel('ve-size',['경형','소형','중형','대형'],d.carSize)+'</div></div>'
     +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label>연식</label><input id="ve-year" type="number" min="1990" max="2099" value="'+vEsc(d.modelYear)+'"></div>'
@@ -10300,7 +10345,7 @@ function vehReadModal(){
   return { kind:document.querySelector('input[name="ve-kind"]:checked')?.value||'personal',
     empId:document.getElementById('ve-emp')?.value||null,
     managerIds:[...document.querySelectorAll('.ve-mgr:checked')].map(c=>String(c.value)),
-    plate:(document.getElementById('ve-plate')?.value||'').trim(), model:(document.getElementById('ve-model')?.value||'').trim(),
+    plate:(document.getElementById('ve-plate')?.value||'').trim(), vin:(document.getElementById('ve-vin')?.value||'').trim().toUpperCase(), model:(document.getElementById('ve-model')?.value||'').trim(),
     carType:document.getElementById('ve-type')?.value||'승용', carSize:document.getElementById('ve-size')?.value||'소형',
     modelYear:document.getElementById('ve-year')?.value||'', firstRegDate:getDateVal('ve-firstreg'),
     insurer:(document.getElementById('ve-insurer')?.value||'').trim(), insStart:getDateVal('ve-insstart'), insEnd:getDateVal('ve-insend'),
@@ -10352,14 +10397,14 @@ async function deleteVeh(id){
 }
 
 // ── 엑셀 (양식/일괄 업로드/현황) ──
-const VEH_XL_HEADERS=['구분(개인/공용)','차량번호','모델','차종(승용/승합/화물)','규모(경형/소형/중형/대형)','연식','최초등록일','사용자/담당자(이름, 공용은 쉼표구분)','보험사','보험가입일','보험만기일','최근검사일','검사만료일','주행거리(km)','메모'];
+const VEH_XL_HEADERS=['구분(개인/공용)','차량번호','차대번호','모델','차종(승용/승합/화물)','규모(경형/소형/중형/대형)','연식','최초등록일','사용자/담당자(이름, 공용은 쉼표구분)','보험사','보험가입일','보험만기일','최근검사일','검사만료일','주행거리(km)','메모'];
 async function vehEnsureXLSX(){
   if(window.XLSX) return;
   await new Promise(res=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=res;document.head.appendChild(sc);});
 }
 async function downloadVehTemplate(){
   await vehEnsureXLSX();
-  const ws=XLSX.utils.aoa_to_sheet([VEH_XL_HEADERS,['개인','12가 3456','그랜저 IG','승용','중형',2021,'2021-03-15','홍길동','삼성화재','2026-03-15','2027-03-15','2025-03-10','2027-03-15',45000,''],['공용','34나 5678','포터2','화물','소형',2019,'2019-07-01','홍길동, 김철수','DB손해보험','2026-07-01','2027-07-01','2026-06-20','2027-07-01',120000,'양감 공장']]);
+  const ws=XLSX.utils.aoa_to_sheet([VEH_XL_HEADERS,['개인','12가 3456','KMHL141DBMA000001','그랜저 IG','승용','중형',2021,'2021-03-15','홍길동','삼성화재','2026-03-15','2027-03-15','2025-03-10','2027-03-15',45000,''],['공용','34나 5678','KMFZCZ7KBKU000002','포터2','화물','소형',2019,'2019-07-01','홍길동, 김철수','DB손해보험','2026-07-01','2027-07-01','2026-06-20','2027-07-01',120000,'양감 공장']]);
   ws['!cols']=VEH_XL_HEADERS.map(h=>({wch:Math.max(12,h.length+4)}));
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'차량목록');
   XLSX.writeFile(wb,'차량관리_업로드양식.xlsx');
@@ -10374,7 +10419,7 @@ async function importVehExcel(input){
   if(hi<0){ showToast('⚠️ \'차량번호\' 헤더를 찾을 수 없습니다'); return; }
   const H=aoa[hi];
   const col=kw=>findColByKeywords(H,kw);
-  const C={kind:col(['구분']),plate:col(['차량번호']),model:col(['모델','차명']),type:col(['차종']),size:col(['규모']),year:col(['연식']),reg:col(['최초등록']),
+  const C={kind:col(['구분']),plate:col(['차량번호']),vin:col(['차대번호']),model:col(['모델','차명']),type:col(['차종']),size:col(['규모']),year:col(['연식']),reg:col(['최초등록']),
     who:col(['사용자','담당자']),insurer:col(['보험사']),insStart:col(['보험가입','가입일']),insEnd:col(['보험만기','만기일']),last:col(['최근검사']),exp:col(['검사만료','검사유효']),km:col(['주행거리']),memo:col(['메모','비고'])};
   const g=(r,i)=>i>=0?r[i]:'';
   const byName=n=>db.employees.find(e=>e.name===String(n).trim());
@@ -10387,7 +10432,7 @@ async function importVehExcel(input){
     names.filter(n=>!byName(n)).forEach(n=>warns.push(plate+': \''+n+'\' 직원 없음'));
     const pd=c=>{ const x=g(r,c); return x?parseCellDate(x):''; };
     const v={kind, empId:kind==='personal'&&emps[0]?emps[0].id:null, managerIds:kind==='shared'?emps.map(e=>String(e.id)):[],
-      plate, model:String(g(r,C.model)||'').trim(), carType:['승용','승합','화물'].find(t=>String(g(r,C.type)).includes(t))||'승용',
+      plate, vin:String(g(r,C.vin)||'').trim().toUpperCase(), model:String(g(r,C.model)||'').trim(), carType:['승용','승합','화물'].find(t=>String(g(r,C.type)).includes(t))||'승용',
       carSize:['경형','소형','중형','대형'].find(t=>String(g(r,C.size)).includes(t))||'소형', modelYear:g(r,C.year)?String(parseInt(g(r,C.year))):'',
       firstRegDate:pd(C.reg), insurer:String(g(r,C.insurer)||'').trim(), insStart:pd(C.insStart), insEnd:pd(C.insEnd),
       lastInspectDate:pd(C.last), inspectExpire:pd(C.exp), mileage:g(r,C.km)!==''?Number(String(g(r,C.km)).replace(/[^0-9.]/g,''))||null:null,
@@ -10410,7 +10455,7 @@ async function importVehExcel(input){
 }
 async function exportVehExcel(){
   await vehEnsureXLSX();
-  const rows=(db.vehicles||[]).map(v=>({'구분':v.kind==='shared'?'공용':'개인','차량번호':v.plate,'모델':v.model,'차종':v.carType,'규모':v.carSize,'연식':v.modelYear,'최초등록일':v.firstRegDate,
+  const rows=(db.vehicles||[]).map(v=>({'구분':v.kind==='shared'?'공용':'개인','차량번호':v.plate,'차대번호':v.vin,'모델':v.model,'차종':v.carType,'규모':v.carSize,'연식':v.modelYear,'최초등록일':v.firstRegDate,
     '사용자/담당자':v.kind==='personal'?(v.empId?ename(v.empId):''):(v.managerIds||[]).map(ename).join(', '),'보험사':v.insurer,'보험가입일':v.insStart,'보험만기일':v.insEnd,
     '보험 D-day':v.insEnd?vehDays(v.insEnd):'','최근검사일':v.lastInspectDate,'검사만료일':v.inspectExpire,'검사 D-day':v.inspectExpire?vehDays(v.inspectExpire):'',
     '주행거리(km)':vehCurrentKm(v)??'','상태':v.isActive?'사용':'비활성','메모':v.memo}));
