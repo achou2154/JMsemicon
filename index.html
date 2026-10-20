@@ -578,6 +578,26 @@ async function notifyAdmin(req) {
     ? `<strong>${applicant?.name||'직원'}</strong> (${applicant?.dept||''}) 님이`
     : `<strong>${applicant?.name||'직원'}</strong> (${applicant?.dept||''}) 님 / 대리신청: <strong>${agent?.name||''}</strong> 님이`;
 
+  // ── 잔여연차/잔여율 (연차 신청 시만, 이번 신청분 차감 후 예상치) ──
+  let remainRowHtml = '', remainText = '';
+  if (req.type === 'leave' && applicant && !applicant.isExternal) {
+    const _yr = req.year || currentYear;
+    const _alloc = getAlloc(applicant.id, _yr);
+    const _totalH = isYanggamContract(applicant.id)
+      ? calcLegalLeave(getYanggamJoinDate(applicant.id)) * 8
+      : (+_alloc.total||0) + (+_alloc.carryover||0);
+    const _deduct = ['병가','특별휴가'].includes(req.leaveType) ? 0 : (+req.hours||0);
+    const _afterH = getLeaveRemain(applicant.id, _yr) - _deduct;
+    const _afterD = Math.round(_afterH/8*10)/10;
+    const _pct = _totalH > 0 ? Math.round(_afterH/_totalH*1000)/10 : 0;
+    const _neg = _afterH < 0;
+    const _note = _deduct > 0 ? ` (${_deduct}h 차감 후)` : ' (차감 없음)';
+    remainText = `\n잔여연차: ${_afterD}일${_note}\n잔여율: ${_pct}%`;
+    remainRowHtml = `
+              <tr><td style="padding:8px 12px;color:#64748b">잔여연차</td><td style="padding:8px 12px;${_neg?'color:#dc2626;font-weight:700':''}">${_afterD}일 <span style="color:#94a3b8;font-size:12px">${_note}</span>${_neg?' ⚠️':''}</td></tr>
+              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">잔여율</td><td style="padding:8px 12px;${_neg?'color:#dc2626;font-weight:700':''}">${_pct}% <span style="color:#94a3b8;font-size:12px">(총 ${Math.round(_totalH/8*10)/10}일 중)</span></td></tr>`;
+  }
+
   const whoText = isSame
     ? `${applicant?.name||'직원'} (${applicant?.dept||''}) 님이`
     : `${applicant?.name||'직원'} (${applicant?.dept||''}) 님 / 대리신청: ${agent?.name||''} 님이`;
@@ -587,7 +607,7 @@ async function notifyAdmin(req) {
     const payload = {
       to: adminEmails,
       subject: `[근태관리] ${applicant?.name||'직원'} 님의 ${typeName} 신청${isSame?'':` (대리: ${agent?.name||''})`}`,
-      text: `${whoText} ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}`,
+      text: `${whoText} ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}${remainText}`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
           <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0">
@@ -598,7 +618,7 @@ async function notifyAdmin(req) {
             <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px">
               <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b;width:80px">내용</td><td style="padding:8px 12px">${detail}</td></tr>
               <tr><td style="padding:8px 12px;color:#64748b">사유</td><td style="padding:8px 12px">${req.reason||'없음'}</td></tr>
-              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">신청일</td><td style="padding:8px 12px">${req.reqDate}</td></tr>
+              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">신청일</td><td style="padding:8px 12px">${req.reqDate}</td></tr>${remainRowHtml}
             </table>
             <div style="text-align:center">
               <a href="${siteUrl}" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:15px;font-weight:600">
