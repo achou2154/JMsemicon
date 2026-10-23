@@ -471,7 +471,7 @@ function normalizeLa(r) {
   return { id:r.id, empId:r.emp_id, year:r.year, total:r.total||0, carryover:r.carryover||0, extinct:r.extinct||0 };
 }
 function normalizeReq(r) {
-  return { id:r.id, type:r.type, empId:r.emp_id, status:r.status, year:r.year,
+  return { id:r.id, type:r.type, empId:r.emp_id, status:r.status, year:(r.type==='leave'&&r.start_date)?leaveYearOf(r.start_date,r.year):r.year,
     reason:r.reason||'', substitute:r.substitute||'', reqDate:r.req_date||'', startDate:r.start_date||'',
     endDate:r.end_date||'', leaveType:r.leave_type||'', hours:r.hours||0,
     date:r.date||'', otType:r.ot_type||'', useTransport:r.use_transport||false,
@@ -1346,18 +1346,17 @@ function calcLegalLeave(joinDate) {
   return Math.min(days, 25);
 }
 
-// 연차 사용률 계산 기준: 당해 3/1 ~ 다음해 2/28(29)
+// 연차 사용 기준: 당해 1/1 ~ 12/31 (2026년부터 적용, 이전: 3/1 ~ 다음해 2/28)
 function getLeavePeriod(year) {
-  const start = `${year}-03-01`;
-  const endYear = year + 1;
-  // 윤년 확인
-  const isLeap = (endYear % 4 === 0 && endYear % 100 !== 0) || endYear % 400 === 0;
-  const end = `${endYear}-02-${isLeap ? '29' : '28'}`;
-  return { start, end };
+  return { start: `${year}-01-01`, end: `${year}-12-31` };
+}
+// 연차 귀속연도 = 휴가 시작일의 연도
+function leaveYearOf(startDate, fallback) {
+  return startDate ? Number(String(startDate).slice(0,4)) : fallback;
 }
 
 function getLeavePctInPeriod(empId, year) {
-  // 3/1~2/28 기간 내 사용한 연차만 계산
+  // 1/1~12/31 기간 내 사용한 연차만 계산
   const { start, end } = getLeavePeriod(year);
   const used = db.requests.filter(r =>
     r.type === 'leave' && String(r.empId) === String(empId) &&
@@ -3852,7 +3851,7 @@ function renderOverview(){
     const lTotal=(+a.total||0)+(+a.carryover||0);
     const lUsed=getLeaveUsed(e.id,yr);
     const lRem=getLeaveRemain(e.id,yr);
-    const pct=getLeavePctInPeriod(e.id,yr); // 3/1 기준 사용률
+    const pct=getLeavePctInPeriod(e.id,yr); // 1/1~12/31 기준 사용률
     const cRem=getCompRemain(e.id,yr);
     const trips=db.requests.filter(r=>r.type==='trip'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&r.status==='approved').length;
     const trans=getTransTotal(e.id,yr);
@@ -4104,7 +4103,7 @@ function openOverviewDetail(type) {
         <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
         <td style="color:var(--danger);font-weight:600">${Math.round(ext/8*10)/10}일</td>
         <td style="color:var(--danger)">${ext}h</td>
-        <td style="color:var(--text3);font-size:12px">${yr}-03-01</td>
+        <td style="color:var(--text3);font-size:12px">${yr>=2027?yr+'-01-01':yr+'-03-01'}</td>
       </tr>`).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text3)">소멸 내역 없음</td></tr>';
 
     openModal(`
@@ -5076,7 +5075,7 @@ function renderLeave(){
     </tr>`;
   }).join('');
 
-  // 6~11번: 개인별 현황 테이블 (법정연차 자동계산 + 사용률 3/1기준 + 관리자 경고)
+  // 6~11번: 개인별 현황 테이블 (법정연차 자동계산 + 사용률 1/1~12/31 기준 + 관리자 경고)
   const alertThreshold = getLeaveAlertThreshold();
   const leaveEmps = isAdmin
     ? getSortedByPosition().filter(e=>!isHiddenFromPersonal(e))
@@ -5090,7 +5089,7 @@ function renderLeave(){
     const extinct = isYanggam ? 0 : (+a.extinct||0);
     const used=getLeaveUsed(e.id,yr);
     const rem = isYanggam ? getLeaveRemain(e.id,yr) : total-extinct-used;
-    const pct=getLeavePctInPeriod(e.id,yr); // 3/1 기준 사용률
+    const pct=getLeavePctInPeriod(e.id,yr); // 1/1~12/31 기준 사용률
     const remDays=Math.round(rem/8*10)/10;
     // 11번: 잔여 경고 (관리자에게만, 잔여% 기준) - 양감계약직은 제외
     const remPct = total > 0 ? Math.round(rem/total*100) : 0;
@@ -5151,7 +5150,7 @@ function renderLeave(){
     ${isAdmin&&alertThreshold?`<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:var(--danger)">⚠️ 이번 달 기준: 잔여 연차 ${alertThreshold}% 이상인 직원이 빨간색으로 표시됩니다.</div>`:''}
     <div class="card">
       <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-        <span>개인별 연차 현황 (${yr}년 · 사용률 기준: ${yr}/3/1 ~ ${yr+1}/2/28)</span>
+        <span>개인별 연차 현황 (${yr}년 · 사용 기준: ${yr}/1/1 ~ ${yr}/12/31)</span>
         ${isAdmin?`<button class="btn btn-sm btn-primary" onclick="openAddLeave()">📝 대리 신청</button>`:''}
       </div>
       <div class="table-wrap"><table>
@@ -6526,6 +6525,7 @@ async function submitReq(){
   let r={id:nextId++,type:t,empId,status:'approved',year:currentYear,reason,reqDate:td2};
   if(t==='leave'){
     const s=getDateVal('f-start');if(!s){alert('날짜 입력');return;}
+    r.year=leaveYearOf(s,currentYear); // 연차 귀속연도 = 시작일 연도
     const e2=getDateVal('f-end')||s;
     const ltSel=document.querySelector('input[name="ltype"]:checked');
     // 중복 체크
@@ -6594,7 +6594,7 @@ function checkLeaveOverlap(empId, startDate, endDate) {
 // 신청 객체 → DB row 변환
 function reqToDb(r) {
   return {
-    type:r.type, emp_id:r.empId, status:'pending', year:r.year,
+    type:r.type, emp_id:r.empId, status:'pending', year:(r.type==='leave'&&r.startDate)?leaveYearOf(r.startDate,r.year):r.year,
     reason:r.reason||'', substitute:r.substitute||'', req_date:r.reqDate||todayStr(),
     start_date:r.startDate||null, end_date:r.endDate||null,
     leave_type:r.leaveType||null, hours:r.hours||null,
@@ -7042,7 +7042,7 @@ async function saveLeave(){
   const _hours=parseFloat(document.getElementById('f-hours').value)||8;
   const _substitute=document.getElementById('f-substitute')?.value?.trim()||'';
   if(!_substitute){ showToast('⚠️ 대직자를 입력해 주세요'); return; }
-  const _r={id:nextId++,type:'leave',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',substitute:_substitute,reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
+  const _r={id:nextId++,type:'leave',empId,status:'pending',year:leaveYearOf(s,currentYear),startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',substitute:_substitute,reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
   const _saved=await sbInsert('requests',reqToDb(_r));
   if(_saved){
     _r.id=_saved.id;
@@ -7721,12 +7721,12 @@ function isAfterMarch1(year) {
   return today >= march1;
 }
 
-// 이월 연차: 전년도 잔여, 단 당해 3월 1일 이후면 0
+// 이월 연차: 2026년부터 연차는 12/31 기준 소멸 → 2027년 이후 이월분은 1월 1일부로 소멸
+// (2026년 이월분은 기존 규정대로 3월 1일 소멸)
 function getLeaveCarryoverEffective(empId, year) {
   const a = getAlloc(empId, year);
   const carryover = +a.carryover || 0;
-  // 이미 getAlloc에 저장된 carryover를 쓰되, 3월1일 이후면 소멸
-  if (carryover > 0 && isAfterMarch1(year)) return 0;
+  if (carryover > 0 && (year >= 2027 || isAfterMarch1(year))) return 0;
   return carryover;
 }
 
@@ -7743,10 +7743,11 @@ function getCompCarryoverEffective(empId, year) {
 //  2 & 3. 알람 팝업 시스템
 // ══════════════════════════════════════════════
 const DEFAULT_ALERTS = [
-  { id: 'alert_jan31', date: '01-31', title: '연차 및 대체휴무 사용 촉진 안내',
-    content: '1월 31일 기준으로 잔여 연차 및 대체휴무 사용을 촉진합니다.\n미사용 연차·대체휴무는 다음해 3월 1일에 자동 소멸됩니다.\n적극적으로 활용하시기 바랍니다.', color: '#c0392b' },
-  { id: 'alert_jun30', date: '06-30', title: '연차 및 대체휴무 사용 촉진 안내',
-    content: '6월 30일 기준으로 잔여 연차 및 대체휴무 사용을 촉진합니다.\n미사용 연차·대체휴무는 다음해 3월 1일에 자동 소멸됩니다.\n하반기 계획을 수립하여 적극 활용하시기 바랍니다.', color: '#c0392b' },
+  // 연차 사용기간 1/1~12/31 기준 (근로기준법 제61조: 종료 6개월 전 1차, 2개월 전 2차 촉진)
+  { id: 'alert_jul01', date: '07-01', title: '연차 사용 촉진 안내 (1차)',
+    content: '연차 사용기간(1월 1일 ~ 12월 31일) 종료 6개월 전입니다.\n잔여 연차를 확인하시고 하반기 사용 계획을 세워 주세요.\n미사용 연차는 12월 31일에 소멸됩니다.', color: '#c0392b' },
+  { id: 'alert_oct31', date: '10-31', title: '연차 사용 촉진 안내 (2차)',
+    content: '연차 사용기간 종료 2개월 전입니다.\n잔여 연차를 12월 31일까지 모두 사용해 주세요.\n미사용 연차는 12월 31일에 소멸됩니다.', color: '#c0392b' },
 ];
 
 function getActiveAlerts() {
@@ -8945,7 +8946,7 @@ function switchMailTab(tab, btn) {
 }
 
 const REMAIN_PRESETS = {
-  leave: { title: '연차 사용 촉진 안내', content: '[근로기준법 제61조 연차 유급휴가의 사용 촉진법]에 준하여 이전년도 미소진 연차는 당해년도 3월 1일부로 소멸됨을 안내 드립니다. 빠른 사용을 촉구 드립니다.' },
+  leave: { title: '연차 사용 촉진 안내', content: '[근로기준법 제61조 연차 유급휴가의 사용 촉진법]에 준하여 당해년도 미소진 연차는 12월 31일부로 소멸됨을 안내 드립니다. 빠른 사용을 촉구 드립니다.' },
   comp: { title: '대체휴무 사용 촉진 안내', content: '현재까지 미사용된 대체휴무 확인하시어 빠른 사용을 촉구 드립니다.' }
 };
 
