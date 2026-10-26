@@ -603,6 +603,39 @@ async function notifyAdmin(req) {
               <tr><td style="padding:8px 12px;color:#64748b">잔여연차</td><td style="padding:8px 12px;${_neg?'color:#dc2626;font-weight:700':''}">${_afterD}일 <span style="color:#94a3b8;font-size:12px">${_note}</span>${_neg?' ⚠️':''}</td></tr>
               <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">잔여율</td><td style="padding:8px 12px;${_neg?'color:#dc2626;font-weight:700':''}">${_pct}% <span style="color:#94a3b8;font-size:12px">(총 ${Math.round(_totalH/8*10)/10}일 중)</span></td></tr>`;
   }
+  // ── 대체휴무 사용 신청: 잔여 대체휴무 (이번 사용분 차감 후) ──
+  else if (req.type === 'comp' && applicant && req.hours) {
+    const _yr = req.year || currentYear;
+    const _h = n => Math.round(n*10)/10;
+    const _d = n => Math.round(n/8*10)/10;
+    const _use = +req.hours || 0;
+    // 관리자 직접등록(즉시 승인)은 이미 잔여에 반영돼 있으므로 되돌려서 '신청 전' 잔여 계산
+    const _inDb = req.status==='approved' && db.requests.some(x=>x===req||(req.id&&x.id===req.id));
+    const _before = getCompRemain(applicant.id, _yr) + (_inDb ? _use : 0);
+    const _after = _before - _use;
+    const _neg = _after < 0;
+    remainText = `\n잔여 대체휴무: ${_h(_before)}h → 사용 후 ${_h(_after)}h (${_d(_after)}일)`;
+    remainRowHtml = `
+              <tr><td style="padding:8px 12px;color:#64748b">현재 잔여</td><td style="padding:8px 12px">${_h(_before)}h <span style="color:#94a3b8;font-size:12px">(${_d(_before)}일)</span></td></tr>
+              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">사용 후 잔여</td><td style="padding:8px 12px;font-weight:700;${_neg?'color:#dc2626':'color:#be185d'}">${_h(_after)}h <span style="color:#94a3b8;font-size:12px;font-weight:400">(${_d(_after)}일 · ${_use}h 차감 후)</span>${_neg?' ⚠️ 잔여 부족':''}</td></tr>`;
+  }
+  // ── 특근 신청: 발생 대체휴무 + 현재 잔여 = 총 대체휴무 ──
+  else if (req.type === 'ot' && applicant && req.hours && req.otType) {
+    const _yr = req.year || currentYear;
+    const _h = n => Math.round(n*10)/10;
+    const _d = n => Math.round(n/8*10)/10;
+    const _earn = req.useTransport ? 0 : calcComp(req.hours, req.otType);
+    const _inDb = req.status==='approved' && db.requests.some(x=>x===req||(req.id&&x.id===req.id));
+    const _before = getCompRemain(applicant.id, _yr) - (_inDb ? _earn : 0);
+    const _rate = OT_RATE[req.otType] || 1.5;
+    const _total = _before + _earn;
+    const _earnTxt = req.useTransport ? '0h (교통비 선택 — 대체휴무 미발생)' : `${_h(_earn)}h (${req.hours}h × ${_rate}배)`;
+    remainText = `\n발생 대체휴무: ${_earnTxt}\n현재 잔여: ${_h(_before)}h\n총 대체휴무(승인 시): ${_h(_total)}h (${_d(_total)}일)`;
+    remainRowHtml = `
+              <tr><td style="padding:8px 12px;color:#64748b">발생 대체휴무</td><td style="padding:8px 12px">${_earnTxt}</td></tr>
+              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">현재 잔여</td><td style="padding:8px 12px">${_h(_before)}h <span style="color:#94a3b8;font-size:12px">(${_d(_before)}일)</span></td></tr>
+              <tr><td style="padding:8px 12px;color:#64748b">총 대체휴무</td><td style="padding:8px 12px;font-weight:700;color:#be185d">${_h(_total)}h <span style="color:#94a3b8;font-size:12px;font-weight:400">(${_d(_total)}일 · 승인 시)</span></td></tr>`;
+  }
 
   const whoText = isSame
     ? `${applicant?.name||'직원'} (${applicant?.dept||''}) 님이`
@@ -9856,16 +9889,27 @@ function vehFirstExpire(v){
   if((v.carType||'승용')==='승용') return vehAddMonths(v.firstRegDate, VEH_FIRST_INSPECT_MONTHS_SEDAN);
   return vehAddMonths(v.firstRegDate, vehPeriodMonths(v, v.firstRegDate));
 }
-// 검사기간(만료일 전 90일 ~ 후 31일) 안에 받으면 기존 만료일 기준, 아니면 검사일 기준으로 다음 만료일 계산
+// 기준일 방식: 등록된 검사 만료일(예: 10월 5일)이 기준 — 실제 수검일과 상관없이 같은 월·일로 주기만큼 이어짐
+// 기준일이 없을 때만 수검일 기준으로 계산
+function vehAnchorNext(anchor, months, after){
+  // anchor + months*k 중 after보다 뒤인 첫 날짜 (월·일 고정)
+  let k=1, next=vehAddMonths(anchor, months);
+  while(next<=after && k<200){ k++; next=vehAddMonths(anchor, months*k); }
+  return next;
+}
 function vehCalcNextExpire(v, inspectDate){
   if(!inspectDate) return '';
   const exp=v.inspectExpire;
-  let base=inspectDate;
-  if(exp){
-    const ws=vehAddDays(exp,-90), we=vehAddDays(exp,31);
-    if(inspectDate>=ws && inspectDate<=we) base=exp;
-  }
-  return vehAddMonths(base, vehPeriodMonths(v, base));
+  if(!exp) return vehAddMonths(inspectDate, vehPeriodMonths(v, inspectDate));
+  return vehAnchorNext(exp, vehPeriodMonths(v, exp), inspectDate);
+}
+// 보험: 등록된 만기일이 기준일 — 새 보험기간 = 기존 만기일 ~ 1년 뒤 같은 날 (이미 지난 기간은 건너뜀)
+function vehCalcNextInsurance(v){
+  const t=todayStr();
+  if(!v.insEnd){ return {start:t, end:vehAddMonths(t,12)}; }
+  let start=v.insEnd, end=vehAddMonths(v.insEnd,12), k=1;
+  while(end<t && k<50){ k++; start=end; end=vehAddMonths(v.insEnd,12*k); }
+  return {start, end};
 }
 function vehInspectWindowBadge(v){
   if(!v.inspectExpire) return '';
@@ -9897,6 +9941,25 @@ function vehCurrentKm(v){
     k.forEach(x=>{ if(km==null||x>km) km=x; });
   });
   return km;
+}
+
+// ── 차량 DB 저장 (실패 시 원인을 화면에 표시) ──
+function vehErrMsg(error){
+  const m=(error&&(error.message||error.details||error.hint))||String(error||'');
+  if(/row-level security|permission denied|42501/i.test(m)) return '권한 없음 (관리자 등록/RLS 확인 필요)';
+  if(/column .* does not exist|PGRST204|Could not find the/i.test(m)) return 'DB 컬럼 없음 — SQL 추가 실행 필요 ('+m+')';
+  return m;
+}
+async function vehDbInsert(table,row){
+  const {data,error}=await _supa.from(table).insert(row).select().single();
+  if(error){ console.error('[차량] insert '+table,error); return {error:vehErrMsg(error)}; }
+  return {data};
+}
+async function vehDbUpdate(table,id,row){
+  const {data,error}=await _supa.from(table).update(row).eq('id',id).select();
+  if(error){ console.error('[차량] update '+table,error); return {error:vehErrMsg(error)}; }
+  if(!data||!data.length) return {error:'저장 권한이 없거나 차량을 찾을 수 없습니다 (관리자 RLS 확인)'};
+  return {data:data[0]};
 }
 
 // ── 사진 업로드 ──
@@ -10004,10 +10067,13 @@ function openVehUpdate(vid, kind){
   const v=(db.vehicles||[]).find(x=>String(x.id)===String(vid)); if(!v) return;
   let fields='';
   if(kind==='insurance'){
-    const s=v.insEnd||todayStr(), e=vehAddMonths(s,12);
+    const nx=vehCalcNextInsurance(v), s=nx.start, e=nx.end;
     fields='<div class="field" style="margin-bottom:12px"><label style="font-weight:700">보험사 *</label><input id="vu-insurer" value="'+vEsc(v.insurer)+'"></div>'
-      +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">가입일(시작일) *</label>'+makeDateInput('vu-start',s)+'</div>'
-      +'<div class="field"><label style="font-weight:700">만기일 *</label>'+makeDateInput('vu-end',e)+'</div></div>';
+      +'<div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:10px;font-size:13px;color:#1d4ed8">'
+      +(v.insEnd?'📌 기준일 <b>매년 '+Number(v.insEnd.slice(5,7))+'월 '+Number(v.insEnd.slice(8,10))+'일</b> — 새 보험기간이 자동 계산됩니다.':'기준일(기존 만기일)이 없어 오늘 기준으로 계산했습니다.')+'</div>'
+      +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">새 보험 시작일</label>'+makeDateInput('vu-start',s)+'</div>'
+      +'<div class="field"><label style="font-weight:700">새 만기일 (자동)</label>'+makeDateInput('vu-end',e)+'</div></div>'
+      +'<div style="font-size:12px;color:var(--text3);margin:-6px 0 12px">※ 기준일이 바뀌는 경우(보험사 변경 등)에만 날짜를 직접 수정하세요.</div>';
   } else if(kind==='inspection'){
     fields='<div class="field" style="margin-bottom:8px"><label style="font-weight:700">검사 완료일 *</label>'+makeDateInput('vu-date',todayStr())+'</div>'
       +'<div id="vu-expire-preview" style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#5b21b6"></div>';
@@ -10026,13 +10092,15 @@ function openVehUpdate(vid, kind){
     const upd=()=>{
       const d=getDateVal('vu-date'), el=document.getElementById('vu-expire-preview'); if(!el) return;
       const ne=vehCalcNextExpire(v,d);
-      el.innerHTML=ne?('다음 검사 만료일(자동계산): <b>'+fmt(ne)+'</b> <span style="color:#7c3aed">('+vehPeriodMonths(v,d)+'개월 주기)</span>'):'검사 완료일을 입력하면 다음 만료일이 자동 계산됩니다.';
+      el.innerHTML=ne?((v.inspectExpire?'📌 기준일 <b>'+Number(v.inspectExpire.slice(5,7))+'월 '+Number(v.inspectExpire.slice(8,10))+'일</b> · ':'')+'다음 검사 만료일(자동계산): <b>'+fmt(ne)+'</b> <span style="color:#7c3aed">('+vehPeriodMonths(v,v.inspectExpire||d)+'개월 주기)</span>'):'검사 완료일을 입력하면 다음 만료일이 자동 계산됩니다.';
     };
     setTimeout(()=>{ ['vu-date-y','vu-date-m','vu-date-d'].forEach(id=>document.getElementById(id)?.addEventListener('input',upd)); upd(); },50);
   }
 }
 async function saveVehUpdate(vid, kind){
-  const v=(db.vehicles||[]).find(x=>String(x.id)===String(vid)); if(!v||!currentEmp) return;
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(vid));
+  if(!v){ showToast('⚠️ 차량 정보를 찾을 수 없습니다 — 새로고침 후 다시 시도하세요'); return; }
+  if(!currentEmp&&!isAdmin){ showToast('⚠️ 직원 정보가 연결되지 않은 계정입니다'); return; }
   let payload={};
   if(kind==='insurance'){
     payload={insurer:document.getElementById('vu-insurer')?.value?.trim()||'', insStart:getDateVal('vu-start'), insEnd:getDateVal('vu-end')};
@@ -10051,16 +10119,24 @@ async function saveVehUpdate(vid, kind){
   const btn=document.getElementById('vu-save-btn'); if(btn) btn.disabled=true;
   let photoUrl='';
   try{ photoUrl=await vehUpload(file); }catch(e){ showToast('⚠️ 사진 업로드 실패: '+e.message); if(btn) btn.disabled=false; return; }
-  const row={vehicle_id:v.id, emp_id:currentEmp.id, kind, payload, photo_url:photoUrl, status:isAdmin?'approved':'pending'};
+  const row={vehicle_id:v.id, emp_id:currentEmp?currentEmp.id:null, kind, payload, photo_url:photoUrl, status:isAdmin?'approved':'pending'};
   if(isAdmin) row.processed_at=new Date().toISOString();
-  const saved=await sbInsert('vehicle_updates',row);
-  if(!saved){ showToast('⚠️ 저장 실패'); if(btn) btn.disabled=false; return; }
-  const u=normalizeVehUpdate(saved);
-  db.vehicleUpdates.unshift(u);
+  let u;
   if(isAdmin){
-    const ok=await applyVehUpdate(u,v);
-    showToast(ok?'✅ 반영되었습니다':'⚠️ 차량 정보 반영 실패');
+    // 관리자: 차량 정보를 먼저 반영하고, 갱신 내역은 기록용으로 저장
+    u=normalizeVehUpdate({...row,id:null,created_at:new Date().toISOString()});
+    const res=await applyVehUpdate(u,v);
+    if(res!==true){ showToast('⚠️ 저장 실패: '+res); if(btn) btn.disabled=false; return; }
+    const ins=await vehDbInsert('vehicle_updates',row);
+    if(ins.data){ u=normalizeVehUpdate(ins.data); }
+    else console.warn('갱신 내역 기록 실패(차량 정보는 반영됨):',ins.error);
+    db.vehicleUpdates.unshift(u);
+    showToast('✅ 반영되었습니다');
   } else {
+    const ins=await vehDbInsert('vehicle_updates',row);
+    if(!ins.data){ showToast('⚠️ 저장 실패: '+ins.error); if(btn) btn.disabled=false; return; }
+    u=normalizeVehUpdate(ins.data);
+    db.vehicleUpdates.unshift(u);
     showToast('✅ 신청 완료 — 관리자 승인 후 반영됩니다');
     await loadAdminEmails();
     const mailPhoto=photoUrl?await vehSignedUrl(photoUrl,7*24*3600):'';
@@ -10085,12 +10161,12 @@ async function applyVehUpdate(u, v){
     patch={mileage:p.km, mileage_date:p.date};
   }
   patch.updated_at=new Date().toISOString();
-  const ok=await sbUpdate('vehicles',v.id,patch);
-  if(!ok) return false;
+  const res=await vehDbUpdate('vehicles',v.id,patch);
+  if(res.error) return res.error;
   Object.assign(v, normalizeVehicle({...vehToDb(v), ...patch, id:v.id}));
   if(logRow && v.kind==='shared'){
-    const ins=await sbInsert('vehicle_logs',{vehicle_id:v.id, category:logRow.category, data:logRow.data, photo_url:u.photoUrl||'', emp_id:u.empId});
-    if(ins) db.vehicleLogs.unshift(normalizeVehLog(ins));
+    const ins=await vehDbInsert('vehicle_logs',{vehicle_id:v.id, category:logRow.category, data:logRow.data, photo_url:u.photoUrl||'', emp_id:u.empId});
+    if(ins.data) db.vehicleLogs.unshift(normalizeVehLog(ins.data));
   }
   return true;
 }
@@ -10104,8 +10180,8 @@ async function approveVehUpdate(id){
   const v=(db.vehicles||[]).find(x=>String(x.id)===String(u.vehicleId)); if(!v){ showToast('⚠️ 차량 없음'); return; }
   if(!confirm(v.plate+' '+VEH_UPDATE_LABEL[u.kind]+'\n'+vehUpdateSummary(u).replace(/<[^>]+>/g,'')+'\n\n승인하시겠습니까?')) return;
   _keepScroll=true;
-  const ok=await applyVehUpdate(u,v);
-  if(!ok){ showToast('⚠️ 차량 정보 반영 실패'); return; }
+  const res=await applyVehUpdate(u,v);
+  if(res!==true){ showToast('⚠️ 차량 정보 반영 실패: '+res); return; }
   await sbUpdate('vehicle_updates',u.id,{status:'approved',processed_at:new Date().toISOString()});
   u.status='approved';
   showToast('✅ 승인 — 차량 정보에 반영됨');
@@ -10446,14 +10522,14 @@ async function saveVeh(id){
   if(v.ownership!=='rental'){ v.rentCompany=''; v.rentEnd=''; }
   const row=vehToDb(v); row.updated_at=new Date().toISOString();
   if(id){
-    const ok=await sbUpdate('vehicles',id,row);
-    if(!ok){ showToast('⚠️ 수정 실패'); return; }
+    const res=await vehDbUpdate('vehicles',id,row);
+    if(res.error){ showToast('⚠️ 수정 실패: '+res.error); return; }
     const cur=db.vehicles.find(x=>String(x.id)===String(id)); Object.assign(cur, normalizeVehicle({...row,id}));
     showToast('✅ 수정되었습니다');
   } else {
-    const ins=await sbInsert('vehicles',row);
-    if(!ins){ showToast('⚠️ 저장 실패'); return; }
-    db.vehicles.push(normalizeVehicle(ins));
+    const r2=await vehDbInsert('vehicles',row);
+    if(!r2.data){ showToast('⚠️ 저장 실패: '+r2.error); return; }
+    db.vehicles.push(normalizeVehicle(r2.data));
     showToast('✅ 등록되었습니다');
   }
   closeModal(); renderVehicleAdmin();
