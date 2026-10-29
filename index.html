@@ -9725,7 +9725,10 @@ async function syncBirthdayEvent(e) {
 // 비사업용 승용 신조차 최초 검사유효기간(개월) — 법 개정 시 이 값만 수정
 const VEH_FIRST_INSPECT_MONTHS_SEDAN = 60;
 const VEH_STAGES = [60, 30, 15]; // 알람 시점 (D-60, D-30, D-15)
-const VEH_UPDATE_LABEL = { insurance:'보험 갱신', inspection:'정기검사 완료', mileage:'주행거리 갱신' };
+const VEH_UPDATE_LABEL = { insurance:'보험 갱신', inspection:'정기검사 완료', mileage:'그외 이력' };
+// 그외 이력 구분 (kind='mileage' 로 저장 — 기존 주행거리 갱신 기록과 호환)
+const VEH_ETC_CATS = ['주행거리 갱신','엔진오일','미션오일','브레이크오일','브레이크패드','타이어','와이퍼','배터리','에어컨필터','에어필터','냉각수','점화플러그','수리','사고','세차','기타'];
+function vehEtcCat(p){ return (p&&p.category)||'주행거리 갱신'; }
 const VEH_CONSUMABLES = ['엔진오일','미션오일','브레이크오일','브레이크패드','타이어','와이퍼','배터리','에어컨필터','에어필터','냉각수','점화플러그','기타'];
 const VEH_LOG_CATS = {
   drive: { label:'운행관리(일지)', icon:'🛣️', fields:[
@@ -10017,7 +10020,7 @@ function vehUpdateSummary(u){
   const p=u.payload||{};
   if(u.kind==='insurance') return vEsc(p.insurer||'')+' / '+fmt(p.insStart)+' ~ '+fmt(p.insEnd)+(p.premium?' / '+Number(p.premium).toLocaleString()+'원':'');
   if(u.kind==='inspection') return '검사일 '+fmt(p.inspectDate)+(p.newExpire?' → 다음 만료 '+fmt(p.newExpire):'');
-  if(u.kind==='mileage') return (p.km!=null?Number(p.km).toLocaleString():'?')+'km ('+fmt(p.date)+')';
+  if(u.kind==='mileage') return vEsc(vehEtcCat(p))+(p.content?' · '+vEsc(p.content):'')+(p.km!=null&&p.km!==''?' · '+Number(p.km).toLocaleString()+'km':'')+(p.cost?' · '+Number(p.cost).toLocaleString()+'원':'')+' ('+fmt(p.date)+')';
   return '';
 }
 
@@ -10030,13 +10033,30 @@ function vehCardHtml(v, opt){
   const btns=opt.noButtons?'':'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">'
     +'<button class="btn btn-sm btn-primary" onclick="openVehUpdate('+v.id+',\'insurance\')">🛡️ 보험 갱신</button>'
     +'<button class="btn btn-sm btn-primary" onclick="openVehUpdate('+v.id+',\'inspection\')">🔍 검사 완료</button>'
-    +'<button class="btn btn-sm" onclick="openVehUpdate('+v.id+',\'mileage\')">📏 주행거리 갱신</button>'
+    +'<button class="btn btn-sm" style="background:#f0fdf4;color:#15803d;border-color:#86efac" onclick="openVehUpdate('+v.id+',\'mileage\')">🔧 그외 이력 등록</button>'
     +'</div>';
-  const hist=(db.vehicleUpdates||[]).filter(u=>String(u.vehicleId)===String(v.id)).slice(0,8);
-  const histHtml=opt.noHistory?'':('<div style="margin-top:14px"><div style="font-size:13px;font-weight:700;margin-bottom:6px">📝 갱신 내역</div>'
-    +(hist.length?'<div class="table-wrap"><table><thead><tr><th>신청일</th><th>종류</th><th>내용</th><th>사진</th><th>신청자</th><th>상태</th></tr></thead><tbody>'
-      +hist.map(u=>'<tr><td style="font-size:13px">'+fmt((u.createdAt||'').slice(0,10))+'</td><td>'+VEH_UPDATE_LABEL[u.kind]+'</td><td style="font-size:13px">'+vehUpdateSummary(u)+'</td><td>'+vehPhotoLink(u.photoUrl)+'</td><td>'+ename(u.empId)+'</td><td>'+statusBadge(u.status)+(u.status==='rejected'&&u.rejectReason?'<div style="font-size:11px;color:var(--danger)">'+vEsc(u.rejectReason)+'</div>':'')+'</td></tr>').join('')
-      +'</tbody></table></div>':'<div style="font-size:13px;color:var(--text3)">갱신 내역이 없습니다</div>')+'</div>');
+  const histAll=(db.vehicleUpdates||[]).filter(u=>String(u.vehicleId)===String(v.id));
+  const stCell=u=>'<td>'+statusBadge(u.status)+(u.status==='rejected'&&u.rejectReason?'<div style="font-size:11px;color:var(--danger)">'+vEsc(u.rejectReason)+'</div>':'')+'</td>';
+  const byDate=f=>(a,b)=>String(f(b)||'').localeCompare(String(f(a)||''))||String(b.createdAt).localeCompare(String(a.createdAt));
+  const sec=(icon,title,color,list,head,rowFn,cols)=>{
+    const lim=window._vehHistAll?list.length:10;
+    return '<div style="margin-top:12px"><div style="font-size:13px;font-weight:700;color:'+color+';margin-bottom:6px;padding-left:8px;border-left:3px solid '+color+'">'+icon+' '+title+' <span style="font-weight:400;color:var(--text3)">('+list.length+'건)</span></div>'
+      +(list.length?'<div class="table-wrap"><table><thead><tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+list.slice(0,lim).map(rowFn).join('')+'</tbody></table></div>'
+        +(list.length>lim?'<div style="text-align:center;margin-top:4px"><button class="btn btn-sm" onclick="window._vehHistAll=true;go(currentPage)">전체 '+list.length+'건 보기</button></div>':'')
+        :'<div style="font-size:13px;color:var(--text3);padding:4px 8px">이력이 없습니다</div>')+'</div>';
+  };
+  const insL=histAll.filter(u=>u.kind==='insurance').sort(byDate(u=>u.payload.insStart));
+  const inspL=histAll.filter(u=>u.kind==='inspection').sort(byDate(u=>u.payload.inspectDate));
+  const etcL=histAll.filter(u=>u.kind==='mileage').sort(byDate(u=>u.payload.date));
+  const td=x=>'<td style="font-size:13px">'+x+'</td>';
+  const histHtml=opt.noHistory?'':('<div style="margin-top:14px;border-top:1px solid var(--border);padding-top:6px"><div style="font-size:14px;font-weight:700">📝 차량 이력</div>'
+    +sec('🛡️','보험','#0369a1',insL,['보험기간','보험사','보험료','사진','등록자','상태'],
+      u=>{const p=u.payload;return '<tr>'+td(fmt(p.insStart)+' ~ '+fmt(p.insEnd))+td(vEsc(p.insurer||''))+td(p.premium?Number(p.premium).toLocaleString()+'원':'—')+'<td>'+vehPhotoLink(u.photoUrl)+'</td>'+td(u.empId?ename(u.empId):'관리자')+stCell(u)+'</tr>';})
+    +sec('🔍','정기검사','#7c3aed',inspL,['검사일','다음 만료일','사진','등록자','상태'],
+      u=>{const p=u.payload;return '<tr>'+td(fmt(p.inspectDate))+td(p.newExpire?fmt(p.newExpire):'—')+'<td>'+vehPhotoLink(u.photoUrl)+'</td>'+td(u.empId?ename(u.empId):'관리자')+stCell(u)+'</tr>';})
+    +sec('🔧','그외 이력 (주행거리·정비·수리)','#15803d',etcL,['날짜','구분','내용','당시 주행거리','비용','사진','등록자','상태'],
+      u=>{const p=u.payload;return '<tr>'+td(fmt(p.date))+td('<b>'+vEsc(vehEtcCat(p))+'</b>')+td(vEsc(p.content||'')||'<span style="color:var(--text3)">—</span>')+td(p.km!=null&&p.km!==''?Number(p.km).toLocaleString()+' km':'—')+td(p.cost?Number(p.cost).toLocaleString()+'원':'—')+'<td>'+vehPhotoLink(u.photoUrl)+'</td>'+td(u.empId?ename(u.empId):'관리자')+stCell(u)+'</tr>';})
+    +'</div>');
   return '<div class="card">'
     +'<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
     +'<div><div style="font-size:20px;font-weight:700">'+vEsc(v.plate)+' <span style="font-size:14px;color:var(--text2);font-weight:500">'+vEsc(v.model)+'</span></div>'
@@ -10081,13 +10101,16 @@ function openVehUpdate(vid, kind){
     fields='<div class="field" style="margin-bottom:8px"><label style="font-weight:700">검사 완료일 *</label>'+makeDateInput('vu-date',todayStr())+'</div>'
       +'<div id="vu-expire-preview" style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#5b21b6"></div>';
   } else {
-    fields='<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">현재 주행거리(km) *</label><input id="vu-km" type="number" min="0" value="'+(vehCurrentKm(v)??'')+'"></div>'
-      +'<div class="field"><label style="font-weight:700">기준일 *</label>'+makeDateInput('vu-date',todayStr())+'</div></div>';
+    fields='<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">날짜 *</label>'+makeDateInput('vu-date',todayStr())+'</div>'
+      +'<div class="field"><label style="font-weight:700">구분 *</label><select id="vu-cat" onchange="vehEtcCatChange()">'+VEH_ETC_CATS.map(c=>'<option>'+c+'</option>').join('')+'</select></div></div>'
+      +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">내용</label><input id="vu-content" placeholder="예) 엔진오일·필터 교체 / 앞범퍼 수리 / 정기 주행거리 기록"></div>'
+      +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">당시 주행거리(km) <span id="vu-km-req">*</span></label><input id="vu-km" type="number" min="0" placeholder="최근 '+(vehCurrentKm(v)!=null?Number(vehCurrentKm(v)).toLocaleString()+'km':'기록 없음')+'"></div>'
+      +'<div class="field"><label style="font-weight:700">비용(원) <span style="font-size:11px;color:var(--text3);font-weight:400">(선택)</span></label><input id="vu-cost" type="number" min="0"></div></div>';
   }
-  const photoLabel=kind==='insurance'?'보험증권/가입증명서 사진':kind==='inspection'?'검사증/검사결과 사진':'계기판 사진';
-  openModal('<div class="modal-title">'+({insurance:'🛡️',inspection:'🔍',mileage:'📏'}[kind])+' '+VEH_UPDATE_LABEL[kind]+' — '+vEsc(v.plate)+'</div>'
+  const photoLabel=kind==='insurance'?'보험증권/가입증명서 사진':kind==='inspection'?'검사증/검사결과 사진':'계기판·영수증 사진';
+  openModal('<div class="modal-title">'+({insurance:'🛡️',inspection:'🔍',mileage:'🔧'}[kind])+' '+VEH_UPDATE_LABEL[kind]+' — '+vEsc(v.plate)+'</div>'
     +fields
-    +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">'+photoLabel+(isAdmin?' <span style="font-size:11px;color:var(--text3);font-weight:400">(관리자는 선택)</span>':' *')+'</label>'
+    +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">'+photoLabel+(isAdmin?' <span style="font-size:11px;color:var(--text3);font-weight:400">(관리자는 선택)</span>':(kind==='mileage'?' <span style="font-size:11px;color:var(--text3);font-weight:400">(주행거리 갱신은 필수 · 그 외 선택)</span>':' *'))+'</label>'
     +'<input id="vu-photo" type="file" accept="image/*,application/pdf"><div style="font-size:12px;color:var(--text3);margin-top:4px">※ 휴대폰에서는 바로 촬영할 수 있습니다 (최대 10MB)</div></div>'
     +(isAdmin?'<div style="font-size:12px;color:#15803d;margin-top:8px">🔓 관리자 등록은 승인 없이 바로 반영됩니다.</div>':'<div style="font-size:12px;color:var(--text3);margin-top:8px">※ 관리자 승인 후 차량 정보에 반영됩니다.</div>')
     +'<div class="modal-footer"><div></div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" id="vu-save-btn" onclick="saveVehUpdate('+v.id+',\''+kind+'\')">'+(isAdmin?'저장':'신청')+'</button></div></div>');
@@ -10099,6 +10122,10 @@ function openVehUpdate(vid, kind){
     };
     setTimeout(()=>{ ['vu-date-y','vu-date-m','vu-date-d'].forEach(id=>document.getElementById(id)?.addEventListener('input',upd)); upd(); },50);
   }
+}
+function vehEtcCatChange(){
+  const c=document.getElementById('vu-cat')?.value, r=document.getElementById('vu-km-req');
+  if(r) r.style.display=c==='주행거리 갱신'?'':'none';
 }
 async function saveVehUpdate(vid, kind){
   const v=(db.vehicles||[]).find(x=>String(x.id)===String(vid));
@@ -10115,11 +10142,18 @@ async function saveVehUpdate(vid, kind){
     payload={inspectDate:d, newExpire:vehCalcNextExpire(v,d)};
   } else {
     const km=document.getElementById('vu-km')?.value, d=getDateVal('vu-date');
-    if(km===''||km==null||!d){ showToast('⚠️ 주행거리와 기준일을 입력하세요'); return; }
-    payload={km:Number(km), date:d};
+    const cat=document.getElementById('vu-cat')?.value||'주행거리 갱신';
+    const content=(document.getElementById('vu-content')?.value||'').trim();
+    const cost=document.getElementById('vu-cost')?.value;
+    if(!d){ showToast('⚠️ 날짜를 입력하세요'); return; }
+    if(cat==='주행거리 갱신'&&(km===''||km==null)){ showToast('⚠️ 주행거리를 입력하세요'); return; }
+    if(cat!=='주행거리 갱신'&&cat!=='세차'&&!content&&(km===''||km==null)){ showToast('⚠️ 내용 또는 주행거리를 입력하세요'); return; }
+    payload={date:d, category:cat, content, km:km===''||km==null?null:Number(km), cost:cost?Number(cost):null};
   }
   const file=document.getElementById('vu-photo')?.files?.[0];
-  if(!file&&!isAdmin){ showToast('⚠️ 사진을 첨부해 주세요'); return; }
+  // 사진 필수: 보험·검사·주행거리 갱신 (정비·수리 등 그외 이력은 선택)
+  const photoNeeded=kind!=='mileage'||vehEtcCat(payload)==='주행거리 갱신';
+  if(!file&&!isAdmin&&photoNeeded){ showToast('⚠️ 사진을 첨부해 주세요'); return; }
   const btn=document.getElementById('vu-save-btn'); if(btn) btn.disabled=true;
   let photoUrl='';
   try{ photoUrl=await vehUpload(file); }catch(e){ showToast('⚠️ 사진 업로드 실패: '+e.message); if(btn) btn.disabled=false; return; }
@@ -10163,7 +10197,11 @@ async function applyVehUpdate(u, v){
     patch={last_inspect_date:p.inspectDate, inspect_expire:ne};
     logRow={category:'check',data:{date:p.inspectDate,checkType:'정기검사',content:'정기검사 완료(승인) · 다음 만료 '+ne}};
   } else if(u.kind==='mileage'){
-    patch={mileage:p.km, mileage_date:p.date};
+    // 당시 주행거리가 있고, 기존 기록보다 최신이면 차량 주행거리 갱신
+    if(p.km!=null&&p.km!==''&&(!v.mileageDate||String(p.date)>=String(v.mileageDate))) patch={mileage:p.km, mileage_date:p.date};
+    const cat=vehEtcCat(p);
+    if(VEH_CONSUMABLES.includes(cat)) logRow={category:'consumable',data:{item:cat,date:p.date,km:p.km??undefined,cost:p.cost??undefined}};
+    else if(cat==='수리'||cat==='사고') logRow={category:'repair',data:{date:p.date,content:(cat==='사고'?'[사고] ':'')+(p.content||cat),km:p.km??undefined,cost:p.cost??undefined}};
   }
   patch.updated_at=new Date().toISOString();
   const res=await vehDbUpdate('vehicles',v.id,patch);
@@ -10752,13 +10790,21 @@ async function exportVehExcel(){
   };
   const vOf=id=>(db.vehicles||[]).find(x=>String(x.id)===String(id))||{};
   const ST={pending:'승인대기',approved:'승인',rejected:'반려'};
-  // ═══ 시트2: 갱신 이력 ═══
-  const ups=(db.vehicleUpdates||[]).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-  tableSheet('갱신이력',['신청일','차량번호','차종','사용자','구분','내용','보험료','신청자','상태','처리일','반려사유','사진'],
-    ups.map(u=>{ const v=vOf(u.vehicleId), p=u.payload||{};
-      return [String(u.createdAt||'').slice(0,10), v.plate||'', v.model||'', v.plate?vehUserLabel(v).replace('\n',' '):'', VEH_UPDATE_LABEL[u.kind]||u.kind,
-        vehUpdateSummary(u).replace(/<[^>]+>/g,''), p.premium||null, u.empId?ename(u.empId):'관리자', ST[u.status]||u.status, String(u.processedAt||'').slice(0,10), u.rejectReason||'', u.photoUrl?'있음':'']; }),
-    [11,11,10,14,12,40,11,9,8,11,18,6],[7]);
+  // ═══ 시트2~4: 차량 이력 (보험 / 정기검사 / 그외) ═══
+  const ups=(db.vehicleUpdates||[]);
+  const base=u=>{ const v=vOf(u.vehicleId); return [v.plate||'', v.model||'', v.plate?vehUserLabel(v).replace('\n',' '):'']; };
+  const tail=u=>[u.empId?ename(u.empId):'관리자', ST[u.status]||u.status, String(u.processedAt||'').slice(0,10), u.rejectReason||'', u.photoUrl?'있음':''];
+  const tailH=['등록자','상태','처리일','반려사유','사진'], tailW=[9,8,11,16,6];
+  const srt=f=>(a,b)=>String(f(b)||'').localeCompare(String(f(a)||''));
+  tableSheet('보험이력',['차량번호','차종','사용자','보험 시작일','보험 만기일','보험사','보험료',...tailH],
+    ups.filter(u=>u.kind==='insurance').sort(srt(u=>u.payload.insStart)).map(u=>{const p=u.payload||{};return [...base(u),p.insStart||'',p.insEnd||'',p.insurer||'',p.premium?Number(p.premium):null,...tail(u)];}),
+    [11,10,14,11,11,12,11,...tailW],[7]);
+  tableSheet('정기검사이력',['차량번호','차종','사용자','검사일','다음 만료일',...tailH],
+    ups.filter(u=>u.kind==='inspection').sort(srt(u=>u.payload.inspectDate)).map(u=>{const p=u.payload||{};return [...base(u),p.inspectDate||'',p.newExpire||'',...tail(u)];}),
+    [11,10,14,11,11,...tailW]);
+  tableSheet('그외이력',['차량번호','차종','사용자','날짜','구분','내용','당시 주행거리(km)','비용',...tailH],
+    ups.filter(u=>u.kind==='mileage').sort(srt(u=>u.payload.date)).map(u=>{const p=u.payload||{};return [...base(u),p.date||'',vehEtcCat(p),p.content||'',p.km!=null&&p.km!==''?Number(p.km):null,p.cost?Number(p.cost):null,...tail(u)];}),
+    [11,10,14,11,12,30,13,11,...tailW],[7,8]);
   // ═══ 시트3~: 공용차량 일지 (항목별) ═══
   Object.entries(VEH_LOG_CATS).forEach(([cat,c])=>{
     const logs=(db.vehicleLogs||[]).filter(l=>l.category===cat).sort((a,b)=>String(b.data.date||'').localeCompare(String(a.data.date||''))||b.id-a.id);
