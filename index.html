@@ -1030,6 +1030,8 @@ async function onSignedIn(user) {
     go('calendar');
     setTimeout(checkAndShowAlerts, 2500);
     setTimeout(checkVehicleAlertPopup, 4000); // 차량 만기 알림
+    setTimeout(processDueNotifySchedules, 6000); // 예약 알림 발송
+    if(!window._nsTimer) window._nsTimer=setInterval(processDueNotifySchedules, 60000);
     startIdleTimer(); // 20분 무활동 자동 로그아웃 시작
   } catch(e) {
     console.error('onSignedIn 오류:', e);
@@ -8581,7 +8583,7 @@ function renderNoticeBoard() {
         <td><span class="badge" style="background:${s.sent?'#f1f5f9':'#fef3c7'};color:${s.sent?'#64748b':'#92400e'}">${s.sent?'발송완료':'예약중'}</span></td>
         <td style="font-weight:500">${s.title||'(제목없음)'}</td>
         <td style="font-size:13px;color:var(--text2)">${s.sendAt?fmtDateTime(s.sendAt):'즉시'}</td>
-        <td style="font-size:13px">${JSON.parse(s.targetIds||'[]').length}명</td>
+        <td style="font-size:13px">${nsTargets(s).length}명</td>
         <td>${!s.sent?`<button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">취소</button>`:''}</td>
       </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:16px">예약된 알람 없음</td></tr>`;
 
@@ -9163,7 +9165,7 @@ function renderPopupRemainScheduleList() {
     <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
       <div>
         <div style="font-size:14px;font-weight:500">${s.title}</div>
-        <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시 예정 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+        <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시 예정 · 대상 ${nsTargets(s).length}명</div>
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-sm btn-danger" onclick="cancelSchedule(${s.id})">삭제</button>
@@ -9177,7 +9179,7 @@ function renderPopupRemainDoneList() {
   return list.map(s=>`
     <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
       <div style="font-size:14px;font-weight:500">${s.title}</div>
-      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시완료 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 게시완료 · 대상 ${nsTargets(s).length}명</div>
     </div>`).join('');
 }
 
@@ -9195,7 +9197,7 @@ async function sendRemainPopupNotify() {
     const dateVal = document.getElementById('popup-schedule-date')?.value;
     const timeVal = document.getElementById('popup-schedule-time')?.value || '09:00';
     if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
-    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const sendAt = new Date(dateVal + 'T' + timeVal + ':00').toISOString(); // 한국시간 → ISO(UTC) 저장
     const row = { type: 'popup-'+remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
     let saved = null;
     if (_supa) {
@@ -9298,7 +9300,7 @@ async function sendRemainNotify() {
     const dateVal = document.getElementById('notify-schedule-date')?.value;
     const timeVal = document.getElementById('notify-schedule-time')?.value || '09:00';
     if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
-    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const sendAt = new Date(dateVal + 'T' + timeVal + ':00').toISOString(); // 한국시간 → ISO(UTC) 저장
     const row = { type: remainType, title, content1: content1||'', target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
     let saved = null;
     if (_supa) {
@@ -9349,7 +9351,7 @@ async function sendEtcNotify() {
     const dateVal = document.getElementById('etc-schedule-date')?.value;
     const timeVal = document.getElementById('etc-schedule-time')?.value || '09:00';
     if (!dateVal) { showToast('⚠️ 예약 날짜를 선택하세요'); return; }
-    const sendAt = dateVal + 'T' + timeVal + ':00';
+    const sendAt = new Date(dateVal + 'T' + timeVal + ':00').toISOString(); // 한국시간 → ISO(UTC) 저장
     const row = { type: 'etc', title, content1: content, target_ids: JSON.stringify(targets), send_at: sendAt, sent: false };
     let saved = null;
     if (_supa) {
@@ -9528,6 +9530,63 @@ function selectNotifyGroup(type, value, cls='notify-target') {
   });
 }
 
+// ── 예약 알림 처리 ──
+function nsTargets(s){
+  const t=s&&s.targetIds;
+  if(Array.isArray(t)) return t;
+  try{ const x=JSON.parse(t||'[]'); return Array.isArray(x)?x:[x]; }catch(e){ return String(t||'').split(',').map(v=>v.trim()).filter(Boolean); }
+}
+// 관리자가 접속해 있는 동안 1분마다, 그리고 로그인 직후 예약 시각이 지난 알림을 발송
+let _nsBusy=false;
+async function processDueNotifySchedules(){
+  if(!isAdmin||!_supa||_nsBusy) return;
+  _nsBusy=true;
+  let doneCnt=0;
+  try{
+    const {data:rows,error}=await _supa.from('notify_schedules').select('*').eq('sent',false);
+    if(error||!rows) return;
+    const now=Date.now();
+    const due=rows.filter(r=>r.send_at&&new Date(r.send_at).getTime()<=now);
+    for(const r of due){
+      // 선점: 여러 관리자 화면이 열려 있어도 한 번만 발송
+      const {data:claim}=await _supa.from('notify_schedules').update({sent:true}).eq('id',r.id).eq('sent',false).select();
+      if(!claim||!claim.length) continue;
+      const targets=nsTargets({targetIds:r.target_ids});
+      const yr=Number(todayStr().slice(0,4));
+      const type=String(r.type||'');
+      const isPopup=type.startsWith('popup-');
+      const kind=type.replace('popup-','');
+      for(const empId of targets){
+        const e=eid(empId); if(!e) continue;
+        let content2='';
+        if(kind==='leave'){ const rem=getLeaveRemain(empId,yr); content2=e.name+'님의 잔여 연차: '+Math.round(rem/8*10)/10+'일 ('+rem+'h)'; }
+        else if(kind==='comp'){ const rem=getCompRemain(empId,yr); content2=e.name+'님의 잔여 대체휴무: '+rem+'h'; }
+        const body=content2?((r.content1?r.content1+'\n\n':'')+content2):(r.content1||'');
+        try{
+          if(isPopup){
+            const row={date:todayStr(),title:r.title,content:body,color:'#3b82f6',target_emp_id:empId};
+            const {data}=await _supa.from('alerts').insert(row).select().single();
+            if(data) (db.alerts=db.alerts||[]).push({...row,id:data.id});
+          } else if(e.email){
+            await sendEmailViaResend(e.email,r.title,body);
+          }
+        }catch(err){ console.warn('예약 알림 발송 실패:',e.name,err); }
+      }
+      const loc=(db.notifySchedules||[]).find(x=>String(x.id)===String(r.id)); if(loc) loc.sent=true;
+      doneCnt++;
+    }
+  }catch(e){ console.warn('예약 알림 처리 오류:',e); }
+  finally{
+    _nsBusy=false;
+    if(doneCnt){
+      showToast('📨 예약 알림 '+doneCnt+'건 발송 완료');
+      const upd=(id,fn)=>{ const el=document.getElementById(id); if(el) el.innerHTML=fn(); };
+      upd('notify-schedule-list',()=>renderNotifyScheduleList('remain')); upd('notify-done-list',()=>renderNotifyDoneList('remain'));
+      upd('etc-schedule-list',()=>renderNotifyScheduleList('etc')); upd('etc-done-list',()=>renderNotifyDoneList('etc'));
+      upd('popup-remain-schedule-list',renderPopupRemainScheduleList); upd('popup-remain-done-list',renderPopupRemainDoneList);
+    }
+  }
+}
 function renderNotifyScheduleList(typeFilter) {
   // typeFilter: 'remain' → leave/comp, 'etc' → etc, undefined → 전체
   const matchType = (t) => {
@@ -9542,7 +9601,7 @@ function renderNotifyScheduleList(typeFilter) {
     <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)">
       <div>
         <div style="font-size:14px;font-weight:500">${s.title}</div>
-        <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송 예정 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+        <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송 예정 · 대상 ${nsTargets(s).length}명</div>
       </div>
       <div style="display:flex;gap:6px">
         <button class="btn btn-sm" onclick="editSchedule(${s.id})">✏️ 수정</button>
@@ -9563,7 +9622,7 @@ function renderNotifyDoneList(typeFilter) {
   return done.map(s => `
     <div style="padding:10px 0;border-bottom:1px solid var(--border);opacity:0.7">
       <div style="font-size:14px;font-weight:500">${s.title}</div>
-      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송완료 · 대상 ${JSON.parse(s.targetIds||'[]').length}명</div>
+      <div style="font-size:13px;color:var(--text3)">${fmtDateTime(s.sendAt)} 발송완료 · 대상 ${nsTargets(s).length}명</div>
     </div>
   `).join('');
 }
