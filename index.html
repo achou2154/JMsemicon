@@ -9951,6 +9951,36 @@ async function saveVehOwn(id){
   showToast('✅ '+v.plate+' → '+VEH_OWN_LABEL[own]+'차량');
   closeModal(); renderVehicleAdmin();
 }
+// 관리자 전용: 렌탈·리스 계약 종료 → 자사차량 전환(인수)
+function openVehConvertOwn(id){
+  if(!isAdmin){ showToast('⚠️ 관리자만 변경할 수 있습니다'); return; }
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(id)); if(!v||!vehIsContract(v)) return;
+  const dd=v.rentEnd?vehDays(v.rentEnd):null;
+  const def=v.rentEnd&&v.rentEnd<=todayStr()?v.rentEnd:todayStr();
+  openModal('<div class="modal-title">🔁 자사차량 전환 — '+vEsc(v.plate)+' <span style="font-size:14px;color:var(--text2);font-weight:500">'+vEsc(v.model)+'</span></div>'
+    +'<div style="background:var(--bg);border-radius:var(--radius);padding:10px 14px;margin-bottom:14px;font-size:14px;line-height:1.8">'
+    +'현재: '+vehOwnBadge(v)+'<br>계약만기: <b>'+(v.rentEnd?fmt(v.rentEnd):'미등록')+'</b> '+(v.rentEnd?vehDdayBadge(v.rentEnd):'')
+    +(dd!=null&&dd>0?'<div style="font-size:12px;color:#d97706;margin-top:4px">※ 아직 계약 기간이 남아 있습니다. 조기 인수인 경우에만 진행하세요.</div>':'')+'</div>'
+    +'<div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">자사 귀속(인수)일 *</label>'+makeDateInput('vc-date',def)+'</div>'
+    +'<div class="field"><label style="font-weight:700">인수가액(원) <span style="font-size:11px;color:var(--text3);font-weight:400">(선택)</span></label><input id="vc-price" type="number" min="0" value="'+(v.purchasePrice??'')+'"></div></div>'
+    +'<div style="font-size:13px;color:var(--text2);background:#f0f9ff;border:1px solid #bae6fd;border-radius:var(--radius);padding:8px 12px">전환하면 <b>🔵 자사차량</b>으로 옮겨지고 렌트·리스사와 계약만기는 비워집니다. 이전 계약 정보는 <b>메모에 기록</b>으로 남습니다.'
+    +(vehInspectByLeasing(v)?'<br>리스였던 차량이므로 이후 정기검사는 <b>자동계산·알림 대상</b>이 됩니다.':'')+'</div>'
+    +'<div class="modal-footer"><div></div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveVehConvertOwn('+v.id+')">자사로 전환</button></div></div>');
+}
+async function saveVehConvertOwn(id){
+  if(!isAdmin) return;
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(id)); if(!v) return;
+  const d=getDateVal('vc-date'); if(!d){ showToast('⚠️ 귀속일을 입력하세요'); return; }
+  const price=document.getElementById('vc-price')?.value;
+  const hist='['+d+' 자사 전환 · 이전: '+VEH_OWN_LABEL[v.ownership]+(v.rentCompany?'/'+v.rentCompany:'')+(v.rentEnd?', 계약만기 '+v.rentEnd:'')+']';
+  const patch={ownership:'own', rent_company:'', rent_end:null, memo:(v.memo?v.memo+' ':'')+hist, updated_at:new Date().toISOString()};
+  if(price!==''&&price!=null) patch.purchase_price=Number(price);
+  const res=await vehDbUpdate('vehicles',v.id,patch);
+  if(res.error){ showToast('⚠️ 저장 실패: '+res.error); return; }
+  v.ownership='own'; v.rentCompany=''; v.rentEnd=''; v.memo=patch.memo; if(patch.purchase_price!=null) v.purchasePrice=patch.purchase_price;
+  showToast('✅ '+v.plate+' 자사차량으로 전환되었습니다');
+  closeModal(); renderVehicleAdmin();
+}
 function vehOwnBadge(v){
   if(v.ownership==='lease') return '<span style="background:#ffedd5;color:#c2410c;border:1px solid #fdba74;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;white-space:nowrap">리스'+(v.rentCompany?' · '+vEsc(v.rentCompany):'')+'</span>';
   if(v.ownership==='rental') return '<span style="background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;white-space:nowrap">렌탈'+(v.rentCompany?' · '+vEsc(v.rentCompany):'')+'</span>';
@@ -10529,7 +10559,9 @@ function vehAdminRow(v, idx, isShared){
     +'<td>'+rentCell+'</td>'
     +'<td style="font-size:13px;white-space:nowrap">'+(km!=null?km.toLocaleString()+'km':'—')+'</td>'
     +extra
-    +'<td style="white-space:nowrap"><button class="btn btn-sm" title="수정" onclick="openVehEdit('+v.id+')">✏️</button> <button class="btn btn-sm btn-danger" title="삭제" onclick="deleteVeh('+v.id+')">🗑️</button></td></tr>';
+    +'<td style="white-space:nowrap">'+(vehIsContract(v)?(()=>{ const dd=v.rentEnd?vehDays(v.rentEnd):null, hot=dd!=null&&dd<=60;
+        return '<button class="btn btn-sm" title="계약 종료 → 자사차량으로 전환(인수)" style="'+(hot?'background:#0369a1;color:#fff;border-color:#0369a1;font-weight:700':'background:#e0f2fe;color:#0369a1;border-color:#7dd3fc')+'" onclick="openVehConvertOwn('+v.id+')">🔁 자사 전환</button> '; })():'')
+    +'<button class="btn btn-sm" title="수정" onclick="openVehEdit('+v.id+')">✏️</button> <button class="btn btn-sm btn-danger" title="삭제" onclick="deleteVeh('+v.id+')">🗑️</button></td></tr>';
 }
 function vehAdminTable(list, isShared, emptyMsg){
   const head='<thead><tr><th>#</th><th>차량번호'+(isShared?' / 차대번호':'')+'</th><th>모델</th><th>'+(isShared?'담당자':'사용자')+'</th><th>소유</th><th>보험 만기</th><th>검사 만료</th><th>렌탈·리스 만기</th><th>주행거리</th>'+(isShared?'<th>최근 운행</th>':'')+'<th></th></tr></thead>';
@@ -10921,15 +10953,18 @@ async function exportVehExcel(){
 
 // ── 로그인 팝업 알림 (D-60 / D-30 / D-15 / 만료) ──
 function vehAlertItems(){
-  if(!currentEmp) return [];
+  if(!currentEmp&&!isAdmin) return [];
+  const me=currentEmp?currentEmp.id:'admin';
   const list=(db.vehicles||[]).filter(v=>v.isActive&&(isAdmin||vehRelevantToMe(v)));
   const items=[];
   list.forEach(v=>{
-    [['insurance','보험 만기',v.insEnd],['inspection','정기검사 만료',v.inspectExpire]].forEach(([item,label,due])=>{
+    const its=[['insurance','보험 만기',v.insEnd],['inspection','정기검사 만료',v.inspectExpire]];
+    if(isAdmin&&vehIsContract(v)) its.push(['contract',VEH_OWN_LABEL[v.ownership]+' 계약만기 (자사 전환·반납 처리)',v.rentEnd]);
+    its.forEach(([item,label,due])=>{
       if(!due) return; const d=vehDays(due); if(d>60) return;
       if(item==='inspection'&&vehInspectByLeasing(v)) return; // 리스: 정기검사 알림 제외
       const stage=d<0?'over':(d<=15?15:(d<=30?30:60));
-      const key='veh_ack_'+currentEmp.id+'_'+v.id+'_'+item+'_'+due+'_'+stage+(stage==='over'?'_'+todayStr():'');
+      const key='veh_ack_'+me+'_'+v.id+'_'+item+'_'+due+'_'+stage+(stage==='over'?'_'+todayStr():'');
       if(localStorage.getItem(key)) return;
       items.push({v,item,label,due,days:d,key,pending:vehPending(v.id,item).length>0});
     });
