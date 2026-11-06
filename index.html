@@ -9924,6 +9924,28 @@ function vehLegendHtml(){
     +chip(VEH_LEVELS[0],'⛔ N일 지남')+chip(VEH_LEVELS[1],'D-15')+chip(VEH_LEVELS[2],'D-30')+chip(VEH_LEVELS[3],'D-60')+chip(VEH_LEVELS[4],'D-61~')
     +'<span style="color:var(--text3)">· 알림은 D-60 · D-30 · D-15 · 만료 시 발송</span></div>';
 }
+// 관리자: 소유 형태(자사/렌탈) 빠른 변경
+function openVehOwnEdit(id){
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(id)); if(!v) return;
+  openModal('<div class="modal-title">🚗 소유 형태 변경 — '+vEsc(v.plate)+' <span style="font-size:14px;color:var(--text2);font-weight:500">'+vEsc(v.model)+'</span></div>'
+    +'<div style="display:flex;gap:10px;margin-bottom:14px">'
+    +['own','rental'].map(k=>'<label style="flex:1;display:flex;align-items:center;gap:8px;padding:12px 14px;border:1px solid var(--border2);border-radius:var(--radius);cursor:pointer;font-size:15px;font-weight:600"><input type="radio" name="vo-own" value="'+k+'"'+((v.ownership==='rental')===(k==='rental')?' checked':'')+' onchange="document.getElementById(\'vo-rent-wrap\').style.display=this.value===\'rental\'?\'\':\'none\'"> '+(k==='own'?'🔵 자사차량':'🟣 렌탈차량')+'</label>').join('')
+    +'</div>'
+    +'<div id="vo-rent-wrap" class="form-grid" style="margin-bottom:8px;'+(v.ownership==='rental'?'':'display:none')+'">'
+    +'<div class="field"><label>렌트사</label><input id="vo-rentco" value="'+vEsc(v.rentCompany)+'" placeholder="예) KB렌탈"></div>'
+    +'<div class="field"><label>렌탈 계약만기일</label>'+makeDateInput('vo-rentend',v.rentEnd||'')+'</div></div>'
+    +'<div class="modal-footer"><div></div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveVehOwn('+v.id+')">저장</button></div></div>');
+}
+async function saveVehOwn(id){
+  const v=(db.vehicles||[]).find(x=>String(x.id)===String(id)); if(!v) return;
+  const own=document.querySelector('input[name="vo-own"]:checked')?.value||'own';
+  const patch={ownership:own, rent_company:own==='rental'?(document.getElementById('vo-rentco')?.value||'').trim():'', rent_end:own==='rental'?(getDateVal('vo-rentend')||null):null, updated_at:new Date().toISOString()};
+  const res=await vehDbUpdate('vehicles',v.id,patch);
+  if(res.error){ showToast('⚠️ 저장 실패: '+res.error); return; }
+  v.ownership=own; v.rentCompany=patch.rent_company; v.rentEnd=patch.rent_end||'';
+  showToast('✅ '+v.plate+' → '+(own==='rental'?'렌탈':'자사')+'차량');
+  closeModal(); renderVehicleAdmin();
+}
 function vehOwnBadge(v){
   if(v.ownership==='rental') return '<span style="background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;white-space:nowrap">렌탈'+(v.rentCompany?' · '+vEsc(v.rentCompany):'')+'</span>';
   return '<span style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;border-radius:4px;padding:1px 7px;font-size:11px;font-weight:700;white-space:nowrap">자사</span>';
@@ -10490,7 +10512,7 @@ function vehAdminRow(v, idx, isShared){
     +'<td>'+plateCell+'</td>'
     +'<td style="font-size:13px;white-space:nowrap">'+vEsc(v.model)+'<div style="font-size:11px;color:var(--text3)">'+vEsc(v.carType)+(v.modelYear?' · '+vEsc(v.modelYear):'')+'</div></td>'
     +'<td style="font-size:13px">'+ownerCell+'</td>'
-    +'<td>'+vehOwnBadge(v)+'</td>'
+    +'<td><span style="cursor:pointer" title="클릭해서 자사/렌탈 변경" onclick="openVehOwnEdit('+v.id+')">'+vehOwnBadge(v)+' <span style="font-size:11px;color:var(--text3)">✏️</span></span></td>'
     +'<td>'+insCell+'</td>'
     +'<td>'+dateBadge(v.inspectExpire)+'</td>'
     +'<td>'+rentCell+'</td>'
