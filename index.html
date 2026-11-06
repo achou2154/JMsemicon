@@ -563,10 +563,35 @@ async function loadAdminEmails() {
   } catch(e) { console.warn('관리자 이메일 로드 실패:', e); }
 }
 
+// ── 추가 수신인 (신청 메일을 관리자와 같은 내용으로 받을 직원) ──
+function ccFieldHtml(){
+  const names=[...new Set((db.employees||[]).filter(e=>!e.isInactive&&e.email).map(e=>e.name))].sort((a,b)=>a.localeCompare(b,'ko'));
+  return '<div class="field" style="margin-bottom:12px"><label style="font-weight:700">추가 수신인 <span style="font-size:11px;color:var(--text3);font-weight:400">(선택 · 직원 이름 정확히 입력, 여러 명은 쉼표로 구분)</span></label>'
+    +'<input id="f-substitute" list="cc-emp-list" autocomplete="off" placeholder="예) 홍길동, 김철수">'
+    +'<datalist id="cc-emp-list">'+names.map(n=>'<option value="'+n+'">').join('')+'</datalist>'
+    +'<div style="font-size:12px;color:var(--text3);margin-top:4px">※ 입력한 직원에게도 관리자와 같은 신청 알림 메일이 발송됩니다.</div></div>';
+}
+function ccParse(str){
+  const names=[...new Set(String(str||'').split(/[,，\/·\s]+/).map(x=>x.trim()).filter(Boolean))];
+  const emps=[], unknown=[];
+  names.forEach(n=>{ const e=(db.employees||[]).find(x=>x.name===n&&!x.isInactive)||(db.employees||[]).find(x=>x.name===n); if(e) emps.push(e); else unknown.push(n); });
+  return {names, emps, unknown};
+}
+function ccReadValidated(){
+  const raw=document.getElementById('f-substitute')?.value?.trim()||'';
+  if(!raw) return '';
+  const {emps,unknown}=ccParse(raw);
+  if(unknown.length){ showToast('⚠️ 직원명을 확인해 주세요: '+unknown.join(', ')); return null; }
+  const noMail=emps.filter(e=>!e.email);
+  if(noMail.length){ showToast('⚠️ 메일 주소가 없는 직원입니다: '+noMail.map(e=>e.name).join(', ')); return null; }
+  return emps.map(e=>e.name).join(', ');
+}
 async function notifyAdmin(req) {
   if (!_supa) return;
   await loadAdminEmails(); // 매번 최신 음소거 상태 반영
-  if (!adminEmails.length) return;
+  const ccEmails = req.substitute ? ccParse(req.substitute).emps.map(e=>e.email).filter(Boolean) : [];
+  const toList = [...new Set([...adminEmails, ...ccEmails])];
+  if (!toList.length) return;
   const typeMap = { leave:'연차', ot:'특근', comp:'대체휴무', trip:'출장', outside:'외근', education:'교육' };
   const typeName = typeMap[req.type] || req.type;
   let detail = '';
@@ -644,9 +669,9 @@ async function notifyAdmin(req) {
   try {
     const siteUrl = 'https://achou2154.github.io/JMsemicon';
     const payload = {
-      to: adminEmails,
+      to: toList,
       subject: `[근태관리] ${applicant?.name||'직원'} 님의 ${typeName} 신청${isSame?'':` (대리: ${agent?.name||''})`}`,
-      text: `${whoText} ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}${remainText}`,
+      text: `${whoText} ${typeName}을 신청하였습니다.\n\n내용: ${detail}\n사유: ${req.reason||'없음'}\n신청일: ${req.reqDate}${remainText}${req.substitute?'\n추가 수신: '+req.substitute:''}`,
       html: `
         <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
           <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0">
@@ -657,7 +682,7 @@ async function notifyAdmin(req) {
             <table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:20px">
               <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b;width:80px">내용</td><td style="padding:8px 12px">${detail}</td></tr>
               <tr><td style="padding:8px 12px;color:#64748b">사유</td><td style="padding:8px 12px">${req.reason||'없음'}</td></tr>
-              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">신청일</td><td style="padding:8px 12px">${req.reqDate}</td></tr>${remainRowHtml}
+              <tr style="background:#f8fafc"><td style="padding:8px 12px;color:#64748b">신청일</td><td style="padding:8px 12px">${req.reqDate}</td></tr>${remainRowHtml}${req.substitute?`<tr><td style="padding:8px 12px;color:#64748b">추가 수신</td><td style="padding:8px 12px">${req.substitute}</td></tr>`:''}
             </table>
             <div style="text-align:center">
               <a href="${siteUrl}" style="display:inline-block;background:#1e40af;color:#fff;text-decoration:none;padding:12px 32px;border-radius:6px;font-size:15px;font-weight:600">
@@ -4066,10 +4091,10 @@ function openDayDetail(ds) {
       : e.cls === 'ev-ot' ? 'ot'
       : e.cls === 'ev-bday' ? 'bday'
       : e.cls === 'ev-health' ? 'health' : 'other';
-    // 연차/대휴는 대직자 표시
+    // 연차/대휴/특근은 추가 수신인 표시
     let itemLabel = e.label;
-    if((key==='leave'||key==='comp')&&e.req&&e.req.substitute){
-      itemLabel += `<span style="font-size:12px;color:var(--text3);margin-left:6px">(대직자: ${e.req.substitute})</span>`;
+    if((key==='leave'||key==='comp'||key==='ot')&&e.req&&e.req.substitute){
+      itemLabel += `<span style="font-size:12px;color:var(--text3);margin-left:6px">(추가 수신: ${e.req.substitute})</span>`;
     }
     // 출장/교육은 시간 정보 추가
     if((key==='trip'||key==='ot')&&e.req&&(e.req.type==='trip'||e.req.type==='education')){
@@ -4964,7 +4989,7 @@ function renderRequests(){
       <td>${e?e.dept:''}</td><td>${tl}</td>
       <td style="max-width:200px;font-size:13px">${det}</td>
       <td style="font-size:13px;color:var(--text2);max-width:120px">${r.reason||''}</td>
-      <td style="font-size:13px;color:var(--text2)">${(r.type==='leave'||r.type==='comp')?(r.substitute||'—'):'—'}</td>
+      <td style="font-size:13px;color:var(--text2)">${(r.type==='leave'||r.type==='comp'||r.type==='ot')?(r.substitute||'—'):'—'}</td>
       <td>${fmt(r.reqDate)}</td><td>${statusBadge(r.status)}</td>
       <td style="white-space:nowrap">
         ${canA?`<button class="btn btn-sm btn-ok" onclick="approveReq(${r.id})">승인</button> <button class="btn btn-sm btn-danger" onclick="rejectReq(${r.id})">반려</button>`:''}
@@ -4990,7 +5015,7 @@ function renderRequests(){
     </div>
     <div class="card">
       <div class="table-wrap"><table id="req-table">
-        <thead><tr><th>직원</th><th>부서</th><th>유형</th><th>내용</th><th>사유</th><th>대직자</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
+        <thead><tr><th>직원</th><th>부서</th><th>유형</th><th>내용</th><th>사유</th><th>추가 수신인</th><th>신청일</th><th>상태</th><th>처리</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
     </div>
@@ -6692,8 +6717,8 @@ async function openAddLeave(empId){
   +'<div id="leave-remain-preview" style="background:#f0fdf4;border:1px solid #86efac;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#166534"></div>'
   // 사유
   +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
-  // 대직자 (필수)
-  +'<div class="field" style="margin-bottom:12px"><label style="font-weight:700">대직자 <span style="color:#dc2626">*</span> <span style="font-size:11px;color:var(--text3);font-weight:400">필수 입력</span></label><input id="f-substitute" placeholder="대직자 이름을 입력하세요"></div>'
+  // 추가 수신인 (선택) — DB는 기존 substitute 컬럼 사용
+  +ccFieldHtml()
   // 첨부파일
   +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">첨부파일 <span style="font-size:11px;color:var(--text3);font-weight:400">(최대 1개, 10MB)</span></label>'
   +'<div id="leave-file-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:16px;text-align:center;cursor:pointer;background:var(--bg);font-size:14px;color:var(--text3)" onclick="openLeaveFileDialog()" ondragover="event.preventDefault();this.style.borderColor=\'var(--accent)\'" ondragleave="this.style.borderColor=\'var(--border2)\'" ondrop="onLeaveFileDrop(event)">첨부할 파일을 마우스로 끌어 놓으세요</div>'
@@ -7075,8 +7100,7 @@ async function saveLeave(){
   const _startTime=document.getElementById('f-start-time')?.value||'';
   const _endTime=document.getElementById('f-end-time')?.value||'';
   const _hours=parseFloat(document.getElementById('f-hours').value)||8;
-  const _substitute=document.getElementById('f-substitute')?.value?.trim()||'';
-  if(!_substitute){ showToast('⚠️ 대직자를 입력해 주세요'); return; }
+  const _substitute=ccReadValidated(); if(_substitute===null) return; // 추가 수신인 (선택)
   const _r={id:nextId++,type:'leave',empId,status:'pending',year:leaveYearOf(s,currentYear),startDate:s,endDate:e2,leaveType,hours:_hours,reason:document.getElementById('f-reason').value||'',substitute:_substitute,reqDate:nowKST(),startTime:_startTime,endTime:_endTime};
   const _saved=await sbInsert('requests',reqToDb(_r));
   if(_saved){
@@ -7129,7 +7153,8 @@ async function openAddOT(empId){
     </label>
   </div>
   <div id="ot-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>
-  <div class="form-grid col1" style="margin-bottom:4px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
+  <div class="form-grid col1" style="margin-bottom:12px"><div class="field"><label>사유</label><input id="f-reason"></div></div>
+  ${ccFieldHtml()}
   <div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveOT()">신청</button></div></div>`);
   setTimeout(()=>{
     document.querySelectorAll('input[name="otsub2"]').forEach(r=>r.addEventListener('change',updateOTRemainPreview));
@@ -7168,8 +7193,10 @@ async function saveOT(){
   const otType=_otSel?_otSel.value:'특근';
   const hours=parseInt(document.getElementById('f-hours').value)||4;
   const reason=document.getElementById('f-reason')?.value||'';
-  const _r={id:nextId++,type:'ot',empId,status:'pending',year:currentYear,date:d,otType,hours,reason,reqDate:todayStr(),useTransport};
+  const _substitute=ccReadValidated(); if(_substitute===null) return; // 추가 수신인 (선택)
+  const _r={id:nextId++,type:'ot',empId,status:'pending',year:currentYear,date:d,otType,hours,reason,reqDate:todayStr(),useTransport,substitute:_substitute};
   const dbRow={type:'ot',emp_id:empId,status:'pending',year:currentYear,date:d,ot_type:otType,hours,reason,req_date:todayStr(),use_transport:useTransport};
+  if(_substitute) dbRow.substitute=_substitute;
   let _saved=null;
   if(_supa){
     const {data,error}=await _supa.from('requests').insert(dbRow).select().single();
@@ -7214,7 +7241,7 @@ async function openAddComp(empId){
     +'</div></div>'
     +'<div id="comp-remain-preview" style="background:#eff6ff;border:1px solid #93c5fd;border-radius:var(--radius);padding:8px 14px;margin-bottom:12px;font-size:13px;color:#1d4ed8"></div>'
     +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">사유</label><input id="f-reason" placeholder="사유를 입력하세요"></div>'
-    +'<div class="field" style="margin-bottom:4px"><label style="font-weight:700">대직자 <span style="color:#dc2626">*</span> <span style="font-size:11px;color:var(--text3);font-weight:400">필수 입력</span></label><input id="f-substitute" placeholder="대직자 이름을 입력하세요"></div>'
+    +ccFieldHtml()
     +'</div>'
     +'<div class="modal-footer"><div style="font-size:12px;color:var(--text3)">※ Enter키를 누르면 신청이 완료됩니다.</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveComp()">신청</button></div></div>'
   );
@@ -7294,8 +7321,7 @@ async function saveComp(){
   const _st=document.getElementById('f-start-time')?.value||'';
   const _et=document.getElementById('f-end-time')?.value||'';
   const _hrs=parseFloat(document.getElementById('f-hours').value)||8;
-  const _substitute=document.getElementById('f-substitute')?.value?.trim()||'';
-  if(!_substitute){ showToast('⚠️ 대직자를 입력해 주세요'); return; }
+  const _substitute=ccReadValidated(); if(_substitute===null) return; // 추가 수신인 (선택)
   const _r = {id:nextId++,type:'comp',empId,status:'pending',year:currentYear,startDate:s,endDate:e2,hours:_hrs,reason:document.getElementById('f-reason')?.value||'',substitute:_substitute,reqDate:nowKST(),startTime:_st,endTime:_et};
   const dbRow = {type:'comp',emp_id:empId,status:'pending',year:currentYear,start_date:s,end_date:e2,hours:_r.hours,reason:_r.reason,substitute:_substitute,req_date:_r.reqDate,start_time:_st,end_time:_et};
   let _saved = null;
