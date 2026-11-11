@@ -397,7 +397,7 @@ async function loadAllData() {
     db.health     = (health.data || []).map(normalizeHealth);
     try {
       const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
-      db.attendance = (att.data || []).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours}));
+      db.attendance = (att.data || []).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours, cleared:!!r.issue_cleared, clearedBy:r.cleared_by||'', clearedAt:r.cleared_at||''}));
     } catch(e){ db.attendance = []; }
     db.alerts     = (alerts.data || []).map(a=>({...a, imageData:a.image_data||null}));
     // 부가 테이블 별도 로드 (실패해도 계속 진행)
@@ -3874,7 +3874,7 @@ async function onAttendanceFileSelect(input){
 
     // 재로드
     const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
-    db.attendance = (att.data||[]).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours}));
+    db.attendance = (att.data||[]).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours, cleared:!!r.issue_cleared, clearedBy:r.cleared_by||'', clearedAt:r.cleared_at||''}));
 
     showToast('✅ 업로드 완료: '+saved+'건 저장'+(skipped>0?' / 미매칭 '+skipped+'건 제외':''));
     input.value='';
@@ -3960,7 +3960,8 @@ function attAnalyzeDay(a){
   }
   if(has('ot')&&!inT&&!outT) issues.push('특근 신청 · 출근 기록 없음');
   if(reqs.some(r=>r.type==='leave'&&(+r.hours||8)>=8&&r.status==='approved')&&inT&&outT) issues.push('연차일 출퇴근 기록 있음');
-  return {reqs, issues, pending:reqs.some(r=>r.status==='pending')};
+  if(a.cleared) return {reqs, issues:[], rawIssues:issues, cleared:true, pending:reqs.some(r=>r.status==='pending')}; // 관리자 확인 완료
+  return {reqs, issues, rawIssues:issues, cleared:false, pending:reqs.some(r=>r.status==='pending')};
 }
 function attMonthsOf(empId){
   return [...new Set((db.attendance||[]).filter(a=>!empId||String(a.empId)===String(empId)).map(a=>String(a.date).slice(0,7)))].sort().reverse();
@@ -4001,7 +4002,7 @@ function openAttendanceDetail(empId, ym){
   ym=ym||window._attYm&&months.includes(window._attYm)&&window._attYm||months[0]||todayStr().slice(0,7);
   window._attYm=ym;
   const list = (db.attendance||[]).filter(a=>String(a.empId)===String(empId)&&String(a.date).startsWith(ym))
-    .slice().sort((a,b)=>b.date.localeCompare(a.date));
+    .slice().sort((a,b)=>a.date.localeCompare(b.date)); // 날짜 오름차순
   const onlyIssue=!!window._attOnlyIssue;
   const sm=attSummary(list);
   const rows = list.map(a=>{
@@ -4017,7 +4018,7 @@ function openAttendanceDetail(empId, ym){
     <td>${tm(a.clockIn)}</td><td>${tm(a.clockOut)}</td>
     <td style="white-space:nowrap">${attStayMin(a)!=null?`<b>${attFmtMin(attStayMin(a))}</b>`:'<span style="color:var(--text3)">—</span>'}</td>
     <td style="line-height:1.9">${chips||'<span style="color:var(--text3)">—</span>'}</td>
-    <td style="font-size:12px;color:var(--danger);font-weight:600">${an.issues.map(x=>'⚠️ '+x).join('<br>')}</td>
+    <td style="font-size:12px;color:var(--danger);font-weight:600">${an.issues.map(x=>'⚠️ '+x).join('<br>')}${an.issues.length&&isAdmin&&a.id?`<div><button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:1px 8px;background:#ecfdf5;color:#047857;border-color:#6ee7b7" onclick="setAttCleared(${a.id},true)">✔ 확인 완료</button></div>`:''}${an.cleared?`<span style="color:#047857;font-weight:600">✔ 관리자 확인</span>${isAdmin?` <a href="#" style="font-size:11px;color:var(--text3);font-weight:400" onclick="setAttCleared(${a.id},false);return false" title="${(an.rawIssues||[]).join(', ')}">되돌리기</a>`:''}`:''}</td>
   </tr>`;}).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text3)">기록 없음</td></tr>';
   const stat=(l,v,c)=>`<div style="background:var(--bg);border-radius:8px;padding:6px 12px;text-align:center;min-width:72px"><div style="font-size:11px;color:var(--text3)">${l}</div><div style="font-size:16px;font-weight:700;color:${c}">${v}</div></div>`;
   openModal(`
@@ -4038,6 +4039,19 @@ function openAttendanceDetail(empId, ym){
     <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 근무시간 = 퇴근 − 출근 (회사에 있었던 총 시간). 승인·대기 신청을 함께 표시합니다 (점선 = 승인대기). 빨간 줄은 출퇴근 기록과 신청 내역이 맞지 않는 날입니다.</div>
     <div class="modal-footer"><button class="btn btn-sm" onclick="downloadAttendanceYear()">📥 ${currentYear}년 전직원 근태 다운로드</button><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
   `, true);
+}
+// 관리자: 확인 필요 → 확인 완료 처리 (attendance_records.issue_cleared)
+async function setAttCleared(id, val){
+  if(!isAdmin){ showToast('⚠️ 관리자만 처리할 수 있습니다'); return; }
+  const a=(db.attendance||[]).find(x=>String(x.id)===String(id)); if(!a) return;
+  const row={issue_cleared:val, cleared_by:val?(currentEmp?currentEmp.name:'관리자'):null, cleared_at:val?new Date().toISOString():null};
+  if(_supa){
+    const {data,error}=await _supa.from('attendance_records').update(row).eq('id',id).select();
+    if(error||!data||!data.length){ showToast('⚠️ 저장 실패: '+(error?(/issue_cleared|column/.test(error.message)?'SQL 추가 실행 필요 (issue_cleared 컬럼)':error.message):'권한 없음')); return; }
+  }
+  a.cleared=val; a.clearedBy=row.cleared_by||''; a.clearedAt=row.cleared_at||'';
+  showToast(val?'✔ 확인 완료 처리':'↩ 확인 필요로 되돌림');
+  openAttendanceDetail(a.empId, String(a.date).slice(0,7));
 }
 // ══ 근태 엑셀 다운로드 (날짜기준 / 직원기준) ══
 // 버튼 한 번 → 한 파일(시트: 일자기준 / 직원기준). 기준 월 = 창에서 보고 있는 달, 없으면 가장 최근 업로드된 달
@@ -4062,7 +4076,8 @@ async function exportAttendanceExcel2(modes, from, to, onlyEmpId, ym, yrLabel){
   const FONT={name:'맑은 고딕',size:10}, HEAD={type:'pattern',pattern:'solid',fgColor:{argb:'FFF2F2F2'}};
   const HOL={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF1F2'}}, WARN_FONT={name:'맑은 고딕',size:10,color:{argb:'FFDC2626'},bold:true};
   const thin={style:'thin',color:{argb:'FFBFBFBF'}}, BORDER={top:thin,left:thin,bottom:thin,right:thin};
-  const dates=attDatesBetween(from,to);
+  // 월은 내림차순(12월→11월→10월), 같은 달 안의 날짜는 오름차순
+  const dates=attDatesBetween(from,to).sort((x,y)=>{ const mx=x.slice(0,7), my=y.slice(0,7); return mx!==my?my.localeCompare(mx):x.localeCompare(y); });
   const inRange=a=>a.date>=from&&a.date<=to;
   const hasAtt=new Set((db.attendance||[]).filter(inRange).map(a=>String(a.empId)));
   let emps=db.employees.filter(e=>!e.isExternal&&(!e.isInactive||hasAtt.has(String(e.id))));
