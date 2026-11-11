@@ -3901,7 +3901,7 @@ function attIsWorkday(a){ return !attHolidayName(a); }
 // 기기 메모(예: 본사간담회) — 휴일이 아닌 글자
 function attDeviceNote(a){
   const hol=attHolidayName(a);
-  return [a.dayType,a.clockIn,a.clockOut].map(x=>String(x||'').trim()).filter(x=>x&&!attIsTime(x)&&!ATT_MISSING.includes(x)&&x!==hol&&x!=='휴일').filter((x,i,arr)=>arr.indexOf(x)===i).join(', ');
+  return [a.dayType,a.clockIn,a.clockOut].map(x=>String(x||'').trim()).filter(x=>x&&!attIsTime(x)&&!ATT_MISSING.includes(x)&&x!==hol&&!(hol&&/공휴|절$|날$|휴일|연휴|설날|추석/.test(x))).filter((x,i,arr)=>arr.indexOf(x)===i).join(', ');
 }
 // 해당 날짜에 걸친 신청 (승인 + 대기, 반려 제외)
 function attReqsOn(empId, date){
@@ -3948,7 +3948,12 @@ function attAnalyzeDay(a){
   const work=attIsWorkday(a);
   const issues=[];
   if(work){
-    if(!inT&&!outT&&!absentOK&&!partOK) issues.push('출퇴근 기록 없음 (신청 없음)');
+    if(!inT&&!outT&&!absentOK&&!partOK){
+      const note=attDeviceNote(a);
+      if(note&&/연차|반차|휴가|대휴|대체|병가/.test(note)) issues.push('기록기 「'+note+'」 표시 · 신청 없음');
+      else if(!note) issues.push('출퇴근 기록 없음 (신청 없음)');
+      // 그 외 기록기 메모(본사근무·외근 등)가 있으면 사유가 있는 것으로 봄
+    }
     else if((inT!==outT)&&!partOK) issues.push(inT?'퇴근 기록 누락':'출근 기록 누락');
   } else {
     if((inT||outT)&&!has('ot')) issues.push('휴일 출근 · 특근 미신청');
@@ -4031,37 +4036,18 @@ function openAttendanceDetail(empId, ym){
       <tbody>${rows}</tbody></table>
     </div>
     <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 근무시간 = 퇴근 − 출근 (회사에 있었던 총 시간). 승인·대기 신청을 함께 표시합니다 (점선 = 승인대기). 빨간 줄은 출퇴근 기록과 신청 내역이 맞지 않는 날입니다.</div>
-    <div class="modal-footer"><button class="btn btn-sm" onclick="openAttendanceExport('${ym}',${e.id})">📥 엑셀 다운로드</button><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    <div class="modal-footer"><button class="btn btn-sm" onclick="downloadAttendanceYear()">📥 ${currentYear}년 전직원 근태 다운로드</button><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
   `, true);
 }
 // ══ 근태 엑셀 다운로드 (날짜기준 / 직원기준) ══
-function openAttendanceExport(ym, empId){
-  ym=ym||attMonthsOf()[0]||todayStr().slice(0,7);
-  const y=Number(ym.slice(0,4)), m=Number(ym.slice(5));
-  const first=ym+'-01', last=ym+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
-  const e=empId?eid(empId):null;
-  openModal(`<div class="modal-title">📥 근태 엑셀 다운로드</div>
-    <div class="field" style="margin-bottom:12px"><label style="font-weight:700">서식</label>
-      <div style="display:flex;gap:10px;margin-top:6px">
-        <label style="flex:1;border:1px solid var(--border2);border-radius:var(--radius);padding:10px 12px;cursor:pointer"><input type="radio" name="ax-mode" value="date" checked> <b>날짜기준</b><div style="font-size:12px;color:var(--text3);margin-top:3px">하루씩 전 직원 나열 (이름·근무일자·근무지·출근·퇴근·근무시간·비고)</div></label>
-        <label style="flex:1;border:1px solid var(--border2);border-radius:var(--radius);padding:10px 12px;cursor:pointer"><input type="radio" name="ax-mode" value="emp"> <b>직원기준</b><div style="font-size:12px;color:var(--text3);margin-top:3px">직원별로 1일~말일까지 쭉 (요일·휴일 포함)</div></label>
-      </div></div>
-    <div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">시작일</label>${makeDateInput('ax-from',first)}</div><div class="field"><label style="font-weight:700">종료일</label>${makeDateInput('ax-to',last)}</div></div>
-    <div class="field" style="margin-bottom:4px"><label style="font-weight:700">대상</label>
-      <div style="display:flex;gap:16px;margin-top:6px">
-        <label style="cursor:pointer"><input type="radio" name="ax-scope" value="all" ${e?'':'checked'}> 전체 직원</label>
-        ${e?`<label style="cursor:pointer"><input type="radio" name="ax-scope" value="${e.id}" checked> ${e.name}만</label>`:''}
-      </div></div>
-    <div style="font-size:12px;color:var(--text3);margin-top:8px">※ 근무시간 = 퇴근 − 출근 (회사에 있었던 총 시간) · 근무지: 제조_양감 = 양감, 그 외 = 본사 · 비고 = 연차·반차·대체휴무·특근·출장 등 신청 내역</div>
-    <div class="modal-footer"><div></div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="runAttendanceExport()">다운로드</button></div></div>`);
-}
-async function runAttendanceExport(){
-  const mode=document.querySelector('input[name="ax-mode"]:checked')?.value||'date';
-  const from=getDateVal('ax-from'), to=getDateVal('ax-to');
-  const scope=document.querySelector('input[name="ax-scope"]:checked')?.value||'all';
-  if(!from||!to||to<from){ showToast('⚠️ 기간을 확인하세요'); return; }
-  closeModal();
-  await exportAttendanceExcel2(mode, from, to, scope==='all'?null:scope);
+// 버튼 한 번 → 한 파일(시트: 일자기준 / 직원기준). 기준 월 = 창에서 보고 있는 달, 없으면 가장 최근 업로드된 달
+// 당해연도 전체 근태 (첫 기록일 ~ 마지막 기록일) → 한 파일, 시트 2개(직원기준·일자기준). 팝업 없음
+async function downloadAttendanceYear(){
+  const yr=String(currentYear);
+  const ds=(db.attendance||[]).map(a=>String(a.date)).filter(d=>d.startsWith(yr)).sort();
+  if(!ds.length){ showToast('⚠️ '+yr+'년 출퇴근 기록이 없습니다'); return; }
+  showToast('📥 '+yr+'년 근태 내역 만드는 중...');
+  await exportAttendanceExcel2(['emp','date'], ds[0], ds[ds.length-1], null, null, yr);
 }
 function attDatesBetween(from,to){ const out=[]; let d=parseLocalDate(from); const e=parseLocalDate(to); while(d<=e){ out.push(toLocalDateStr(d)); d.setDate(d.getDate()+1);} return out; }
 function attRemark(empId, ds, a){
@@ -4069,14 +4055,14 @@ function attRemark(empId, ds, a){
   const parts=reqs.map(r=>attReqLabel(r,ds).t);
   return parts.join(', ');
 }
-async function exportAttendanceExcel2(mode, from, to, onlyEmpId){
+async function exportAttendanceExcel2(modes, from, to, onlyEmpId, ym, yrLabel){
+  if(!Array.isArray(modes)) modes=[modes];
   try{ await vehEnsureExcelJS(); }catch(e){ showToast('⚠️ 엑셀 모듈을 불러오지 못했습니다'); return; }
   const EX=window.ExcelJS, wb=new EX.Workbook();
   const FONT={name:'맑은 고딕',size:10}, HEAD={type:'pattern',pattern:'solid',fgColor:{argb:'FFF2F2F2'}};
-  const HOL={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF1F2'}};
+  const HOL={type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF1F2'}}, WARN_FONT={name:'맑은 고딕',size:10,color:{argb:'FFDC2626'},bold:true};
   const thin={style:'thin',color:{argb:'FFBFBFBF'}}, BORDER={top:thin,left:thin,bottom:thin,right:thin};
   const dates=attDatesBetween(from,to);
-  // 대상 직원: 상시 근무 직원(외부·퇴사 제외) + 기간 내 출퇴근 기록이 있는 직원, 직원명부 순서
   const inRange=a=>a.date>=from&&a.date<=to;
   const hasAtt=new Set((db.attendance||[]).filter(inRange).map(a=>String(a.empId)));
   let emps=db.employees.filter(e=>!e.isExternal&&(!e.isInactive||hasAtt.has(String(e.id))));
@@ -4084,47 +4070,49 @@ async function exportAttendanceExcel2(mode, from, to, onlyEmpId){
   if(!emps.length){ showToast('⚠️ 대상 직원이 없습니다'); return; }
   const attOf={}; (db.attendance||[]).filter(inRange).forEach(a=>{ attOf[a.empId+'|'+a.date]=a; });
   const dateTxt=ds=>ds.replace(/-/g,'/');
-  const headers=mode==='date'?['이름','근무일자','근무지','출근','퇴근','근무시간','비고']:['이름','근무일자','요일','근무지','출근','퇴근','근무시간','비고'];
-  const ws=wb.addWorksheet(mode==='date'?'날짜기준':'직원기준',{views:[{state:'frozen',ySplit:1}]});
-  ws.addRow(headers);
-  const timeCol=headers.indexOf('근무시간')+1;
-  const addLine=(e,ds,first)=>{
-    const a=attOf[e.id+'|'+ds];
-    const cin=a&&attIsTime(a.clockIn)?a.clockIn:'', cout=a&&attIsTime(a.clockOut)?a.clockOut:'';
-    const stay=attStayMin(a);
-    const dow=ATT_DOW[parseLocalDate(ds).getDay()];
-    const hol=krHolidayName(ds)||(a?attHolidayName(a):'')||((dow==='토'||dow==='일')?'휴일':'');
-    let remark=attRemark(e.id,ds,a);
-    const devNote=a?attDeviceNote(a):''; if(devNote) remark=remark?remark+' / '+devNote:devNote;
-    if(mode==='emp'&&hol&&hol!=='평일') remark=hol+(remark?' / '+remark:'');
-    const row=mode==='date'?[e.name,dateTxt(ds),attWorkplace(e),cin,cout,stay!=null?stay/1440:null,remark]
-                           :[e.name,dateTxt(ds),dow,attWorkplace(e),cin,cout,stay!=null?stay/1440:null,remark];
-    const R=ws.addRow(row);
-    if(mode==='emp'&&hol&&hol!=='평일') R.eachCell({includeEmpty:true},c=>c.fill=HOL);
-    if(first) R.eachCell({includeEmpty:true},c=>c.border={...BORDER,top:{style:'medium'}});
-  };
-  if(mode==='date'){
-    // 출퇴근 기록이 하나라도 있는 날짜만 (휴일·공휴일 등 기록 없는 날은 제외)
-    const recDates=dates.filter(ds=>emps.some(e=>{ const x=attOf[e.id+'|'+ds]; return (x&&(attIsTime(x.clockIn)||attIsTime(x.clockOut)))||attReqsOn(e.id,ds).length; }));
-    recDates.forEach(ds=>emps.forEach((e,i)=>addLine(e,ds,i===0)));
-  } else {
-    emps.forEach(e=>dates.forEach((ds,i)=>addLine(e,ds,i===0)));
-  }
-  ws.columns.forEach((c,i)=>{ c.width=({이름:9,근무일자:12,요일:5,근무지:7,출근:8,퇴근:8,근무시간:9,비고:34})[headers[i]]||10; });
-  ws.eachRow((R,ri)=>R.eachCell({includeEmpty:true},(c,ci)=>{
-    c.font=ri===1?{...FONT,bold:true}:FONT;
-    if(!c.border||ri===1) c.border=BORDER; else c.border={...BORDER,...(c.border.top&&c.border.top.style==='medium'?{top:{style:'medium'}}:{})};
-    c.alignment={vertical:'middle',horizontal:headers[ci-1]==='비고'?'left':'center',wrapText:headers[ci-1]==='비고'};
-    if(ri===1) c.fill=HEAD;
-    if(ri>1&&ci===timeCol) c.numFmt='[h]:mm';
-  }));
-  ws.pageSetup={orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9};
+  modes.forEach(mode=>{
+    const headers=mode==='date'?['이름','근무일자','근무지','출근','퇴근','근무시간','비고','확인']:['이름','근무일자','요일','근무지','출근','퇴근','근무시간','비고','확인'];
+    const ws=wb.addWorksheet(mode==='date'?'일자기준':'직원기준',{views:[{state:'frozen',ySplit:1}]});
+    ws.addRow(headers);
+    const timeCol=headers.indexOf('근무시간')+1, chkCol=headers.indexOf('확인')+1;
+    const addLine=(e,ds,first)=>{
+      const a=attOf[e.id+'|'+ds];
+      const cin=a&&attIsTime(a.clockIn)?a.clockIn:'', cout=a&&attIsTime(a.clockOut)?a.clockOut:'';
+      const stay=attStayMin(a);
+      const dow=ATT_DOW[parseLocalDate(ds).getDay()];
+      const hol=a?attHolidayName(a):(krHolidayName(ds)||((dow==='토'||dow==='일')?'휴일':''));
+      // 비고 = 신청 내역 (연차·반차·대휴·특근·출장 등) + 기기 메모
+      let remark=attRemark(e.id,ds,a);
+      const devNote=a?attDeviceNote(a):''; if(devNote) remark=remark?remark+' / '+devNote:devNote;
+      if(mode==='emp'&&hol) remark=hol+(remark?' / '+remark:'');
+      // 확인 = 출퇴근 기록과 신청이 맞지 않는 내용 (기록이 있는 날만 판단)
+      const check=a?attAnalyzeDay(a).issues.join(', '):'';
+      const row=mode==='date'?[e.name,dateTxt(ds),attWorkplace(e),cin,cout,stay!=null?stay/1440:null,remark,check]
+                             :[e.name,dateTxt(ds),dow,attWorkplace(e),cin,cout,stay!=null?stay/1440:null,remark,check];
+      const R=ws.addRow(row);
+      R._hol=mode==='emp'&&!!hol; R._first=first;
+    };
+    if(mode==='date'){
+      const recDates=dates.filter(ds=>emps.some(e=>{ const x=attOf[e.id+'|'+ds]; return (x&&(attIsTime(x.clockIn)||attIsTime(x.clockOut)))||attReqsOn(e.id,ds).length; }));
+      recDates.forEach(ds=>emps.forEach((e,i)=>addLine(e,ds,i===0)));
+    } else {
+      emps.forEach(e=>dates.forEach((ds,i)=>addLine(e,ds,i===0)));
+    }
+    ws.columns.forEach((c,i)=>{ c.width=({이름:9,근무일자:12,요일:5,근무지:7,출근:8,퇴근:8,근무시간:9,비고:30,확인:24})[headers[i]]||10; });
+    ws.eachRow((R,ri)=>R.eachCell({includeEmpty:true},(c,ci)=>{
+      c.font=ri===1?{...FONT,bold:true}:(ci===chkCol&&c.value?WARN_FONT:FONT);
+      c.border=(ri>1&&R._first)?{...BORDER,top:{style:'medium'}}:BORDER;
+      c.alignment={vertical:'middle',horizontal:(headers[ci-1]==='비고'||headers[ci-1]==='확인')?'left':'center',wrapText:headers[ci-1]==='비고'||headers[ci-1]==='확인'};
+      if(ri===1) c.fill=HEAD; else if(R._hol) c.fill=HOL;
+      if(ri>1&&ci===timeCol) c.numFmt='[h]:mm';
+    }));
+    ws.pageSetup={orientation:'portrait',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9};
+  });
   const buf=await wb.xlsx.writeBuffer();
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
-  const nm=onlyEmpId?'_'+(eid(onlyEmpId)||{}).name:'';
-  a.download='근태_'+(mode==='date'?'날짜기준':'직원기준')+'_'+from.replace(/-/g,'').slice(2)+(from!==to?'-'+to.replace(/-/g,'').slice(2):'')+nm+'.xlsx';
+  a.download='근태_전직원_'+(yrLabel?yrLabel+'년('+from.slice(5).replace('-','.')+'~'+to.slice(5).replace('-','.')+')':(ym?ym.replace('-','년 ')+'월':from+'~'+to))+'.xlsx';
   document.body.appendChild(a); a.click(); a.remove();
-  showToast('📥 근태 엑셀 다운로드 ('+(mode==='date'?'날짜기준':'직원기준')+')');
+  showToast('📥 '+(yrLabel?yrLabel+'년 ':(ym?Number(ym.slice(5))+'월 ':''))+'전직원 근태 내역 다운로드 (직원기준·일자기준)');
 }
 
 function renderOverview(){
@@ -4281,7 +4269,7 @@ function renderOverview(){
       </div>
       <div class="table-wrap"><table id="overview-table">
         <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th>
-          <th>출퇴근 내역<br><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceUpload()">📤 업로드</button> <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceExport()">📥 엑셀</button></th>
+          <th>출퇴근 내역<br><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceUpload()">📤 업로드</button> <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="downloadAttendanceYear()" title="당해연도 전체 출퇴근 기록 (직원기준·일자기준 시트)">📥 ${yr}년 전직원 근태 다운로드</button></th>
           <th>관련 서류</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
