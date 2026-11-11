@@ -143,12 +143,12 @@ tbody tr:hover td{background:var(--surface2)}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
 @media(max-width:768px){
   .cal-grid{gap:2px}
-  .cal-day{min-height:0 !important;aspect-ratio:1/1.1;padding:2px 3px !important;font-size:11px !important}
+  .cal-day{min-height:0 !important;aspect-ratio:1/1.65;padding:2px 3px !important;font-size:11px !important}
   .cal-day .dn{font-size:12px !important}
   .cal-event{font-size:10px !important;padding:1px 2px !important}
 }
 .cal-dow{text-align:center;font-size:12px;color:var(--text3);font-weight:600;padding:4px 0 8px}
-.cal-day{min-height:72px;border:1px solid var(--border);border-radius:6px;padding:4px 5px;background:var(--surface);font-size:12px;box-sizing:border-box}
+.cal-day{min-height:108px;border:1px solid var(--border);border-radius:6px;padding:4px 5px;background:var(--surface);font-size:12px;box-sizing:border-box}
 .cal-day.today{border-color:var(--accent)}
 .cal-day.other-month{background:var(--surface2);opacity:.5}
 .cal-day .dn{font-weight:600;margin-bottom:2px;font-size:13px}
@@ -4241,9 +4241,9 @@ function openCompanyEventEdit(id, ds){
     <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="ce-time" value="${escHtmlCE(d.time)}" placeholder="예) 14:00~16:00"></div><div class="field"><label>장소</label><input id="ce-place" value="${escHtmlCE(d.place)}" placeholder="예) 본사 2층 회의실"></div></div>
     <div class="field" style="margin-bottom:12px"><label>내용</label><textarea id="ce-memo" rows="3" style="width:100%;resize:vertical">${escHtmlCE(d.memo)}</textarea></div>
     <div class="field" style="margin-bottom:4px"><label>색상</label><div style="display:flex;gap:10px;margin-top:4px">${CE_COLORS.map(([hex,n])=>`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px"><input type="radio" name="ce-color" value="${hex}"${d.color===hex?' checked':''}><span style="width:14px;height:14px;border-radius:50%;background:${hex};display:inline-block"></span>${n}</label>`).join('')}</div></div>
-    <div class="modal-footer"><div>${c?`<button class="btn btn-danger btn-sm" onclick="deleteCompanyEvent(${c.id})">🗑️ 삭제</button>`:''}</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveCompanyEvent(${c?c.id:'null'})">저장</button></div></div>`);
+    <div class="modal-footer"><div>${c?`<button class="btn btn-danger btn-sm" onclick="deleteHqEvent(${c.id})">🗑️ 삭제</button>`:''}</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveHqEvent(${c?c.id:'null'})">저장</button></div></div>`);
 }
-async function saveCompanyEvent(id){
+async function saveHqEvent(id){
   if(!isAdmin) return;
   const title=(document.getElementById('ce-title')?.value||'').trim();
   const s=getDateVal('ce-start'); let e=getDateVal('ce-end')||s;
@@ -4263,7 +4263,7 @@ async function saveCompanyEvent(id){
   }
   showToast('✅ 본사 일정 저장'); closeModal(); renderCalendar();
 }
-async function deleteCompanyEvent(id){
+async function deleteHqEvent(id){
   if(!isAdmin) return;
   const c=(db.companyEvents||[]).find(x=>String(x.id)===String(id)); if(!c) return;
   if(!confirm('본사 일정 \''+c.title+'\'을(를) 삭제하시겠습니까?')) return;
@@ -4335,7 +4335,7 @@ function openDayDetail(ds) {
             <div><b>${escHtmlCE(c.title)}</b>${c.time?` <span style="font-size:13px;color:var(--text2)">${escHtmlCE(c.time)}</span>`:''}${c.place?` <span style="font-size:13px;color:var(--text2)">· 📍${escHtmlCE(c.place)}</span>`:''}
               ${c.endDate&&c.endDate!==c.startDate?`<div style="font-size:12px;color:var(--text3)">${fmt(c.startDate)} ~ ${fmt(c.endDate)}</div>`:''}
               ${c.memo?`<div style="font-size:13px;color:var(--text2);white-space:pre-wrap;margin-top:2px">${escHtmlCE(c.memo)}</div>`:''}</div>
-            ${isAdmin?`<div style="white-space:nowrap"><button class="btn btn-sm" onclick="openCompanyEventEdit(${c.id})">✏️</button> <button class="btn btn-sm btn-danger" onclick="deleteCompanyEvent(${c.id})">🗑️</button></div>`:''}
+            ${isAdmin?`<div style="white-space:nowrap"><button class="btn btn-sm" onclick="openCompanyEventEdit(${c.id})">✏️</button> <button class="btn btn-sm btn-danger" onclick="deleteHqEvent(${c.id})">🗑️</button></div>`:''}
           </div>`; }).join('')}
         </div>
       </div>` : '';
