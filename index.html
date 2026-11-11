@@ -160,6 +160,11 @@ tbody tr:hover td{background:var(--surface2)}
 .ev-ot{background:var(--ot-bg);color:var(--ot)}
 .ev-trip{background:var(--trip-bg);color:var(--trip)}
 .ev-comp{background:var(--comp-bg);color:var(--comp)}
+.ev-company{background:#e0e7ff;color:#3730a3;font-weight:600}
+.cal-day.sat .dn{color:#2563eb}
+.cal-day.holiday .dn{color:#e11d48}
+.cal-day.holiday{background:#fff5f5}
+.cal-day .hol{font-size:10px;color:#e11d48;font-weight:600;margin:-1px 0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ev-bday{background:var(--bday-bg);color:var(--bday)}
 .ev-health{background:var(--health-bg);color:var(--health)}
 .legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
@@ -445,6 +450,7 @@ async function loadAllData() {
       } else { db.cardRows=[]; }
     } catch(e4){ console.warn('카드 내역 로드 실패:', e4); db.cardHeaders=db.cardHeaders||[]; db.cardRows=db.cardRows||[]; }
     await loadVehicleData(); // 차량관리
+    await loadCompanyEvents(); // 본사 일정
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -1527,25 +1533,43 @@ function getTransTotal(empId,year){
 // ── 정확한 음력→양력 변환 ──────────────────────────────────
 // 각 연도별 음력 1월 1일의 양력 날짜 + 월별 일수 (29일 또는 30일)
 // 출처: 한국천문연구원 음양력 변환 데이터 기반
-// 대한민국 공휴일 (2026년 기준, 매년 관리자가 갱신 필요 - 대체공휴일 포함)
-const KR_HOLIDAYS_2026 = [
-  '2026-01-01', // 신정
-  '2026-02-16','2026-02-17','2026-02-18', // 설날 연휴
-  '2026-03-01', // 삼일절
-  '2026-03-02', // 삼일절 대체공휴일 (3/1이 일요일)
-  '2026-05-05', // 어린이날
-  '2026-05-24','2026-05-25','2026-05-26', // 석가탄신일(5/24 일)+대체(5/26)
-  '2026-06-06', // 현충일
-  '2026-08-15','2026-08-17', // 광복절(토)+대체공휴일(월)
-  '2026-09-24','2026-09-25','2026-09-26', // 추석 연휴
-  '2026-10-03', // 개천절
-  '2026-10-05', // 개천절 대체공휴일(토->월)
-  '2026-10-09', // 한글날
-  '2026-12-25', // 성탄절
-];
+// 대한민국 공휴일 (대체공휴일·임시공휴일 포함) — 매년 추가 필요
+// 2026: 노동절(5/1)·제헌절(7/17) 공휴일 지정, 6/3 지방선거 임시공휴일 반영
+// 2027: 우주항공청 2027년 월력요항 기준 (대체공휴일 7회)
+const KR_HOLIDAY_NAMES = {
+  '2026-01-01':'신정',
+  '2026-02-16':'설날 연휴','2026-02-17':'설날','2026-02-18':'설날 연휴',
+  '2026-03-01':'삼일절','2026-03-02':'대체공휴일(삼일절)',
+  '2026-05-01':'노동절',
+  '2026-05-05':'어린이날',
+  '2026-05-24':'부처님오신날','2026-05-25':'대체공휴일(부처님오신날)',
+  '2026-06-03':'지방선거일',
+  '2026-06-06':'현충일',
+  '2026-07-17':'제헌절',
+  '2026-08-15':'광복절','2026-08-17':'대체공휴일(광복절)',
+  '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+  '2026-10-03':'개천절','2026-10-05':'대체공휴일(개천절)',
+  '2026-10-09':'한글날',
+  '2026-12-25':'성탄절',
+  '2027-01-01':'신정',
+  '2027-02-06':'설날 연휴','2027-02-07':'설날','2027-02-08':'설날 연휴','2027-02-09':'대체공휴일(설날)',
+  '2027-03-01':'삼일절',
+  '2027-05-01':'노동절','2027-05-03':'대체공휴일(노동절)',
+  '2027-05-05':'어린이날',
+  '2027-05-13':'부처님오신날',
+  '2027-06-06':'현충일',
+  '2027-07-17':'제헌절','2027-07-19':'대체공휴일(제헌절)',
+  '2027-08-15':'광복절','2027-08-16':'대체공휴일(광복절)',
+  '2027-09-14':'추석 연휴','2027-09-15':'추석','2027-09-16':'추석 연휴',
+  '2027-10-03':'개천절','2027-10-04':'대체공휴일(개천절)',
+  '2027-10-09':'한글날','2027-10-11':'대체공휴일(한글날)',
+  '2027-12-25':'성탄절','2027-12-27':'대체공휴일(성탄절)',
+};
+const KR_HOLIDAYS_2026 = Object.keys(KR_HOLIDAY_NAMES); // (이전 이름 호환)
 function isKrHoliday(dateStr) {
-  return KR_HOLIDAYS_2026.includes(dateStr);
+  return !!KR_HOLIDAY_NAMES[dateStr];
 }
+function krHolidayName(dateStr){ return KR_HOLIDAY_NAMES[dateStr]||''; }
 function isWeekendOrHoliday(dateStr) {
   const d = parseLocalDate(dateStr);
   if (!d) return false;
@@ -3861,25 +3885,150 @@ async function onAttendanceFileSelect(input){
   }
 }
 
-function openAttendanceDetail(empId){
+// ══ 출퇴근 내역 ↔ 연차·대휴·특근·출장 연동 ══
+const ATT_DOW=['일','월','화','수','목','금','토'];
+function attIsTime(x){ return /^\d{1,2}:\d{2}$/.test(String(x||'').trim()); }
+function attIsWorkday(a){ return a.dayType==='평일' && !(a.clockIn&&!attIsTime(a.clockIn)&&a.clockIn!=='미확인'); }
+function attHolidayName(a){ if(a.dayType!=='평일') return a.dayType; if(a.clockIn&&!attIsTime(a.clockIn)&&a.clockIn!=='미확인') return a.clockIn; return ''; }
+// 해당 날짜에 걸친 신청 (승인 + 대기, 반려 제외)
+function attReqsOn(empId, date){
+  return (db.requests||[]).filter(r=>String(r.empId)===String(empId)&&r.status!=='rejected'&&(()=>{
+    if(r.type==='ot') return r.date===date;
+    const s=r.startDate||r.date, e=r.endDate||s;
+    return s&&s<=date&&date<=e;
+  })());
+}
+function attReqLabel(r){
+  const pend=r.status==='pending'?' (대기)':'';
+  const tm=(r.startTime&&r.endTime)?' '+r.startTime+'~'+r.endTime:'';
+  if(r.type==='leave'){ const h=+r.hours||8; const days=(r.endDate&&r.endDate!==r.startDate); return {c:'leave',t:(r.leaveType||'연차')+(days?'':(h<8?' '+h+'h':''))+tm+pend}; }
+  if(r.type==='comp') return {c:'comp',t:'대체휴무'+((+r.hours||8)<8?' '+r.hours+'h':'')+tm+pend};
+  if(r.type==='ot') return {c:'ot',t:(r.otType||'특근')+' '+(r.hours||0)+'h'+(r.useTransport?' (교통비)':'')+pend};
+  if(r.type==='trip') return {c:'trip',t:'출장'+(r.dest?' · '+r.dest:'')+pend};
+  if(r.type==='education') return {c:'trip',t:'교육'+(r.dest?' · '+r.dest:'')+pend};
+  if(r.type==='outside') return {c:'trip',t:'외근'+(r.dest?' · '+r.dest:'')+pend};
+  return {c:'other',t:r.type+pend};
+}
+// 하루 분석: 신청 내역 + 확인 필요 여부
+function attAnalyzeDay(a){
+  const reqs=attReqsOn(a.empId,a.date);
+  const has=t=>reqs.some(r=>r.type===t);
+  const absentOK=reqs.some(r=>(r.type==='leave'&&(+r.hours||8)>=8)||(r.type==='comp'&&(+r.hours||8)>=8)||['trip','education','outside'].includes(r.type)||(r.type==='leave'&&r.endDate&&r.endDate!==r.startDate));
+  const partOK=reqs.some(r=>['leave','comp','trip','education','outside'].includes(r.type));
+  const inT=attIsTime(a.clockIn), outT=attIsTime(a.clockOut);
+  const work=attIsWorkday(a);
+  const issues=[];
+  if(work){
+    if(!inT&&!outT&&!absentOK&&!partOK) issues.push('출퇴근 기록 없음 (신청 없음)');
+    else if((inT!==outT)&&!partOK) issues.push(inT?'퇴근 기록 누락':'출근 기록 누락');
+  } else {
+    if((inT||outT)&&!has('ot')) issues.push('휴일 출근 · 특근 미신청');
+  }
+  if(has('ot')&&!inT&&!outT) issues.push('특근 신청 · 출근 기록 없음');
+  if(reqs.some(r=>r.type==='leave'&&(+r.hours||8)>=8&&r.status==='approved')&&inT&&outT) issues.push('연차일 출퇴근 기록 있음');
+  return {reqs, issues, pending:reqs.some(r=>r.status==='pending')};
+}
+function attMonthsOf(empId){
+  return [...new Set((db.attendance||[]).filter(a=>!empId||String(a.empId)===String(empId)).map(a=>String(a.date).slice(0,7)))].sort().reverse();
+}
+function attIssueCount(empId, ym){
+  return (db.attendance||[]).filter(a=>String(a.empId)===String(empId)&&String(a.date).startsWith(ym)).reduce((n,a)=>n+(attAnalyzeDay(a).issues.length?1:0),0);
+}
+function attSummary(list){
+  const sum={workDays:0,leaveDays:0,compH:0,otH:0,tripDays:0,issues:0,pending:0};
+  list.forEach(a=>{
+    const an=attAnalyzeDay(a);
+    if(attIsTime(a.clockIn)||attIsTime(a.clockOut)) sum.workDays++;
+    an.reqs.forEach(r=>{
+      if(r.type==='leave') sum.leaveDays+=Math.min(1,(+r.hours||8)/8);
+      if(r.type==='comp') sum.compH+=Math.min(8,+r.hours||8);
+      if(r.type==='ot') sum.otH+=+r.hours||0;
+      if(['trip','education','outside'].includes(r.type)) sum.tripDays++;
+    });
+    if(an.issues.length) sum.issues++;
+    if(an.pending) sum.pending++;
+  });
+  sum.leaveDays=Math.round(sum.leaveDays*10)/10;
+  return sum;
+}
+const ATT_CHIP={leave:'background:var(--leave-bg,#dcfce7);color:var(--leave,#15803d)',comp:'background:#fce7f3;color:#be185d',ot:'background:#fef3c7;color:#b45309',trip:'background:#ede9fe;color:#6d28d9',other:'background:#f1f5f9;color:#475569'};
+function openAttendanceDetail(empId, ym){
   const e = eid(empId); if (!e) return;
-  const list = (db.attendance||[]).filter(a=>String(a.empId)===String(empId))
+  const months=attMonthsOf(empId);
+  ym=ym||window._attYm&&months.includes(window._attYm)&&window._attYm||months[0]||todayStr().slice(0,7);
+  window._attYm=ym;
+  const list = (db.attendance||[]).filter(a=>String(a.empId)===String(empId)&&String(a.date).startsWith(ym))
     .slice().sort((a,b)=>b.date.localeCompare(a.date));
-  const rows = list.map(a=>`<tr>
-    <td>${fmt(a.date)}</td>
-    <td>${a.dayType==='평일'?a.dayType:`<span style="color:var(--danger)">${a.dayType}</span>`}</td>
-    <td>${a.clockIn}</td><td>${a.clockOut}</td>
+  const onlyIssue=!!window._attOnlyIssue;
+  const sm=attSummary(list);
+  const rows = list.map(a=>{
+    const an=attAnalyzeDay(a);
+    if(onlyIssue&&!an.issues.length) return '';
+    const dow=ATT_DOW[parseLocalDate(a.date).getDay()];
+    const hol=attHolidayName(a);
+    const chips=an.reqs.map(r=>{ const L=attReqLabel(r); return `<span style="${ATT_CHIP[L.c]};border-radius:10px;padding:1px 8px;font-size:12px;font-weight:600;white-space:nowrap;${r.status==='pending'?'border:1px dashed currentColor;':''}">${L.t}</span>`; }).join(' ');
+    const tm=x=>attIsTime(x)?x:`<span style="color:var(--text3)">${x||'—'}</span>`;
+    return `<tr style="${an.issues.length?'background:#fef2f2':''}">
+    <td style="white-space:nowrap">${fmt(a.date)} <span style="color:${dow==='일'||dow==='토'?'var(--danger)':'var(--text3)'};font-size:12px">(${dow})</span></td>
+    <td>${hol?`<span style="color:var(--danger)">${hol}</span>`:'평일'}</td>
+    <td>${tm(a.clockIn)}</td><td>${tm(a.clockOut)}</td>
     <td>${a.baseHours}h</td>
     <td>${a.otHours>0?`<strong style="color:var(--ot)">${a.otHours}h</strong>`:'—'}</td>
-  </tr>`).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text3)">기록 없음</td></tr>';
+    <td style="line-height:1.9">${chips||'<span style="color:var(--text3)">—</span>'}</td>
+    <td style="font-size:12px;color:var(--danger);font-weight:600">${an.issues.map(x=>'⚠️ '+x).join('<br>')}</td>
+  </tr>`;}).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text3)">기록 없음</td></tr>';
+  const stat=(l,v,c)=>`<div style="background:var(--bg);border-radius:8px;padding:6px 12px;text-align:center;min-width:72px"><div style="font-size:11px;color:var(--text3)">${l}</div><div style="font-size:16px;font-weight:700;color:${c}">${v}</div></div>`;
   openModal(`
-    <div class="modal-title">📋 ${e.name} 출퇴근 내역 (${list.length}건)</div>
-    <div class="table-wrap" style="max-height:500px;overflow-y:auto">
-      <table><thead><tr><th>날짜</th><th>구분</th><th>출근</th><th>퇴근</th><th>기본</th><th>연장</th></tr></thead>
+    <div class="modal-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span>📋 ${e.name} 출퇴근 내역</span>
+      <span style="display:flex;gap:6px;align-items:center;font-size:13px;font-weight:400">
+        <select onchange="openAttendanceDetail(${e.id},this.value)" style="padding:4px 8px">${months.map(m=>`<option value="${m}"${m===ym?' selected':''}>${m.slice(0,4)}년 ${Number(m.slice(5))}월</option>`).join('')}</select>
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px"><input type="checkbox"${onlyIssue?' checked':''} onchange="window._attOnlyIssue=this.checked;openAttendanceDetail(${e.id},'${ym}')"> 확인 필요만</label>
+      </span>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      ${stat('출근일',sm.workDays+'일','var(--text)')}${stat('연차',sm.leaveDays+'일','var(--leave)')}${stat('대체휴무',sm.compH+'h','#be185d')}${stat('특근',sm.otH+'h','var(--ot)')}${stat('출장·교육',sm.tripDays+'일','#6d28d9')}${stat('확인 필요',sm.issues+'건',sm.issues?'var(--danger)':'var(--text3)')}${sm.pending?stat('승인대기',sm.pending+'건','#d97706'):''}
+    </div>
+    <div class="table-wrap" style="max-height:480px;overflow-y:auto">
+      <table><thead><tr><th>날짜</th><th>구분</th><th>출근</th><th>퇴근</th><th>기본</th><th>연장</th><th>근태 신청 내역</th><th>확인</th></tr></thead>
       <tbody>${rows}</tbody></table>
     </div>
-    <div class="modal-footer"><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
+    <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 승인·대기 신청을 함께 표시합니다 (점선 = 승인대기). 빨간 줄은 출퇴근 기록과 신청 내역이 맞지 않는 날입니다.</div>
+    <div class="modal-footer"><div style="display:flex;gap:6px"><button class="btn btn-sm" onclick="exportAttendanceExcel('${ym}',${e.id})">📥 이 직원 엑셀</button><button class="btn btn-sm" onclick="exportAttendanceExcel('${ym}')">📥 전체 직원 엑셀 (${Number(ym.slice(5))}월)</button></div><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>
   `, true);
+}
+// 엑셀 (임시 서식 — 회사 서식 확정 시 교체)
+async function exportAttendanceExcel(ym, onlyEmpId){
+  try{ await vehEnsureExcelJS(); }catch(e){ showToast('⚠️ 엑셀 모듈을 불러오지 못했습니다'); return; }
+  const EX=window.ExcelJS, wb=new EX.Workbook();
+  const FONT={name:'맑은 고딕',size:9}, HEAD={type:'pattern',pattern:'solid',fgColor:{argb:'FFDDEBF7'}}, WARN={type:'pattern',pattern:'solid',fgColor:{argb:'FFFDE2E2'}};
+  const thin={style:'thin'}, BORDER={top:thin,left:thin,bottom:thin,right:thin};
+  const emps=db.employees.filter(e=>!e.isExternal&&(onlyEmpId?String(e.id)===String(onlyEmpId):true))
+    .filter(e=>(db.attendance||[]).some(a=>String(a.empId)===String(e.id)&&String(a.date).startsWith(ym)));
+  if(!emps.length){ showToast('⚠️ '+ym+' 출퇴근 기록이 없습니다'); return; }
+  const style=(sh,widths)=>{ sh.columns.forEach((c,i)=>c.width=widths[i]||12); sh.eachRow((R,ri)=>R.eachCell({includeEmpty:true},c=>{ c.font=ri===1?{...FONT,bold:true}:FONT; c.border=BORDER; c.alignment={vertical:'middle',horizontal:ri===1?'center':'left',wrapText:true}; if(ri===1) c.fill=HEAD; })); sh.views=[{state:'frozen',ySplit:1}]; };
+  // 요약
+  const s1=wb.addWorksheet('요약');
+  s1.addRow(['이름','부서','직급','출근일','연차(일)','대체휴무(h)','특근(h)','출장·교육(일)','확인 필요(건)','승인대기(건)']);
+  const s2=wb.addWorksheet('일별 상세');
+  s2.addRow(['이름','부서','날짜','요일','구분','출근','퇴근','기본(h)','연장(h)','근태 신청 내역','확인 필요']);
+  emps.forEach(e=>{
+    const list=(db.attendance||[]).filter(a=>String(a.empId)===String(e.id)&&String(a.date).startsWith(ym)).sort((a,b)=>a.date.localeCompare(b.date));
+    const sm=attSummary(list);
+    s1.addRow([e.name,e.dept||'',e.position||'',sm.workDays,sm.leaveDays,sm.compH,sm.otH,sm.tripDays,sm.issues,sm.pending]);
+    list.forEach(a=>{
+      const an=attAnalyzeDay(a);
+      const R=s2.addRow([e.name,e.dept||'',a.date,ATT_DOW[parseLocalDate(a.date).getDay()],attHolidayName(a)||'평일',a.clockIn,a.clockOut,a.baseHours,a.otHours||0,
+        an.reqs.map(r=>attReqLabel(r).t).join(', '),an.issues.join(', ')]);
+      if(an.issues.length) R.eachCell({includeEmpty:true},c=>c.fill=WARN);
+    });
+  });
+  style(s1,[10,10,8,8,9,11,9,12,12,11]); style(s2,[10,10,11,6,10,9,9,8,8,32,26]);
+  s2.eachRow((R,ri)=>{ if(ri>1&&String(R.getCell(11).value||'')) R.eachCell({includeEmpty:true},c=>c.fill=WARN); });
+  const buf=await wb.xlsx.writeBuffer();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+  a.download='근태확인_'+ym.replace('-','')+(onlyEmpId?'_'+(eid(onlyEmpId)||{}).name:'_전체')+'.xlsx'; document.body.appendChild(a); a.click(); a.remove();
+  showToast('📥 근태 확인 엑셀 다운로드');
 }
 
 function renderOverview(){
@@ -3944,7 +4093,9 @@ function renderOverview(){
       <td>${trans>0?'₩'+trans.toLocaleString():'—'}</td>
       <td>${(()=>{
         const attCnt=(db.attendance||[]).filter(a=>String(a.empId)===String(e.id)).length;
-        return attCnt>0?`<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#93c5fd;font-size:13px" onclick="openAttendanceDetail(${e.id})">📋 확인 (${attCnt})</button>`:'<span style="color:#bbb;font-size:13px">—</span>';
+        if(!attCnt) return '<span style="color:#bbb;font-size:13px">—</span>';
+        const _ym=attMonthsOf(e.id)[0]; const _iss=_ym?attIssueCount(e.id,_ym):0;
+        return `<button class="btn btn-sm" style="background:#eff6ff;color:#1d4ed8;border-color:#93c5fd;font-size:13px" onclick="openAttendanceDetail(${e.id})">📋 확인 (${attCnt})</button>${_iss?`<div style="font-size:11px;color:var(--danger);font-weight:700;margin-top:2px;white-space:nowrap" title="${_ym} 출퇴근 기록과 신청 내역이 맞지 않는 날">⚠️ 확인 필요 ${_iss}</div>`:''}`;
       })()}</td>
       <td>${(()=>{
         const specials=db.requests.filter(r=>r.type==='leave'&&String(r.empId)===String(e.id)&&String(r.year)===String(yr)&&['병가','특별휴가'].includes(r.leaveType)&&r.status==='approved');
@@ -4068,9 +4219,63 @@ function topbarEmpSearch(q) {
   });
 }
 
+// ══ 본사 일정 (관리자만 등록·수정·삭제) ══
+function escHtmlCE(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function normalizeCompanyEvent(r){ return {id:r.id, startDate:r.start_date, endDate:r.end_date||r.start_date, title:r.title||'', time:r.time_text||'', place:r.place||'', memo:r.memo||'', color:r.color||'#6366f1'}; }
+async function loadCompanyEvents(){
+  if(!_supa){ db.companyEvents=db.companyEvents||[]; return; }
+  try{
+    const {data,error}=await _supa.from('company_events').select('*').order('start_date');
+    if(error) throw error;
+    db.companyEvents=(data||[]).map(normalizeCompanyEvent);
+  }catch(e){ console.warn('본사 일정 로드 실패 (SQL 미실행 가능성):',e); db.companyEvents=db.companyEvents||[]; }
+}
+const CE_COLORS=[['#6366f1','보라'],['#0ea5e9','파랑'],['#16a34a','초록'],['#f59e0b','주황'],['#e11d48','빨강']];
+function openCompanyEventEdit(id, ds){
+  if(!isAdmin){ showToast('⚠️ 본사 일정은 관리자만 등록할 수 있습니다'); return; }
+  const c=id?(db.companyEvents||[]).find(x=>String(x.id)===String(id)):null;
+  const d=c||{startDate:ds||todayStr(),endDate:ds||todayStr(),title:'',time:'',place:'',memo:'',color:'#6366f1'};
+  openModal(`<div class="modal-title">🏢 본사 일정 ${c?'수정':'등록'}</div>
+    <div class="field" style="margin-bottom:12px"><label style="font-weight:700">일정명 *</label><input id="ce-title" value="${escHtmlCE(d.title)}" placeholder="예) 전사 회의, 고객사 방문, 소방 점검"></div>
+    <div class="form-grid" style="margin-bottom:12px"><div class="field"><label style="font-weight:700">시작일 *</label>${makeDateInput('ce-start',d.startDate)}</div><div class="field"><label style="font-weight:700">종료일</label>${makeDateInput('ce-end',d.endDate)}</div></div>
+    <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>시간</label><input id="ce-time" value="${escHtmlCE(d.time)}" placeholder="예) 14:00~16:00"></div><div class="field"><label>장소</label><input id="ce-place" value="${escHtmlCE(d.place)}" placeholder="예) 본사 2층 회의실"></div></div>
+    <div class="field" style="margin-bottom:12px"><label>내용</label><textarea id="ce-memo" rows="3" style="width:100%;resize:vertical">${escHtmlCE(d.memo)}</textarea></div>
+    <div class="field" style="margin-bottom:4px"><label>색상</label><div style="display:flex;gap:10px;margin-top:4px">${CE_COLORS.map(([hex,n])=>`<label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:13px"><input type="radio" name="ce-color" value="${hex}"${d.color===hex?' checked':''}><span style="width:14px;height:14px;border-radius:50%;background:${hex};display:inline-block"></span>${n}</label>`).join('')}</div></div>
+    <div class="modal-footer"><div>${c?`<button class="btn btn-danger btn-sm" onclick="deleteCompanyEvent(${c.id})">🗑️ 삭제</button>`:''}</div><div style="display:flex;gap:8px"><button class="btn" onclick="closeModal()">취소</button><button class="btn btn-primary" onclick="saveCompanyEvent(${c?c.id:'null'})">저장</button></div></div>`);
+}
+async function saveCompanyEvent(id){
+  if(!isAdmin) return;
+  const title=(document.getElementById('ce-title')?.value||'').trim();
+  const s=getDateVal('ce-start'); let e=getDateVal('ce-end')||s;
+  if(!title||!s){ showToast('⚠️ 일정명과 시작일을 입력하세요'); return; }
+  if(e<s){ showToast('⚠️ 종료일이 시작일보다 빠릅니다'); return; }
+  const row={title,start_date:s,end_date:e,time_text:(document.getElementById('ce-time')?.value||'').trim(),place:(document.getElementById('ce-place')?.value||'').trim(),
+    memo:(document.getElementById('ce-memo')?.value||'').trim(),color:document.querySelector('input[name="ce-color"]:checked')?.value||'#6366f1',updated_at:new Date().toISOString()};
+  if(!_supa){ showToast('⚠️ 서버 연결 없음'); return; }
+  if(id){
+    const {data,error}=await _supa.from('company_events').update(row).eq('id',id).select();
+    if(error||!data||!data.length){ showToast('⚠️ 수정 실패: '+(error?error.message:'권한 없음')); return; }
+    const i=db.companyEvents.findIndex(x=>String(x.id)===String(id)); db.companyEvents[i]=normalizeCompanyEvent(data[0]);
+  } else {
+    const {data,error}=await _supa.from('company_events').insert(row).select().single();
+    if(error){ showToast('⚠️ 저장 실패: '+(/relation|does not exist|42P01/.test(error.message)?'company_events 테이블 없음 — SQL 실행 필요':error.message)); return; }
+    (db.companyEvents=db.companyEvents||[]).push(normalizeCompanyEvent(data));
+  }
+  showToast('✅ 본사 일정 저장'); closeModal(); renderCalendar();
+}
+async function deleteCompanyEvent(id){
+  if(!isAdmin) return;
+  const c=(db.companyEvents||[]).find(x=>String(x.id)===String(id)); if(!c) return;
+  if(!confirm('본사 일정 \''+c.title+'\'을(를) 삭제하시겠습니까?')) return;
+  const {error}=await _supa.from('company_events').delete().eq('id',id);
+  if(error){ showToast('⚠️ 삭제 실패: '+error.message); return; }
+  db.companyEvents=db.companyEvents.filter(x=>String(x.id)!==String(id));
+  showToast('🗑️ 삭제됨'); closeModal(); renderCalendar();
+}
 function openDayDetail(ds) {
   const evList = [...((window._calEv && window._calEv[ds]) || [])].sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:a.name.localeCompare(b.name,'ko'));
-  if (!evList.length) return;
+  if (!evList.length) { if(isAdmin) openCompanyEventEdit(null,ds); return; }
+  const companyEvs = evList.filter(e=>e.cls==='ev-company');
 
   const date = fmt(ds);
   const groups = {
@@ -4083,7 +4288,7 @@ function openDayDetail(ds) {
     other: { label: '📌 기타', items: [], cls: 'var(--text2)' },
   };
 
-  evList.forEach(e => {
+  evList.filter(e=>e.cls!=='ev-company').forEach(e => {
     const key = e.cls === 'ev-leave' ? 'leave'
       : e.cls === 'ev-summer' ? 'leave'
       : e.cls === 'ev-comp' ? 'comp'
@@ -4121,10 +4326,24 @@ function openDayDetail(ds) {
         </div>
       </div>`).join('');
 
+  const _hol = krHolidayName(ds);
+  const companyHtml = companyEvs.length ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:14px;font-weight:700;color:#3730a3;margin-bottom:6px">🏢 본사 일정</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${companyEvs.map(e=>{ const c=e.ce; return `<div style="font-size:15px;padding:6px 10px;background:#eef2ff;border-left:3px solid ${c.color||'#6366f1'};border-radius:6px;display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+            <div><b>${escHtmlCE(c.title)}</b>${c.time?` <span style="font-size:13px;color:var(--text2)">${escHtmlCE(c.time)}</span>`:''}${c.place?` <span style="font-size:13px;color:var(--text2)">· 📍${escHtmlCE(c.place)}</span>`:''}
+              ${c.endDate&&c.endDate!==c.startDate?`<div style="font-size:12px;color:var(--text3)">${fmt(c.startDate)} ~ ${fmt(c.endDate)}</div>`:''}
+              ${c.memo?`<div style="font-size:13px;color:var(--text2);white-space:pre-wrap;margin-top:2px">${escHtmlCE(c.memo)}</div>`:''}</div>
+            ${isAdmin?`<div style="white-space:nowrap"><button class="btn btn-sm" onclick="openCompanyEventEdit(${c.id})">✏️</button> <button class="btn btn-sm btn-danger" onclick="deleteCompanyEvent(${c.id})">🗑️</button></div>`:''}
+          </div>`; }).join('')}
+        </div>
+      </div>` : '';
   openModal(`
-    <div class="modal-title">📅 ${date} 일정</div>
-    <div style="max-height:400px;overflow-y:auto">${groupHtml}</div>
+    <div class="modal-title">📅 ${date} 일정${_hol?` <span style="font-size:14px;color:#e11d48;font-weight:600">· ${_hol}</span>`:''}</div>
+    <div style="max-height:400px;overflow-y:auto">${companyHtml}${groupHtml}</div>
     <div class="modal-footer">
+      <div>${isAdmin?`<button class="btn btn-sm" style="background:#e0e7ff;color:#3730a3;border-color:#a5b4fc" onclick="openCompanyEventEdit(null,'${ds}')">+ 본사 일정 추가</button>`:''}</div>
       <button class="btn btn-primary" onclick="closeModal()">닫기</button>
     </div>
   `);
@@ -6242,6 +6461,7 @@ function renderCalendar(){
   // 우선순위: 생일(0) 기념일(1) 건강검진(2) 특근(3) 출장(4) 교육(5) 대휴(6) 연차/반차/외출(7) 기타(8)
   const EV_PRIORITY = {'ev-bday-birthday':0,'ev-bday-anniv':1,'ev-health':2,'ev-ot-special':3,'ev-trip':4,'ev-ot-edu':5,'ev-comp':6,'ev-leave':7,'ev-ot':3};
   function evPriority(cls, label) {
+    if(cls==='ev-company') return -1;
     if(cls==='ev-bday') return label.includes('🎂')?0:label.includes('🏢')?1:1;
     if(cls==='ev-health') return 2;
     if(cls==='ev-ot') return label.includes('교육')?5:3;
@@ -6269,6 +6489,10 @@ function renderCalendar(){
     else if(r.type==='outside')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 외근','ev-trip',r.status);});
     else if(r.type==='education')iterDates(r.startDate,r.endDate||r.startDate,ds=>{if(ds.startsWith(mStr))addEv(ds,statusIcon+' '+ename(r.empId)+' 교육','ev-ot',r.status,r);});
   });
+  // 본사 일정 (관리자 등록)
+  (db.companyEvents||[]).forEach(ce=>{
+    iterDates(ce.startDate, ce.endDate||ce.startDate, ds=>{ if(ds.startsWith(mStr)){ if(!ev[ds])ev[ds]=[]; ev[ds].push({label:'🏢 '+(ce.time&&ds===ce.startDate?ce.time.split('~')[0]+' ':'')+ce.title,cls:'ev-company',status:'approved',req:null,ce,priority:-1,name:''}); } });
+  });
   // 생일/기념일 달력 표시 비활성화 (숨김 처리)
   const _healthSeen = new Set(); // empId+date+relation 중복 방지
   db.health.filter(h=>String(h.year)===String(y)).forEach(h=>{
@@ -6293,9 +6517,10 @@ function renderCalendar(){
     const dn=i-first+1;const inM=dn>=1&&dn<=last;
     const ds=inM?`${y}-${String(m).padStart(2,'0')}-${String(dn).padStart(2,'0')}`:'';
     const dow=i%7;const evList=ds&&ev[ds]?[...ev[ds]].sort((a,b)=>a.priority!==b.priority?a.priority-b.priority:a.name.localeCompare(b.name,'ko')):[];
-    const clickHandler = inM&&evList.length>0 ? `onclick="openDayDetail('${ds}')"` : '';
-    cells+=`<div class="cal-day${!inM?' other-month':''}${ds===todayDateStr?' today':''}${dow===0?' sun':''}" ${clickHandler} style="${inM&&evList.length>0?'cursor:pointer':''}">
-      ${inM?`<div class="dn">${dn}</div>`:''}
+    const hol=inM?krHolidayName(ds):'';
+    const clickHandler = inM&&evList.length>0 ? `onclick="openDayDetail('${ds}')"` : (inM&&isAdmin ? `onclick="openCompanyEventEdit(null,'${ds}')" title="클릭하면 본사 일정 추가"` : '');
+    cells+=`<div class="cal-day${!inM?' other-month':''}${ds===todayDateStr?' today':''}${dow===0?' sun':''}${dow===6?' sat':''}${hol?' holiday':''}" ${clickHandler} style="${inM&&(evList.length>0||isAdmin)?'cursor:pointer':''}">
+      ${inM?`<div class="dn">${dn}</div>`:''}${hol?`<div class="hol" title="${hol}">${hol}</div>`:''}
       ${evList.slice(0,4).map(e=>`<div class="cal-event ${e.cls}">${e.label}</div>`).join('')}
       ${evList.length>4?`<div style="font-size:12px;color:var(--text3)">+${evList.length-4}건 더보기</div>`:''}
     </div>`;
@@ -6380,9 +6605,12 @@ function renderCalendar(){
       <button class="btn" style="position:absolute;left:0" onclick="chM(-1)">&#8249;</button>
       <h2>${y}년 ${months[m-1]}</h2>
       <button class="btn btn-sm" style="margin-left:8px;font-size:14px" onclick="calYear=new Date().getFullYear();calMonth=new Date().getMonth()+1;renderCalendar()">오늘</button>
+      ${isAdmin?`<button class="btn btn-sm" style="margin-left:6px;font-size:14px;background:#e0e7ff;color:#3730a3;border-color:#a5b4fc" onclick="openCompanyEventEdit(null,'${y}-${String(m).padStart(2,'0')}-01')">+ 본사 일정</button>`:''}
       <button class="btn" style="position:absolute;right:0" onclick="chM(1)">&#8250;</button>
     </div>
     <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#e0e7ff;border:1px solid #6366f1"></div>본사 일정</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#fff5f5;border:1px solid #e11d48"></div>공휴일</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--leave-bg);border:1px solid var(--leave)"></div>연차</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--ot-bg);border:1px solid var(--ot)"></div>특근</div>
       <div class="legend-item"><div class="legend-dot" style="background:var(--trip-bg);border:1px solid var(--trip)"></div>출장</div>
