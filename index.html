@@ -451,6 +451,7 @@ async function loadAllData() {
     } catch(e4){ console.warn('카드 내역 로드 실패:', e4); db.cardHeaders=db.cardHeaders||[]; db.cardRows=db.cardRows||[]; }
     await loadVehicleData(); // 차량관리
     await loadCompanyEvents(); // 본사 일정
+    await loadAttendanceExtra(); // 출퇴근 기타 인원 보관함
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -3820,6 +3821,27 @@ function excelFracToHours(v){
   const n=parseFloat(v); return isNaN(n)?0:n;
 }
 
+// 기록기 이름이 직함 등으로 등록된 경우 → 직원명부 이름으로 매핑 (필요 시 여기에 추가)
+const ATT_NAME_ALIAS = { '경영실장':'정숙희', '대표이사':'강상석', '회장님':'조수인' };
+async function loadAttendanceExtra(){
+  if(!_supa){ db.attendanceExtra=db.attendanceExtra||[]; return; }
+  try{ const {data,error}=await _supa.from('attendance_extra').select('*').order('date'); if(error) throw error; db.attendanceExtra=data||[]; }
+  catch(e){ db.attendanceExtra=db.attendanceExtra||[]; }
+}
+function openAttendanceExtra(){
+  const list=(db.attendanceExtra||[]);
+  const names=[...new Set(list.map(r=>r.name))].sort((a,b)=>a.localeCompare(b,'ko'));
+  const sel=window._attExtraName&&names.includes(window._attExtraName)?window._attExtraName:names[0];
+  const rows=list.filter(r=>r.name===sel).sort((a,b)=>{ const ma=String(a.date).slice(0,7), mb=String(b.date).slice(0,7); return ma!==mb?mb.localeCompare(ma):String(a.date).localeCompare(String(b.date)); });
+  openModal(`<div class="modal-title">🗂️ 기타 인원 출퇴근 보관함 <span style="font-size:13px;color:var(--text3);font-weight:400">(직원명부에 없는 기록기 사용자)</span></div>
+    ${names.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">${names.map(n=>`<button class="btn btn-sm${n===sel?' btn-primary':''}" onclick="window._attExtraName='${n.replace(/'/g,'')}';openAttendanceExtra()">${n} (${list.filter(r=>r.name===n).length})</button>`).join('')}</div>
+    <div class="table-wrap" style="max-height:420px;overflow-y:auto"><table><thead><tr><th>날짜</th><th>구분</th><th>출근</th><th>퇴근</th><th>근무시간</th><th>사용자ID</th></tr></thead><tbody>
+    ${rows.map(r=>{ const a={date:r.date,dayType:r.day_type,clockIn:r.clock_in,clockOut:r.clock_out}; const st=attStayMin(a); const hol=attHolidayName(a);
+      return `<tr><td>${fmt(r.date)} <span style="font-size:12px;color:var(--text3)">(${ATT_DOW[parseLocalDate(r.date).getDay()]})</span></td><td>${hol?`<span style="color:var(--danger)">${hol}</span>`:'평일'}</td><td>${attIsTime(r.clock_in)?r.clock_in:'—'}</td><td>${attIsTime(r.clock_out)?r.clock_out:'—'}</td><td>${st!=null?attFmtMin(st):'—'}</td><td style="color:var(--text3)">${r.device_id||''}</td></tr>`; }).join('')}
+    </tbody></table></div>`:'<div style="color:var(--text3);padding:20px;text-align:center">보관된 기록이 없습니다</div>'}
+    <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 직원으로 등록해야 할 사람이면 직원명부 이름을 기록기 이름과 똑같이 맞추거나, 매핑(ATT_NAME_ALIAS)에 추가 후 다시 업로드하세요.</div>
+    <div class="modal-footer"><div></div><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>`,true);
+}
 async function onAttendanceFileSelect(input){
   const file = input.files[0];
   if (!file) return;
@@ -3831,52 +3853,98 @@ async function onAttendanceFileSelect(input){
     document.head.appendChild(s);
     return;
   }
-  showToast('📤 파일 분석 중...');
+  showToast('📤 파일 분석 중... (업로드 v1112)');
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array', cellDates:false});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true});
-    // 헤더 스킵 (1행)
-    const dataRows = rows.slice(1);
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+    // 헤더 행 찾기 → 제목으로 열 위치 자동 인식 (기록기 버전마다 열 순서가 달라도 OK)
+    let hi = rows.findIndex(r=>r.some(c=>String(c).replace(/\s/g,'')==='이름') && r.some(c=>String(c).replace(/\s/g,'').includes('근무일자')));
+    let col;
+    if (hi >= 0) {
+      const H = rows[hi].map(c=>String(c).replace(/\s/g,''));
+      const f = (...ks)=>{ for(const k of ks){ const i=H.findIndex(h=>h===k); if(i>=0) return i; } for(const k of ks){ const i=H.findIndex(h=>h.includes(k)); if(i>=0) return i; } return -1; };
+      col = {uid:f('사용자ID','사원번호'), name:f('이름'), date:f('근무일자'), day:f('근무일명칭','구분'), in:f('출근'), out:f('퇴근'), base:f('기본'), ot:f('연장')};
+    } else {
+      hi = 0; col = {uid:1, name:5, date:6, day:7, in:8, out:9, base:10, ot:11}; // 예전 기본 서식
+    }
+    if (col.name<0 || col.date<0 || col.in<0 || col.out<0) { showToast('⚠️ 이름·근무일자·출근·퇴근 열을 찾을 수 없습니다'); return; }
+    const dataRows = rows.slice(hi+1);
+    const g = (r,i)=> i>=0 ? r[i] : '';
 
     // 직원명 매칭용 맵 (isExternal 제외)
     const empByName = {};
-    db.employees.filter(e=>!e.isExternal&&!e.isInactive).forEach(e=>{ empByName[e.name] = e.id; });
+    db.employees.filter(e=>!e.isExternal&&!e.isInactive).forEach(e=>{ empByName[String(e.name).replace(/\s/g,'')] = e.id; });
+    // 기록기 이름 → 직원명부 이름 (직함으로 등록된 사람)
+    const allByName = {}; db.employees.filter(e=>!e.isInactive).forEach(e=>{ allByName[String(e.name).replace(/\s/g,'')] = e.id; });
+    Object.entries(ATT_NAME_ALIAS).forEach(([dev,real])=>{ const id=allByName[real.replace(/\s/g,'')]; if(id) empByName[dev.replace(/\s/g,'')]=id; });
+    const extras = []; // 직원명부에 없는 인원 → 따로 보관
 
     const records = [];
-    let skipped = 0;
+    let skipped = 0; const unmatched = new Set();
     dataRows.forEach(r=>{
-      const name = (r[5]||'').toString().trim(); // F열
+      const name = String(g(r,col.name)||'').replace(/\s/g,'');
+      if (!name) return;
       const empId = empByName[name];
-      if (!empId) { skipped++; return; }
-      const dateStr = excelSerialToDate(r[6]); // G열
+      if (!empId) {
+        skipped++; unmatched.add(name);
+        const d0 = excelSerialToDate(g(r,col.date));
+        if (d0) extras.push({name, device_id:String(g(r,col.uid)||'').trim(), date:d0, day_type:String(g(r,col.day)||'').trim()||'평일',
+          clock_in:excelFracToHM(g(r,col.in)), clock_out:excelFracToHM(g(r,col.out)), base_hours:excelFracToHours(g(r,col.base)), ot_hours:excelFracToHours(g(r,col.ot))});
+        return;
+      }
+      const dateStr = excelSerialToDate(g(r,col.date));
       if (!dateStr) return;
-      const dayType = (r[7]||'').toString().trim() || '평일'; // H열
-      const clockIn = excelFracToHM(r[8]); // I열
-      const clockOut = excelFracToHM(r[9]); // J열
-      const baseHours = excelFracToHours(r[10]); // K열
-      const otHours = excelFracToHours(r[11]); // L열
+      const dayType = String(g(r,col.day)||'').trim() || '평일';
+      const clockIn = excelFracToHM(g(r,col.in));
+      const clockOut = excelFracToHM(g(r,col.out));
+      const baseHours = excelFracToHours(g(r,col.base));
+      const otHours = excelFracToHours(g(r,col.ot));
       records.push({empId, date:dateStr, dayType, clockIn, clockOut, baseHours, otHours});
     });
+    if (unmatched.size) console.warn('출퇴근 업로드 미매칭 이름:', [...unmatched]);
 
-    if (!records.length) { showToast('⚠️ 매칭되는 직원 데이터가 없습니다'); return; }
+    // 직원명부에 없는 인원은 attendance_extra 테이블에 따로 보관
+    let extraSaved=0;
+    if (extras.length && _supa) {
+      for (let i=0;i<extras.length;i+=200){
+        const {error}=await _supa.from('attendance_extra').upsert(extras.slice(i,i+200),{onConflict:'name,date'});
+        if(!error) extraSaved+=Math.min(200,extras.length-i); else console.warn('기타 인원 보관 실패 (SQL 미실행 가능성):',error.message);
+      }
+      await loadAttendanceExtra();
+    }
+    if (!records.length) {
+      // 원인 안내: 읽은 열 제목 / 파일 속 이름 / 직원명부 이름
+      const fileNames=[...new Set(dataRows.map(r=>String(g(r,col.name)||'').trim()).filter(Boolean))];
+      openModal(`<div class="modal-title">⚠️ 매칭되는 직원이 없습니다</div>
+        <div style="font-size:14px;line-height:1.8">
+          <div><b>읽은 열</b>: 이름=${col.name+1}열, 근무일자=${col.date+1}열, 출근=${col.in+1}열, 퇴근=${col.out+1}열 (제목행 ${hi+1}행)</div>
+          <div><b>파일 속 이름</b> (${fileNames.length}명): ${fileNames.slice(0,15).join(', ')||'(없음)'}</div>
+          <div><b>직원명부 이름</b> (${Object.keys(empByName).length}명): ${Object.keys(empByName).slice(0,15).join(', ')||'(없음 — 직원 데이터가 아직 안 불러와졌을 수 있습니다. 새로고침 후 다시 시도)'}</div>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-top:8px">이 화면을 캡처해서 보내주시면 바로 확인하겠습니다.</div>
+        <div class="modal-footer"><div></div><button class="btn btn-primary" onclick="closeModal()">닫기</button></div>`);
+      input.value='';
+      return;
+    }
 
     // Supabase upsert (emp_id+date 유니크 가정, 없으면 insert)
-    let saved=0, failed=0;
-    for (const rec of records) {
-      const dbRow = {emp_id:rec.empId, date:rec.date, day_type:rec.dayType, clock_in:rec.clockIn, clock_out:rec.clockOut, base_hours:rec.baseHours, ot_hours:rec.otHours};
+    let saved=0, failed=0, lastErr='';
+    const dbRows = records.map(rec=>({emp_id:rec.empId, date:rec.date, day_type:rec.dayType, clock_in:rec.clockIn, clock_out:rec.clockOut, base_hours:rec.baseHours, ot_hours:rec.otHours}));
+    for (let i=0; i<dbRows.length; i+=200) {
+      const chunk = dbRows.slice(i, i+200);
       try {
-        const {error} = await _supa.from('attendance_records').upsert(dbRow, {onConflict:'emp_id,date'});
-        if (error) { failed++; } else { saved++; }
-      } catch(e){ failed++; }
+        const {error} = await _supa.from('attendance_records').upsert(chunk, {onConflict:'emp_id,date'});
+        if (error) { failed+=chunk.length; lastErr=error.message; console.error('출퇴근 저장 오류:', error); } else { saved+=chunk.length; }
+      } catch(e){ failed+=chunk.length; lastErr=e.message; }
     }
 
     // 재로드
     const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
     db.attendance = (att.data||[]).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours, cleared:!!r.issue_cleared, clearedBy:r.cleared_by||'', clearedAt:r.cleared_at||''}));
 
-    showToast('✅ 업로드 완료: '+saved+'건 저장'+(skipped>0?' / 미매칭 '+skipped+'건 제외':''));
+    showToast((failed?'⚠️ ':'✅ ')+'업로드 완료: '+saved+'건 저장'+(failed?' / 실패 '+failed+'건 ('+lastErr+')':'')+(skipped>0?' / 기타 인원 '+unmatched.size+'명 '+(extraSaved?'보관함 저장':'제외')+' ('+[...unmatched].slice(0,5).join(', ')+(unmatched.size>5?' 외':'')+')':''));
     input.value='';
     renderOverview();
   } catch(e) {
@@ -4284,7 +4352,7 @@ function renderOverview(){
       </div>
       <div class="table-wrap"><table id="overview-table">
         <thead><tr><th>직원</th><th>부서</th><th>연차 사용</th><th>잔여 연차</th><th>대체휴무 잔여</th><th>출장</th><th>교통비</th>
-          <th>출퇴근 내역<br><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceUpload()">📤 업로드</button> <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="downloadAttendanceYear()" title="당해연도 전체 출퇴근 기록 (직원기준·일자기준 시트)">📥 ${yr}년 전직원 근태 다운로드</button></th>
+          <th>출퇴근 내역<br><button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceUpload()">📤 업로드</button> <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="downloadAttendanceYear()" title="당해연도 전체 출퇴근 기록 (직원기준·일자기준 시트)">📥 ${yr}년 전직원 근태 다운로드</button> <button class="btn btn-sm" style="font-size:11px;padding:2px 8px;margin-top:3px" onclick="openAttendanceExtra()" title="직원명부에 없는 기록기 사용자">🗂️ 기타 인원${(db.attendanceExtra||[]).length?' ('+new Set((db.attendanceExtra||[]).map(r=>r.name)).size+')':''}</button></th>
           <th>관련 서류</th></tr></thead>
         <tbody>${rows||emptyRow(8)}</tbody>
       </table></div>
