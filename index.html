@@ -3905,6 +3905,25 @@ async function onAttendanceFileSelect(input){
     });
     if (unmatched.size) console.warn('출퇴근 업로드 미매칭 이름:', [...unmatched]);
 
+    // 같은 사람·같은 날짜가 여러 줄이면 하나로 합침 (출근=가장 이른 시각, 퇴근=가장 늦은 시각)
+    // — 한 번에 저장할 때 같은 키가 두 번 있으면 'ON CONFLICT ... a second time' 오류가 나므로
+    const mergeDup=(list,keyFn)=>{
+      const m=new Map();
+      list.forEach(r=>{
+        const k=keyFn(r), o=m.get(k);
+        if(!o){ m.set(k,{...r}); return; }
+        const tIn=[o.clockIn??o.clock_in, r.clockIn??r.clock_in].filter(attIsTime).sort()[0];
+        const tOut=[o.clockOut??o.clock_out, r.clockOut??r.clock_out].filter(attIsTime).sort().pop();
+        if('clockIn' in o){ if(tIn) o.clockIn=tIn; if(tOut) o.clockOut=tOut; o.baseHours=Math.max(o.baseHours||0,r.baseHours||0); o.otHours=Math.max(o.otHours||0,r.otHours||0); if(o.dayType==='평일'&&r.dayType&&r.dayType!=='평일') o.dayType=r.dayType; }
+        else { if(tIn) o.clock_in=tIn; if(tOut) o.clock_out=tOut; o.base_hours=Math.max(o.base_hours||0,r.base_hours||0); o.ot_hours=Math.max(o.ot_hours||0,r.ot_hours||0); if(o.day_type==='평일'&&r.day_type&&r.day_type!=='평일') o.day_type=r.day_type; }
+      });
+      return [...m.values()];
+    };
+    const _dupBefore=records.length;
+    const _merged=mergeDup(records,r=>r.empId+'|'+r.date); records.length=0; records.push(..._merged);
+    const _extrasM=mergeDup(extras,r=>r.name+'|'+r.date); extras.length=0; extras.push(..._extrasM);
+    if(_dupBefore!==records.length) console.warn('같은 날짜 중복 줄 합침:', _dupBefore-records.length);
+
     // 직원명부에 없는 인원은 attendance_extra 테이블에 따로 보관
     let extraSaved=0;
     if (extras.length && _supa) {
