@@ -973,10 +973,7 @@ function showLoginScreen() {
             <input type="checkbox" id="save-email" style="width:14px;height:14px;cursor:pointer">
             아이디 저장
           </label>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer">
-            <input type="checkbox" id="save-pw" style="width:14px;height:14px;cursor:pointer">
-            비밀번호 저장
-          </label>
+          <span style="font-size:12px;color:var(--text3)">※ 비밀번호는 브라우저의 '비밀번호 저장' 기능을 이용하세요</span>
         </div>
         <div id="login-err" style="font-size:13px;color:var(--danger);min-height:16px;text-align:center"></div>
         <button type="submit" id="login-btn"
@@ -989,14 +986,10 @@ function showLoginScreen() {
   setTimeout(()=>{
     // 저장된 아이디/비번 불러오기
     const savedEmail = localStorage.getItem('saved_email');
-    const savedPw    = localStorage.getItem('saved_pw');
+    localStorage.removeItem('saved_pw'); // 보안: 예전 버전에서 평문 저장된 비밀번호 삭제
     if (savedEmail) {
       const el = document.getElementById('login-email');
       if (el) { el.value = savedEmail; document.getElementById('save-email').checked = true; }
-    }
-    if (savedPw) {
-      const el = document.getElementById('login-pw');
-      if (el) { el.value = savedPw; document.getElementById('save-pw').checked = true; }
     }
     // 포커스: 이메일 저장됐으면 비번으로, 아니면 이메일로
     if (savedEmail) document.getElementById('login-pw')?.focus();
@@ -1018,11 +1011,9 @@ async function doLogin() {
   } else {
     // 아이디/비번 저장 처리
     const saveEmail = document.getElementById('save-email')?.checked;
-    const savePw    = document.getElementById('save-pw')?.checked;
     if (saveEmail) localStorage.setItem('saved_email', email);
     else localStorage.removeItem('saved_email');
-    if (savePw) localStorage.setItem('saved_pw', pw);
-    else localStorage.removeItem('saved_pw');
+    localStorage.removeItem('saved_pw'); // 비밀번호는 저장하지 않음
   }
 }
 
@@ -1075,6 +1066,7 @@ async function onSignedIn(user) {
 function onSignedOut() {
   stopIdleTimer();
   currentUser = null; currentEmp = null; isAdmin = false;
+  try { localStorage.removeItem(LS_CACHE); } catch(e) {} // 보안: 로그아웃 시 회사 데이터 캐시 삭제
   // 접기/펴기 버튼 숨김
   const sbBtn = document.getElementById('sb-toggle-fixed-btn');
   if (sbBtn) sbBtn.style.display = 'none';
@@ -1449,13 +1441,49 @@ function isLeaveAlert(pct) {
   return pct >= threshold;
 }
 
+// ── 입사일 기준 연차 자동 계산 (해당 연도 연차 배분이 없을 때 사용) ──
+// · 입사 후 만 1년 전: 한 달 근무할 때마다 1일 (최대 11일), 발생한 날짜의 연도에 귀속
+// · 만 1년이 되는 날: 15일 × (그 해 남은 개월 수 ÷ 12) 부여  예) 4월 입사 → 다음해 4월에 15×9/12 = 11.25일
+// · 그 다음 해부터: 법정 연차 15일 (만 3년차부터 2년마다 1일 추가, 최대 25일)
+// · 올해는 오늘까지 발생한 만큼만, 지난 해는 연말 기준, 다음 해 이후는 연말까지 예상치
+function addMonthsLocal(d, n) {
+  const r = new Date(d.getFullYear(), d.getMonth() + n, 1);
+  const last = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(d.getDate(), last));
+  return r;
+}
+function calcAutoLeaveDays(joinDate, year) {
+  year = Number(year);
+  const join = parseLocalDate(joinDate);
+  if (!join || isNaN(join) || year < join.getFullYear()) return 0;
+  const today = parseLocalDate(todayStr());
+  const yearEnd = new Date(year, 11, 31);
+  const asOf = year === today.getFullYear() ? today : yearEnd;
+  const inYear = d => d.getFullYear() === year && d <= asOf;
+  const anniv = addMonthsLocal(join, 12);
+  let days = 0;
+  // 만 1년 전 월별 발생분 (1~11개월)
+  for (let k = 1; k <= 11; k++) { if (inYear(addMonthsLocal(join, k))) days += 1; }
+  // 만 1년 되는 날: 그 해 남은 개월 비례 부여
+  if (inYear(anniv)) days += Math.round(15 * (12 - anniv.getMonth()) / 12 * 100) / 100;
+  // 만 1년 다음 해부터: 법정 연차 (1월 1일 기준 근속연수)
+  if (year > anniv.getFullYear()) {
+    const jan1 = new Date(year, 0, 1);
+    let yrs = jan1.getFullYear() - join.getFullYear();
+    if (addMonthsLocal(join, yrs * 12) > jan1) yrs--;
+    days = Math.min(25, 15 + (yrs >= 3 ? Math.floor((yrs - 1) / 2) : 0));
+  }
+  return days;
+}
+
 // leaveAlloc helpers
 function getAlloc(empId, year) {
   const a = db.leaveAlloc.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(year));
   if (!a) {
-    const newA = { empId, year, total: 120, carryover: 0 };
-    db.leaveAlloc.push(newA);
-    return newA;
+    // 배분 기록이 없으면 입사일 기준 자동 계산 (저장하지 않음 → 매월 자동 반영)
+    const e = db.employees.find(x=>String(x.id)===String(empId));
+    const auto = e && e.joinDate && !e.isExternal;
+    return { empId, year, total: auto ? calcAutoLeaveDays(e.joinDate, year) * 8 : 120, carryover: 0, extinct: 0, auto: !!auto };
   }
   return a;
 }
@@ -1489,13 +1517,25 @@ function getCompEarned(empId,year){
 function getCompUsed(empId,year){
   return db.requests.filter(r=>r.type==='comp'&&String(r.empId)===String(empId)&&String(r.year)===String(year)&&r.status==='approved').reduce((s,r)=>s+(+r.hours||0),0);
 }
+// 대체휴무 이월: 유효기간 없음 → 전년도까지 누적 잔여가 전부 그대로 이월됨
+// (예: 2024 잔여 → 2025로, 2025 잔여(이월분 포함) → 2026으로 계속 누적)
 function getCompCarryover(empId,year){
-  const py=year-1;
-  return Math.max(0,getCompEarned(empId,py)-getCompUsed(empId,py));
+  year=Number(year);
+  const yrs=db.requests.filter(r=>(r.type==='ot'||r.type==='comp')&&String(r.empId)===String(empId)&&r.status==='approved').map(r=>Number(r.year)).filter(y=>y&&y<year);
+  if(!yrs.length) return 0;
+  let carry=0;
+  for(let y=Math.min(...yrs); y<year; y++){
+    carry=Math.max(0, carry+getCompEarned(empId,y)-getCompUsed(empId,y));
+  }
+  return carry;
 }
 function getCompRemain(empId,year){return getCompCarryover(empId,year)+getCompEarned(empId,year)-getCompUsed(empId,year);}
-// 대체휴무 만료 계산: 발생일로부터 1년 이내 사용 (건별)
+// ── 대체휴무 유효기간 ──
+// 현재는 유효기간 없음(0). 나중에 유효기간이 생기면 개월 수를 넣고 아래 만료 계산을 보완하세요.
+const COMP_EXPIRE_MONTHS = 0;
+// 대체휴무 만료 계산 (COMP_EXPIRE_MONTHS가 0이면 만료 없음)
 function getCompExpired(empId, year) {
+  if (!COMP_EXPIRE_MONTHS) return 0;
   // 해당 연도 특근 중 발생일+1년이 오늘 이전인 것 → 만료
   const today = todayStr();
   return db.requests
@@ -1515,6 +1555,7 @@ function getCompValidRemain(empId, year) {
 }
 // 만료 임박(30일 이내) 대휴 시간
 function getCompExpiringSoon(empId, year) {
+  if (!COMP_EXPIRE_MONTHS) return 0;
   const today = parseLocalDate(todayStr());
   const soon = new Date(today); soon.setDate(soon.getDate()+30);
   const soonStr = toLocalDateStr(soon);
@@ -5100,22 +5141,12 @@ async function reactivateEmp(empId) {
   e.isInactive = false;
   e.joinDate = newJoinDate;
 
-  // 다른 연도 재입사: 해당 연도 연차 할당 초기화 (초년차 계산)
+  // 다른 연도 재입사: 재입사 연도~다음해 연차 배분 삭제 → 새 입사일 기준 자동 계산
   if(!isSameYear && _supa) {
-    // 기존 연차 할당 삭제 후 재계산
-    await _supa.from('leave_allocs').delete().eq('emp_id', empId).eq('year', newYear);
-    // 초년차 연차 산정 (입사월 기준 비례)
-    const joinMonth = parseInt(newJoinDate.slice(5,7));
-    const remainMonths = 13 - joinMonth; // 입사월~12월
-    const initDays = Math.floor(remainMonths); // 월 1일씩 부여
-    const initHours = initDays * 8;
-    if(initHours > 0) {
-      await _supa.from('leave_allocs').insert({emp_id:empId, year:newYear, total:initHours, carryover:0, extinct:0});
-    }
-    // 로컬 할당 업데이트
-    db.leaveAllocs = db.leaveAllocs.filter(a=>!(String(a.empId)===String(empId)&&a.year===newYear));
-    if(initHours > 0) db.leaveAllocs.push({empId, year:newYear, total:initHours, carryover:0, extinct:0});
-    showToast(`✅ ${e.name}님 재입사 완료 (${newYear}년 연차 ${initDays}일 초기화)`);
+    await _supa.from('leave_alloc').delete().eq('emp_id', empId).gte('year', newYear);
+    db.leaveAlloc = db.leaveAlloc.filter(a=>!(String(a.empId)===String(empId)&&Number(a.year)>=newYear));
+    const initDays = calcAutoLeaveDays(newJoinDate, newYear);
+    showToast(`✅ ${e.name}님 재입사 완료 (${newYear}년 연차 입사일 기준 자동 계산: 현재 ${initDays}일)`);
   } else {
     showToast(`✅ ${e.name}님 재입사 완료`);
   }
@@ -5643,7 +5674,7 @@ function openLeaveAdmin(empId) {
   const e = eid(empId); if (!e) return;
   const yr = currentYear;
   const a = getAlloc(empId, yr);
-  const legalDays = calcLegalLeave(e.joinDate);
+  const legalDays = e.joinDate ? calcAutoLeaveDays(e.joinDate, yr) : calcLegalLeave(e.joinDate);
   openModal(`
     <div class="modal-title">${e.name} 연차 관리</div>
     <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px;font-size:14px">
@@ -5657,7 +5688,8 @@ function openLeaveAdmin(empId) {
     <div class="form-grid" style="margin-bottom:8px">
       <div class="field">
         <label>${yr}년 부여 연차 (일) <span style="font-size:12px;color:var(--text3)">법정: ${legalDays}일</span></label>
-        <input id="la-total" type="number" value="${(+a.total||0)/8}" min="0" max="25">
+        <input id="la-total" type="number" value="${(+a.total||0)/8}" min="0" max="25" step="0.25">
+        ${a.auto?`<div style="font-size:12px;color:var(--accent);margin-top:4px">⚙️ 배분 기록 없음 → 입사일 기준 자동 계산 중 (매월 자동 반영). 저장하면 이 값으로 고정됩니다.</div>`:''}
       </div>
       <div class="field">
         <label>이월 연차 (일)</label>
@@ -5707,12 +5739,14 @@ async function saveLeaveAdmin(empId) {
   const carryover = (parseFloat(document.getElementById('la-carry')?.value)||0) * 8;
   const extinct = (parseFloat(document.getElementById('la-extinct')?.value)||0) * 8;
   const a = getAlloc(empId, yr);
-  a.total = total; a.carryover = carryover; a.extinct = extinct;
   if (a.id) {
+    a.total = total; a.carryover = carryover; a.extinct = extinct;
     await sbUpdate('leave_alloc', a.id, { total, carryover, extinct });
   } else {
     const saved = await sbInsert('leave_alloc', { emp_id: empId, year: yr, total, carryover, extinct });
-    if (saved) a.id = saved.id;
+    if (!saved) { showToast('⚠️ 연차 저장 실패 — 다시 시도해 주세요'); return; }
+    db.leaveAlloc = db.leaveAlloc.filter(r=>!(String(r.empId)===String(empId)&&String(r.year)===String(yr)));
+    db.leaveAlloc.push({ id: saved.id, empId, year: yr, total, carryover, extinct });
   }
   saveAll(); showToast('✅ 연차 저장됨'); closeModal(); renderLeave();
 }
@@ -6886,9 +6920,8 @@ function openAddEmp(){
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px"><input type="radio" name="f-anniv" value="anniversary" style="width:15px;height:15px"> 기념일</label>
         </div>
       </div>
-      <div class="field"><label>${currentYear}년 연차(일)</label><input id="f-leave" type="number" value="15" min="0"></div>
     </div>
-    <div class="form-grid" style="margin-bottom:12px"><div class="field"><label>이월 연차(일)</label><input id="f-carry" type="number" value="0" min="0"></div></div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:12px">※ 연차는 입사일 기준으로 자동 계산됩니다 (입사 1년 전 월 1일씩, 만 1년 시 15일 비례 부여). 조정이 필요하면 연차 관리에서 직원 이름을 눌러 수정하세요.</div>
     <div class="field" style="margin-bottom:12px">
       <label>고용 구분</label>
       <div style="display:flex;gap:14px;margin-top:6px;flex-wrap:wrap">
@@ -6913,9 +6946,7 @@ async function saveEmp(){
   const anniversaryType=annexSel?annexSel.value:'birthday';
   const emp={id,name,dept:document.getElementById('f-dept').value||'',position:document.getElementById('f-pos').value||'',phone:document.getElementById('f-phone').value||'',email:document.getElementById('f-email').value||'',joinDate:getDateVal('f-join')||'',isExternal,employmentType:empType,birthdate:birth,birthdateLunar,anniversaryType,address:'',avatarUrl:''};
   db.employees.push(emp);
-  if(!isExternal){
-    db.leaveAlloc.push({empId:id,year:currentYear,total:(parseFloat(document.getElementById('f-leave').value)||15)*8,carryover:(parseFloat(document.getElementById('f-carry').value)||0)*8});
-  }
+  // 연차 배분은 저장하지 않음 → getAlloc()이 입사일 기준으로 자동 계산
   // 이메일로 Supabase Auth user_id 자동 연결
   let userId = null;
   if (emp.email) {
@@ -9829,9 +9860,10 @@ function toggleEtcSchedule(val) {
 async function sendEmailViaResend(to, subject, body) {
   if (!_supa) return;
   try {
+    const { data: { session } } = await _supa.auth.getSession(); // 로그인 사용자 토큰으로 호출 (메일 함수 보안 강화 대비)
     await fetch(SUPA_URL+'/functions/v1/notify-admin', {
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+SUPA_KEY},
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(session?.access_token||SUPA_KEY)},
       body: JSON.stringify({to, subject, html: body.replace(/\n/g,'<br>')})
     });
   } catch(e) { console.warn('메일 발송 실패:', e); }
