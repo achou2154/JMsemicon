@@ -208,6 +208,7 @@ tbody tr:hover td{background:var(--surface2)}
     <button id="nav-notifysetting" class="nav-item" style="display:none" onclick="go('notifysetting')"><span class="nav-icon">🔔</span>알림설정</button>
     <button class="nav-item" id="nav-cardadmin" onclick="go('cardadmin')" style="display:none"><span class="nav-icon">💳</span>개인카드내역 총관리</button>
     <button class="nav-item" id="nav-vehicleadmin" onclick="go('vehicleadmin')" style="display:none"><span class="nav-icon">🚘</span>차량 총관리</button>
+    <button class="nav-item" id="nav-permissions" onclick="go('permissions')" style="display:none"><span class="nav-icon">🔐</span>권한 관리</button>
     <div class="nav-sec">메인</div>
     <button class="nav-item active" onclick="go('calendar')"><span class="nav-icon">📅</span>달력</button>
     <button class="nav-item" onclick="go('roster')"><span class="nav-icon">👥</span>직원 명부</button>
@@ -364,7 +365,112 @@ function initSupabase() {
 // ══════════════════════════════════════════════
 let currentUser = null;   // Supabase user object
 let currentEmp  = null;   // employees row
-let isAdmin     = false;
+let isAdmin     = false;   // 지금 보고 있는 메뉴 기준 관리 권한 (총관리자 또는 이 메뉴 열람 권한이 있는 관리자)
+let isSuperAdmin = false;  // 총관리자 (admins 테이블)
+let myPerms = {};          // 관리자(중간관리자) 메뉴별 권한 {menu:{view,edit,delete}}
+
+// ══════════════════════════════════════════════
+//  권한: 총관리자 / 관리자(메뉴별 열람·수정·삭제) / 직원
+// ══════════════════════════════════════════════
+const PERM_MENUS = [
+  {key:'overview',     label:'📊 전체 현황 (출퇴근 포함)', pages:['overview']},
+  {key:'requests',     label:'📋 승인',                    pages:['requests']},
+  {key:'notifysetting',label:'🔔 알림설정 (공지·예약알림)', pages:['notifysetting','noticeboard']},
+  {key:'cardadmin',    label:'💳 개인카드내역 총관리',      pages:['cardadmin']},
+  {key:'vehicleadmin', label:'🚘 차량 총관리',              pages:['vehicleadmin']},
+  {key:'calendar',     label:'📅 달력 (본사 일정)',         pages:['calendar']},
+  {key:'roster',       label:'👥 직원 명부',                pages:['roster']},
+  {key:'leave',        label:'🌴 연차 관리',                pages:['leave']},
+  {key:'summer',       label:'🏖️ 하계휴가',                 pages:['summer']},
+  {key:'ot',           label:'⏰ 특근/대휴 관리',           pages:['ot']},
+  {key:'trip',         label:'✈️ 출장/교육 관리',           pages:['trip']},
+  {key:'health',       label:'🏥 건강검진',                 pages:['health']},
+  {key:'bday',         label:'🎂 기념일',                   pages:['bday']},
+  {key:'inquiry',      label:'💬 1:1 문의 (답변)',          pages:['inquiry']},
+];
+function permMenuOfPage(page){ const m=PERM_MENUS.find(x=>x.pages.includes(page)); return m?m.key:null; }
+function canPerm(menu, act){
+  if(isSuperAdmin) return true;
+  if(!menu) return false;
+  const p=myPerms[menu];
+  return !!(p && p[act||'view']);
+}
+function isManagerRole(){ return !isSuperAdmin && Object.values(myPerms).some(p=>p&&p.view); }
+// 메뉴 이동 시 호출: 이 메뉴에서 관리자 화면을 보여줄지 결정
+function setPageAdmin(page){ isAdmin = isSuperAdmin || canPerm(permMenuOfPage(page),'view'); }
+function _permRowsToMap(rows){
+  const m={};
+  (rows||[]).forEach(r=>{
+    const e=!!r.can_edit, d=!!r.can_delete;
+    m[r.menu]={view:!!r.can_view||e||d, edit:e, delete:d};   // 수정·삭제 권한이 있으면 열람도 가능
+  });
+  return m;
+}
+async function loadMyPerms(){
+  myPerms={}; db.managerPerms=[];
+  if(!_supa || !currentEmp) return;
+  try{
+    const {data,error}=await _supa.from('manager_permissions').select('*');   // 총관리자=전체, 그 외=본인 것만 (RLS)
+    if(error) throw error;
+    db.managerPerms=data||[];
+    if(!currentEmp.isInactive) myPerms=_permRowsToMap(db.managerPerms.filter(r=>String(r.emp_id)===String(currentEmp.id)));
+  }catch(e){ console.warn('권한 정보 로드 실패 (manager_permissions 테이블 미생성 가능):', e); }
+}
+// 관리자가 수정/삭제 권한이 없는 메뉴에서는 해당 버튼 숨김 (서버 RLS에서도 한 번 더 막음)
+function _applyPermUI(root){
+  if(isSuperAdmin || !isAdmin || !root) return;
+  const m=permMenuOfPage(currentPage); if(!m) return;
+  const ce=canPerm(m,'edit'), cd=canPerm(m,'delete');
+  if(ce && cd) return;
+  root.querySelectorAll('button').forEach(b=>{
+    if(b.classList.contains('filter-btn')||b.classList.contains('folder-tab')||b.classList.contains('sub-tab-btn')||b.classList.contains('nav-item')) return;
+    const t=(b.textContent||'').replace(/\s+/g,'');
+    const isDel=/삭제|🗑/.test(t);
+    const isEdit=!isDel && (/대리/.test(t) || (!/신청|닫기|취소|다운로드|추출|엑셀|보기|검색/.test(t) && /(저장|승인|반려|수정|등록|편집|비활성|재입사|배분|처리|발송|추가|변경|확인|전송|답변)/.test(t)));
+    if((isDel&&!cd)||(isEdit&&!ce)) b.style.display='none';
+  });
+  if(!ce && root.id==='main-content' && !root.querySelector('.perm-ro-banner')){
+    root.insertAdjacentHTML('afterbegin','<div class="perm-ro-banner" style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#854d0e">👁 이 메뉴는 <b>열람 권한</b>만 있습니다. (수정이 필요하면 총관리자에게 요청하세요)</div>');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  비활성 직원 숨김: 직원명부(관리 화면) 외 모든 메뉴에서 제외
+//  (원본은 db._hidden에 보관 → JSON 백업에는 포함, 재입사 시 다시 표시)
+// ══════════════════════════════════════════════
+function _restoreHiddenData(){
+  const h=db._hidden||{};
+  Object.keys(h).forEach(k=>{ db[k]=(db[k]||[]).concat(h[k]||[]); });
+  db._hidden={};
+}
+function applyInactiveFilter(){
+  _restoreHiddenData();
+  db.allEmployees=(db.employees||[]).slice();
+  const off=new Set((db.employees||[]).filter(e=>e.isInactive).map(e=>String(e.id)));
+  if(!off.size) return;
+  const hide=(key, idsOf)=>{
+    const keep=[], hid=[];
+    (db[key]||[]).forEach(x=>{ (idsOf(x).some(id=>id!=null&&off.has(String(id)))?hid:keep).push(x); });
+    db[key]=keep; if(hid.length) db._hidden[key]=hid;
+  };
+  hide('employees',   e=>[e.id]);
+  hide('requests',    r=>[r.empId]);
+  hide('leaveAlloc',  r=>[r.empId]);
+  hide('events',      r=>[r.empId]);
+  hide('health',      r=>[r.empId]);
+  hide('attendance',  r=>[r.empId]);
+  hide('inquiries',   r=>[r.empId]);
+  hide('summerPlans', r=>[r.empId]);
+  hide('alerts',      a=>[a.target_emp_id]);
+  hide('cardHeaders', h=>[h.empId]);
+  const offHeaders=new Set(((db._hidden||{}).cardHeaders||[]).map(h=>String(h.id)));
+  if(offHeaders.size){
+    const keep=[], hid=[];
+    (db.cardRows||[]).forEach(r=>(offHeaders.has(String(r.headerId))?hid:keep).push(r));
+    db.cardRows=keep; if(hid.length) db._hidden.cardRows=hid;
+  }
+}
+
 
 function setSyncStatus(state) {
   const dot = document.getElementById('sync-dot');
@@ -384,11 +490,12 @@ async function loadAllData() {
   if (!_supa) return;
   setSyncStatus('loading');
   try {
+    db._hidden = {};   // 새로 읽으므로 이전 숨김 보관분 비움
     // 핵심 테이블 먼저 로드
     const [emp, la, req, ev, health, alerts] = await Promise.all([
       _supa.from('employees').select('*'),
       _supa.from('leave_alloc').select('*'),
-      _supa.from('requests').select('*').neq('status','cancelled').order('id', {ascending:false}),
+      _cardFetchAll(()=>_supa.from('requests').select('*').neq('status','cancelled').order('id', {ascending:false})).then(d=>({data:d})),  // 1000건 넘어도 모두
       _supa.from('events').select('*'),
       _supa.from('health_records').select('*'),
       _supa.from('alerts').select('*').order('date'),
@@ -399,7 +506,7 @@ async function loadAllData() {
     db.events     = (ev.data     || []).map(normalizeEv);
     db.health     = (health.data || []).map(normalizeHealth);
     try {
-      const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
+      const att = {data: await _cardFetchAll(()=>_supa.from('attendance_records').select('*').order('date',{ascending:false}).order('id'))};  // 1000건 넘어도 모두
       db.attendance = (att.data || []).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours, cleared:!!r.issue_cleared, clearedBy:r.cleared_by||'', clearedAt:r.cleared_at||''}));
     } catch(e){ db.attendance = []; }
     db.alerts     = (alerts.data || []).map(a=>({...a, imageData:a.image_data||null}));
@@ -440,6 +547,7 @@ async function loadAllData() {
     await loadVehicleData(); // 차량관리
     await loadCompanyEvents(); // 본사 일정
     await loadAttendanceExtra(); // 출퇴근 기타 인원 보관함
+    applyInactiveFilter();       // 비활성 직원 내역 숨김
     recalcNextIds();
     setSyncStatus('ok');
     saveCache(); // 삭제/변경사항이 반영된 최신 상태를 캐시에 저장
@@ -915,6 +1023,7 @@ function loadFromCache() {
     if (!raw) return;
     const d = JSON.parse(raw);
     if (d.employees) db = d;
+    applyInactiveFilter();
     recalcNextIds();
   } catch {}
 }
@@ -1039,8 +1148,10 @@ async function onSignedIn(user) {
     try {
       const { data: adminData } = await _supa
         .from('admins').select('id').eq('user_id', user.id).maybeSingle();
-      isAdmin = !!adminData;
-    } catch(e) { isAdmin = false; }
+      isSuperAdmin = !!adminData;
+    } catch(e) { isSuperAdmin = false; }
+    isAdmin = isSuperAdmin;
+    await loadMyPerms();   // 관리자(중간관리자) 메뉴 권한
 
     updateAdminUI();
 
@@ -1068,7 +1179,7 @@ async function onSignedIn(user) {
 
 function onSignedOut() {
   stopIdleTimer();
-  currentUser = null; currentEmp = null; isAdmin = false; _ce = null;
+  currentUser = null; currentEmp = null; isAdmin = false; isSuperAdmin = false; myPerms = {}; _ce = null;
   try { localStorage.removeItem(LS_CACHE); } catch(e) {} // 보안: 로그아웃 시 회사 데이터 캐시 삭제
   // 접기/펴기 버튼 숨김
   const sbBtn = document.getElementById('sb-toggle-fixed-btn');
@@ -1171,7 +1282,7 @@ function myEmpId() {
 // ══════════════════════════════════════════════
 //  HELPERS
 // ══════════════════════════════════════════════
-function eid(id) { return db.employees.find(e=>String(e.id)===String(id)); }
+function eid(id) { return (db.employees||[]).find(e=>String(e.id)===String(id)) || (db.allEmployees||[]).find(e=>String(e.id)===String(id)); }
 function ename(id) { const e=eid(id); return e?e.name:'?'; }
 function edept(id) { const e=eid(id); return e?e.dept:'?'; }
 function av(empId, sz=28) {
@@ -1285,7 +1396,7 @@ function empOptionsAll(sel=''){
 // 신청 폼의 '직원' 선택 필드: 관리자는 전체(대리신청 가능), 직원은 본인 고정
 function empSelectField(empId){
   if(!isAdmin && currentEmp) empId = currentEmp.id;
-  const me = db.employees.find(e=>String(e.id)===String(empId));
+  const me = eid(empId);
   if(isAdmin){
     return '<div class="field" style="margin-bottom:12px"><label style="font-weight:700">직원</label><select id="f-emp" onchange="onLeaveEmpChange()">'+empOptionsAll(empId)+'</select></div>';
   }
@@ -1296,7 +1407,7 @@ function empSelectField(empId){
 function empLockSelect(empId, optionsHtml){
   if(isAdmin) return '<select id="f-emp">'+optionsHtml+'</select>';
   if(currentEmp) empId = currentEmp.id;
-  const me = db.employees.find(e=>String(e.id)===String(empId));
+  const me = eid(empId);
   return '<select id="f-emp" disabled style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed"><option value="'+(empId||'')+'">'+(me?(me.name+' ('+me.dept+')'):'본인')+'</option></select>';
 }
 
@@ -1438,7 +1549,7 @@ function getLeaveAlertThreshold() {
 }
 
 function isLeaveAlert(pct) {
-  if (!isAdmin) return false;
+  if (!canPerm('leave','view')) return false;
   const threshold = getLeaveAlertThreshold();
   if (threshold === null) return false;
   return pct >= threshold;
@@ -1484,7 +1595,7 @@ function getAlloc(empId, year) {
   const a = db.leaveAlloc.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(year));
   if (!a) {
     // 배분 기록이 없으면 입사일 기준 자동 계산 (저장하지 않음 → 매월 자동 반영)
-    const e = db.employees.find(x=>String(x.id)===String(empId));
+    const e = eid(empId);
     const auto = e && e.joinDate && !e.isExternal;
     return { empId, year, total: auto ? calcAutoLeaveDays(e.joinDate, year) * 8 : 120, carryover: 0, extinct: 0, auto: !!auto };
   }
@@ -1496,11 +1607,11 @@ function getLeaveUsed(empId, year) {
 // 양감 계약직: 입사일 기준 법정연차(만1년 후 15일~) 별도 적용
 const YANGGAM_CONTRACT_NAMES = ['이연화', '임서진']; // 대상자 이름만 지정, 입사일은 직원정보의 실제 값 사용
 function isYanggamContract(empId) {
-  const e = db.employees.find(x=>String(x.id)===String(empId));
+  const e = eid(empId);
   return !!(e && YANGGAM_CONTRACT_NAMES.includes(e.name));
 }
 function getYanggamJoinDate(empId) {
-  const e = db.employees.find(x=>String(x.id)===String(empId));
+  const e = eid(empId);
   return e ? e.joinDate : null; // 직원정보 화면에서 수정한 실제 입사일을 그대로 사용
 }
 function getLeaveRemain(empId, year) {
@@ -1734,23 +1845,29 @@ function toggleAdmin() {
 }
 function updateAdminUI(){
   const name = currentEmp ? currentEmp.name : '직원';
+  const mgr = isManagerRole();
+  const roleLabel = isSuperAdmin ? '총관리자' : (mgr ? '관리자' : '');
   const modeEl = document.getElementById('mode-label');
   const btnEl  = document.getElementById('admin-btn');
   const chipEl = document.getElementById('admin-chip');
-  if (modeEl) modeEl.textContent = isAdmin ? '관리자 모드' : name;
+  if (modeEl) modeEl.textContent = roleLabel ? (roleLabel+' 모드 · '+name) : name;
   if (btnEl)  btnEl.textContent  = '로그아웃';
-  if (chipEl) chipEl.style.display = isAdmin ? '' : 'none';
+  if (chipEl) { chipEl.style.display = roleLabel ? '' : 'none'; chipEl.textContent = roleLabel; }
 
-  // 백업/초기화 버튼 - 관리자만 표시
-  document.querySelectorAll('.admin-backup-btn').forEach(el => {
-    el.style.display = isAdmin ? '' : 'none';
-  });
+  // 백업/초기화 버튼 - 총관리자만
+  document.querySelectorAll('.admin-backup-btn').forEach(el => { el.style.display = isSuperAdmin ? '' : 'none'; });
 
-  // 관리자 카테고리 전체 show/hide
-  ['nav-sec-admin','nav-overview','nav-requests','nav-notifysetting','nav-cardadmin','nav-vehicleadmin'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.style.display = isAdmin ? '' : 'none';
-  });
+  // 관리 메뉴: 총관리자는 전부, 관리자는 열람 권한이 있는 메뉴만
+  const show = (id, on) => { const el=document.getElementById(id); if(el) el.style.display = on ? '' : 'none'; };
+  show('nav-overview',      canPerm('overview','view'));
+  show('nav-requests',      canPerm('requests','view'));
+  show('nav-notifysetting', canPerm('notifysetting','view'));
+  show('nav-cardadmin',     canPerm('cardadmin','view'));
+  show('nav-vehicleadmin',  canPerm('vehicleadmin','view'));
+  show('nav-permissions',   isSuperAdmin);
+  const anyAdminMenu = isSuperAdmin || ['overview','requests','notifysetting','cardadmin','vehicleadmin'].some(m=>canPerm(m,'view'));
+  show('nav-sec-admin', anyAdminMenu);
+  const sec=document.getElementById('nav-sec-admin'); if(sec) sec.textContent = isSuperAdmin ? '총관리자' : '관리자';
 }
 
 // ══════════════════════════════════════════════
@@ -1760,16 +1877,18 @@ function updateAdminUI(){
 let rosterSortKey = 'custom'; // custom, position, name, dept, joinDate
 let rosterOrder = []; // 커스텀 순서 (emp id 배열)
 
-const PAGE_TITLES={overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가',card:'개인카드사용내역',cardadmin:'개인카드내역 총관리',vehicle:'내 차량',sharedvehicle:'공용차량 관리',vehicleadmin:'차량 총관리'};
+const PAGE_TITLES={permissions:'권한 관리',overview:'전체 현황',roster:'직원 명부',requests:'승인',leave:'연차 관리',ot:'특근/대휴 관리',transport:'교통비 관리',trip:'출장/교육 관리',bday:'기념일',health:'건강검진',calendar:'달력',myprofile:'내 정보',inquiry:'1:1 문의',notifysetting:'알림설정',noticeboard:'공지사항',summer:'하계휴가',card:'개인카드사용내역',cardadmin:'개인카드내역 총관리',vehicle:'내 차량',sharedvehicle:'공용차량 관리',vehicleadmin:'차량 총관리'};
 const NAV_ORDER=['overview','calendar','roster','requests','leave','summer','ot','trip','transport','bday','health','myprofile'];
 
 function go(page) {
   // 권한 체크: 직원은 일부 탭만 접근 불가 (overview, alerts만 관리자 전용)
-  const adminOnly = ['overview','alerts','requests','notifysetting','cardadmin','vehicleadmin'];
-  if(!isAdmin && adminOnly.includes(page)) { page='calendar'; }
+  const adminOnly = ['overview','alerts','requests','notifysetting','noticeboard','cardadmin','vehicleadmin'];
+  if(page==='permissions' && !isSuperAdmin) page='calendar';
+  if(adminOnly.includes(page) && !canPerm(permMenuOfPage(page),'view')) { page='calendar'; }
   // 교통비 관리는 전직원(관리자 포함) 숨김 처리
   if(page==='transport') { page='calendar'; }
-  if(page==='summer' && !isAdmin && !isSummerVisible()) { page='calendar'; }
+  if(page==='summer' && !canPerm('summer','view') && !isSummerVisible()) { page='calendar'; }
+  setPageAdmin(page);   // 이 메뉴 기준 관리 권한
   currentPage=page;
   document.getElementById('page-title').textContent=PAGE_TITLES[page]||page;
   setTimeout(updateBdayAlarmBar, 50);
@@ -1801,8 +1920,8 @@ function go(page) {
   });
   // 관리자 알람설정은 별도 처리
   const nsEl = document.getElementById('nav-notifysetting');
-  if(nsEl) nsEl.style.display = isAdmin ? '' : 'none';
-  ({overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard,summer:renderSummer,card:renderCard,cardadmin:renderCardAdmin2,vehicle:renderVehicle,sharedvehicle:renderSharedVehicle,vehicleadmin:renderVehicleAdmin}[page]||renderOverview)();
+  if(nsEl) nsEl.style.display = canPerm('notifysetting','view') ? '' : 'none';
+  ({permissions:renderPermissions,overview:renderOverview,roster:renderRoster,requests:renderRequests,leave:renderLeave,ot:renderOT,transport:renderTransport,trip:renderTrip,bday:renderBday,health:renderHealth,calendar:renderCalendar,myprofile:renderMyProfile,inquiry:renderInquiry,notifysetting:renderNotifySetting,noticeboard:renderNoticeBoard,summer:renderSummer,card:renderCard,cardadmin:renderCardAdmin2,vehicle:renderVehicle,sharedvehicle:renderSharedVehicle,vehicleadmin:renderVehicleAdmin}[page]||renderOverview)();
 }
 function changeYear(y){
   if((currentPage==='card') && typeof _ceConfirmLeave==='function' && !_ceConfirmLeave()){ buildYearSel(); return; }
@@ -1867,9 +1986,10 @@ async function reloadCardData() {
     const meId = currentEmp ? currentEmp.id : null;
     const chData = await _cardFetchAll(()=>{
       let q=_supa.from('card_expense_headers').select('*').order('id');
-      if (!isAdmin && meId) q=q.eq('emp_id', meId);
+      if (!canPerm('cardadmin','view') && meId) q=q.eq('emp_id', meId);
       return q;
     });
+    if (db._hidden) { delete db._hidden.cardHeaders; delete db._hidden.cardRows; }
     db.cardHeaders = chData.map(r=>({id:r.id,empId:r.emp_id,year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
     const ids = chData.map(r=>r.id);
     const rows = [];
@@ -1878,6 +1998,7 @@ async function reloadCardData() {
       rows.push(...await _cardFetchAll(()=>_supa.from('card_expense_rows').select('*').in('header_id',part).order('id')));
     }
     db.cardRows = rows.map(_cardRowFromDb);
+    applyInactiveFilter();   // 비활성 직원 카드내역 숨김
     return true;
   } catch(e) {
     console.warn('카드 내역 로드 실패:', e);
@@ -2113,7 +2234,7 @@ function renderCardMy(yr, mo) {
   const canEdit = isAdmin || (!closed && (!header || header.status!=='확인'));
 
   const banner = isAdmin
-    ? `<div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#1d4ed8">🔓 관리자 모드: 마감일과 관계없이 입력·수정할 수 있습니다. (직원 마감: ${deadline})</div>`
+    ? `<div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#1d4ed8">🔓 총관리자 모드: 마감일과 관계없이 입력·수정할 수 있습니다. (직원 마감: ${deadline})</div>`
     : closed
     ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#dc2626">⛔ 마감되었습니다 — ${mo}월 귀속분은 ${deadline}까지 입력·제출할 수 있었습니다.</div>`
     : `<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#15803d">✅ 입력·제출 기한: <b>${deadline}</b>까지 (기한이 지나면 저장·제출할 수 없습니다)</div>`;
@@ -2578,6 +2699,129 @@ function findColByKeywords(headers, keywords){
 }
 
 
+
+// ══════════════════════════════════════════════
+//  🔐 권한 관리 (총관리자 전용)
+// ══════════════════════════════════════════════
+function _permsOfEmp(empId){ return _permRowsToMap((db.managerPerms||[]).filter(r=>String(r.emp_id)===String(empId))); }
+function _isSuperEmp(e){ return !!(e && e.user_id && adminUserIdSet && adminUserIdSet.has(e.user_id)); }
+function _permSummary(map){
+  const parts=PERM_MENUS.filter(m=>map[m.key]&&map[m.key].view).map(m=>{
+    const p=map[m.key]; const acts=['열람'].concat(p.edit?['수정']:[]).concat(p.delete?['삭제']:[]);
+    return `<span style="display:inline-block;background:#eef2ff;color:#3730a3;border-radius:10px;padding:1px 8px;margin:2px;font-size:12px">${m.label.replace(/^\S+\s/,'')} (${acts.join('·')})</span>`;
+  });
+  return parts.join('') || '<span style="color:var(--text3);font-size:12px">—</span>';
+}
+function renderPermissions(){
+  if(!isSuperAdmin){ go('calendar'); return; }
+  const emps=(db.employees||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+  const roleBadge=(label,c)=>`<span style="background:${c}15;color:${c};border:1px solid ${c}40;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:700">${label}</span>`;
+  const rows=emps.map(e=>{
+    const sup=_isSuperEmp(e);
+    const map=_permsOfEmp(e.id);
+    const mgr=!sup && Object.values(map).some(p=>p.view);
+    const role= sup?roleBadge('총관리자','#dc2626') : mgr?roleBadge('관리자','#2563eb') : roleBadge('직원','#64748b');
+    return `<tr>
+      <td style="padding:9px 10px;white-space:nowrap"><b>${_ceEsc(e.name)}</b> <span style="color:var(--text3);font-size:12px">${_ceEsc(e.dept||'')} ${_ceEsc(e.position||'')}</span></td>
+      <td style="padding:9px 10px">${role}</td>
+      <td style="padding:9px 10px">${sup?'<span style="font-size:12px;color:var(--text3)">모든 메뉴 전체 권한</span>':_permSummary(map)}</td>
+      <td style="padding:9px 10px;text-align:right;white-space:nowrap">${sup?'':(e.user_id?`<button class="btn btn-sm btn-primary" onclick="openPermEdit(${Number(e.id)})">권한 설정</button>`:'<span style="font-size:12px;color:var(--text3)">로그인 계정 없음</span>')}</td>
+    </tr>`;
+  }).join('');
+  setContent(`
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title">🔐 권한 관리</div>
+      <div style="font-size:13px;color:var(--text2);line-height:1.7">
+        · <b style="color:#dc2626">총관리자</b>: 모든 메뉴의 열람·수정·삭제 + 권한 관리 (지정/해제는 Supabase의 admins 테이블에서 합니다)<br>
+        · <b style="color:#2563eb">관리자</b>: 아래에서 메뉴별로 <b>열람 / 수정 / 삭제</b> 권한을 받은 직원 — 권한이 있는 메뉴에서만 전 직원 내역을 보고 관리합니다<br>
+        · <b>직원</b>: 본인 내역만 (지금과 같음)<br>
+        · 비활성(퇴사) 처리된 직원의 관리자 권한은 자동으로 사용할 수 없게 됩니다
+      </div>
+    </div>
+    <div class="card">
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:var(--bg);color:var(--text2)">
+          <th style="padding:8px 10px;text-align:left">직원</th><th style="padding:8px 10px;text-align:left">구분</th>
+          <th style="padding:8px 10px;text-align:left">부여된 권한</th><th style="padding:8px 10px"></th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`);
+}
+function openPermEdit(empId){
+  if(!isSuperAdmin) return;
+  const e=eid(empId); if(!e) return;
+  const map=_permsOfEmp(empId);
+  const cb=(k,a,on)=>`<input type="checkbox" data-menu="${k}" data-act="${a}" ${on?'checked':''} onchange="_permCbChange(this)" style="width:18px;height:18px;cursor:pointer">`;
+  const trs=PERM_MENUS.map(m=>{ const p=map[m.key]||{};
+    return `<tr style="border-bottom:1px solid var(--border)">
+      <td style="padding:7px 8px;font-size:14px">${m.label}</td>
+      <td style="padding:7px 8px;text-align:center">${cb(m.key,'view',p.view)}</td>
+      <td style="padding:7px 8px;text-align:center">${cb(m.key,'edit',p.edit)}</td>
+      <td style="padding:7px 8px;text-align:center">${cb(m.key,'delete',p.delete)}</td>
+    </tr>`; }).join('');
+  openModal(`
+    <div class="modal-title">🔐 ${_ceEsc(e.name)}님 관리자 권한 설정</div>
+    <div style="font-size:13px;color:var(--text3);margin-bottom:10px">체크한 메뉴에서만 전 직원 내역을 관리할 수 있습니다. 수정·삭제를 체크하면 열람은 자동으로 포함됩니다. 모두 해제하면 일반 직원이 됩니다.</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" onclick="_permBulk('view')">전체 열람</button>
+      <button class="btn btn-sm" onclick="_permBulk('edit')">전체 열람+수정</button>
+      <button class="btn btn-sm" onclick="_permBulk('all')">전체 권한</button>
+      <button class="btn btn-sm" onclick="_permBulk('none')">모두 해제</button>
+    </div>
+    <div id="perm-grid" style="max-height:60vh;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg);color:var(--text2);font-size:13px">
+          <th style="padding:7px 8px;text-align:left">메뉴</th><th style="padding:7px 8px">열람</th><th style="padding:7px 8px">수정</th><th style="padding:7px 8px">삭제</th>
+        </tr></thead><tbody>${trs}</tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">취소</button>
+      <button class="btn btn-primary" onclick="savePermEdit(${Number(empId)})">💾 권한 저장</button>
+    </div>`, true);
+}
+function _permCbChange(el){
+  const g=document.getElementById('perm-grid'); if(!g) return;
+  const k=el.dataset.menu, get=a=>g.querySelector(`input[data-menu="${k}"][data-act="${a}"]`);
+  if(el.checked && el.dataset.act!=='view') get('view').checked=true;          // 수정·삭제 → 열람 자동 포함
+  if(!el.checked && el.dataset.act==='view'){ get('edit').checked=false; get('delete').checked=false; }  // 열람 해제 → 전부 해제
+}
+function _permBulk(mode){
+  const g=document.getElementById('perm-grid'); if(!g) return;
+  g.querySelectorAll('input[type=checkbox]').forEach(c=>{
+    const a=c.dataset.act;
+    c.checked = mode==='all' || (mode==='edit' && a!=='delete') || (mode==='view' && a==='view');
+  });
+}
+async function savePermEdit(empId){
+  if(!isSuperAdmin || !_supa) return;
+  const g=document.getElementById('perm-grid'); if(!g) return;
+  const rows=PERM_MENUS.map(m=>{
+    const v=a=>!!g.querySelector(`input[data-menu="${m.key}"][data-act="${a}"]`)?.checked;
+    const edit=v('edit'), del=v('delete'), view=v('view')||edit||del;
+    return {emp_id:empId, menu:m.key, can_view:view, can_edit:edit, can_delete:del, updated_at:new Date().toISOString()};
+  }).filter(r=>r.can_view);
+  try{
+    if(rows.length){
+      const {error}=await _supa.from('manager_permissions').upsert(rows,{onConflict:'emp_id,menu'});
+      if(error) throw error;
+    }
+    let del=_supa.from('manager_permissions').delete().eq('emp_id',empId);
+    if(rows.length) del=del.not('menu','in','('+rows.map(r=>r.menu).join(',')+')');
+    const {error:de}=await del;
+    if(de) throw de;
+  }catch(e){
+    console.error('권한 저장 오류:',e);
+    showToast('⚠️ 권한 저장 실패 — Supabase에 권한 SQL(manager_permissions)을 먼저 적용했는지 확인해 주세요');
+    return;
+  }
+  await loadMyPerms();
+  closeModal();
+  showToast(rows.length?'✅ 관리자 권한을 저장했습니다':'✅ 일반 직원으로 변경했습니다');
+  renderPermissions();
+}
+
 function isSummerVisible(){
   const v = db.appSettings ? db.appSettings['summer_section_visible'] : false;
   return v===true || v==='true' || v===1;
@@ -2885,6 +3129,7 @@ function showSummerUnregistered(){
 
 function setContent(html, scrollToTop=true){
   document.getElementById('main-content').innerHTML=html;
+  _applyPermUI(document.getElementById('main-content'));
   const _doScroll = scrollToTop && !_keepScroll;
   _keepScroll = false; // 플래그 리셋
   if(_doScroll){
@@ -3088,9 +3333,11 @@ async function onAttendanceFileSelect(input){
       } catch(e){ failed+=chunk.length; lastErr=e.message; }
     }
 
-    // 재로드
-    const att = await _supa.from('attendance_records').select('*').order('date',{ascending:false});
+    // 재로드 (1000건 넘어도 모두)
+    const att = {data: await _cardFetchAll(()=>_supa.from('attendance_records').select('*').order('date',{ascending:false}).order('id'))};
     db.attendance = (att.data||[]).map(r=>({id:r.id, empId:r.emp_id, date:r.date, dayType:r.day_type, clockIn:r.clock_in, clockOut:r.clock_out, baseHours:r.base_hours, otHours:r.ot_hours, cleared:!!r.issue_cleared, clearedBy:r.cleared_by||'', clearedAt:r.cleared_at||''}));
+    if (db._hidden) delete db._hidden.attendance;
+    applyInactiveFilter();
 
     showToast((failed?'⚠️ ':'✅ ')+'업로드 완료: '+saved+'건 저장'+(failed?' / 실패 '+failed+'건 ('+lastErr+')':'')+(skipped>0?' / 기타 인원 '+unmatched.size+'명 '+(extraSaved?'보관함 저장':'제외')+' ('+[...unmatched].slice(0,5).join(', ')+(unmatched.size>5?' 외':'')+')':''));
     input.value='';
@@ -3992,7 +4239,7 @@ function renderRoster(){
   }
   const yr=currentYear;
   // 직원명부: 비활성 포함 전체 표시 (비활성은 맨 뒤)
-  const sorted=[...db.employees].sort((a,b)=>{
+  const sorted=[...(isAdmin?(db.allEmployees||db.employees):db.employees)].sort((a,b)=>{
     if(a.isInactive&&!b.isInactive)return 1;
     if(!a.isInactive&&b.isInactive)return -1;
     const ai=POS_ORDER.findIndex(p=>(a.position||'').includes(p));
@@ -4204,6 +4451,7 @@ async function deactivateEmp(empId) {
   e.isInactive = true;
   closeModal();
   showToast(`🚫 ${e.name}님이 비활성 처리되었습니다.`);
+  await loadAllData();   // 다른 메뉴에서 내역 숨김 반영
   go('roster');
 }
 
@@ -4239,6 +4487,7 @@ async function reactivateEmp(empId) {
     showToast(`✅ ${e.name}님 재입사 완료`);
   }
   closeModal();
+  await loadAllData();   // 숨겼던 내역 다시 표시
   go('roster');
 }
 
@@ -4466,6 +4715,7 @@ async function deleteEmp(id){
   db.events = db.events.filter(ev => String(ev.empId) !== String(id));
   if (!await sbDelete('employees', id)) { await onSaveFailed('직원 삭제 실패'); return; }
   db.employees = db.employees.filter(e => String(e.id) !== String(id));
+  if (db.allEmployees) db.allEmployees = db.allEmployees.filter(e => String(e.id) !== String(id));
   saveAll(); showToast('🗑️ 삭제됨'); renderRoster();
 }
 
@@ -5964,6 +6214,7 @@ function openModal(html, large=false){
   // 기존 리스너 완전 제거 후 재등록
   if(_modalAC){ _modalAC.abort(); _modalAC=null; }
   box.innerHTML=html;
+  _applyPermUI(box);
   if(large) box.classList.add('modal-lg');
   else box.classList.remove('modal-lg');
   document.getElementById('modal-bg').classList.add('show');
@@ -6033,6 +6284,7 @@ async function saveEmp(){
   const anniversaryType=annexSel?annexSel.value:'birthday';
   const emp={id,name,dept:document.getElementById('f-dept').value||'',position:document.getElementById('f-pos').value||'',phone:document.getElementById('f-phone').value||'',email:document.getElementById('f-email').value||'',joinDate:getDateVal('f-join')||'',isExternal,employmentType:empType,birthdate:birth,birthdateLunar,anniversaryType,address:'',avatarUrl:''};
   db.employees.push(emp);
+  if (db.allEmployees) db.allEmployees.push(emp);
   // 연차 배분은 저장하지 않음 → getAlloc()이 입사일 기준으로 자동 계산
   // 이메일로 Supabase Auth user_id 자동 연결
   let userId = null;
@@ -6379,7 +6631,7 @@ function updateLeaveRemainPreview(){
   const sel = document.querySelector('input[name="ltype"]:checked');
   const leaveType = sel?sel.value:'연차';
   const hours = parseFloat(document.getElementById('f-hours')?.value)||0;
-  const emp = db.employees.find(e=>String(e.id)===String(empId));
+  const emp = eid(empId);
   if(emp && emp.isExternal){ box.innerHTML=''; return; }
   const yr = currentYear;
   const currentRemain = getLeaveRemain(empId, yr);
@@ -6396,7 +6648,7 @@ function onLeaveEmpChange(){
   const sel = document.getElementById('f-emp');
   if(!sel) return;
   const empId = sel.value;
-  const emp = db.employees.find(e=>String(e.id)===String(empId));
+  const emp = eid(empId);
   const isExt = emp && emp.isExternal;
   // 상임이사/임원은 하계휴가만 신청 가능
   document.querySelectorAll('input[name="ltype"]').forEach(r=>{
@@ -6615,7 +6867,7 @@ async function saveLeave(){
   const sel=document.querySelector('input[name="ltype"]:checked');
   const leaveType=sel?sel.value:'연차';
   const empId=document.getElementById('f-emp').value;
-  const _empChk = db.employees.find(x=>String(x.id)===String(empId));
+  const _empChk = eid(empId);
   if(_empChk && _empChk.isExternal && leaveType!=='하계휴가'){
     showToast('⚠️ 상임이사/임원은 하계휴가만 신청 가능합니다');
     return;
@@ -7402,7 +7654,7 @@ function updateNoticeAlarmBar() {
 
   const items = [];
   if (activeNotices.length) items.push(`📢 공지사항 ${activeNotices.length}건`);
-  if (pendingSchedules.length && isAdmin) items.push(`🔔 예약알람 ${pendingSchedules.length}건`);
+  if (pendingSchedules.length && canPerm('notifysetting','view')) items.push(`🔔 예약알람 ${pendingSchedules.length}건`);
 
   if (items.length) {
     txt.textContent = items.join('  |  ') + '  ▶ 클릭하여 확인';
@@ -7633,7 +7885,7 @@ async function saveMyProfile() {
 
   // 로컬 db 업데이트
   Object.assign(e, { name, position, dept, phone, birthdate:birth, birthdateLunar, anniversaryType, address, avatarUrl });
-  const dbEmp = db.employees.find(x=>String(x.id)===String(e.id));
+  const dbEmp = eid(e.id);
   if (dbEmp) Object.assign(dbEmp, e);
 
   // 생일/기념일 자동 연동
@@ -9101,7 +9353,7 @@ function nsTargets(s){
 // 관리자가 접속해 있는 동안 1분마다, 그리고 로그인 직후 예약 시각이 지난 알림을 발송
 let _nsBusy=false;
 async function processDueNotifySchedules(){
-  if(!isAdmin||!_supa||_nsBusy) return;
+  if(!canPerm('notifysetting','edit')||!_supa||_nsBusy) return;
   _nsBusy=true;
   let doneCnt=0;
   try{
@@ -10523,13 +10775,13 @@ async function exportVehExcel(){
 
 // ── 로그인 팝업 알림 (D-60 / D-30 / D-15 / 만료) ──
 function vehAlertItems(){
-  if(!currentEmp&&!isAdmin) return [];
+  if(!currentEmp&&!canPerm('vehicleadmin','view')) return [];
   const me=currentEmp?currentEmp.id:'admin';
-  const list=(db.vehicles||[]).filter(v=>v.isActive&&(isAdmin||vehRelevantToMe(v)));
+  const list=(db.vehicles||[]).filter(v=>v.isActive&&(canPerm('vehicleadmin','view')||vehRelevantToMe(v)));
   const items=[];
   list.forEach(v=>{
     const its=[['insurance','보험 만기',v.insEnd],['inspection','정기검사 만료',v.inspectExpire]];
-    if(isAdmin&&vehIsContract(v)) its.push(['contract',VEH_OWN_LABEL[v.ownership]+' 계약만기 (자사 전환·반납 처리)',v.rentEnd]);
+    if(canPerm('vehicleadmin','view')&&vehIsContract(v)) its.push(['contract',VEH_OWN_LABEL[v.ownership]+' 계약만기 (자사 전환·반납 처리)',v.rentEnd]);
     its.forEach(([item,label,due])=>{
       if(!due) return; const d=vehDays(due); if(d>60) return;
       if(item==='inspection'&&vehInspectByLeasing(v)) return; // 리스: 정기검사 알림 제외
@@ -10548,7 +10800,7 @@ function checkVehicleAlertPopup(){
   const rows=items.map(i=>'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-radius:8px;background:'+(i.days<=15?'#fef2f2':'#fffbeb')+';margin-bottom:6px">'
     +'<div><div style="font-weight:700">'+vEsc(i.v.plate)+' <span style="font-size:13px;color:var(--text2);font-weight:500">'+i.label+'</span></div>'
     +'<div style="font-size:12px;color:var(--text3)">'+(i.v.kind==='shared'?'공용 · ':'')+vehOwnerText(i.v)+' · '+fmt(i.due)+(i.pending?' · <span style="color:#d97706">갱신 승인대기</span>':'')+'</div></div>'+vehDdayBadge(i.due)+'</div>').join('');
-  const target=isAdmin?'vehicleadmin':(items.some(i=>i.v.kind==='personal')?'vehicle':'sharedvehicle');
+  const target=canPerm('vehicleadmin','view')?'vehicleadmin':(items.some(i=>i.v.kind==='personal')?'vehicle':'sharedvehicle');
   document.getElementById('veh-alert-content').innerHTML=
     '<div style="font-size:26px;text-align:center;margin-bottom:6px">🚗</div><div style="font-size:18px;font-weight:700;text-align:center;margin-bottom:14px;color:var(--accent)">차량 만기 알림</div>'
     +'<div style="max-height:50vh;overflow-y:auto">'+rows+'</div>'
