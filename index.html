@@ -185,6 +185,40 @@ tbody tr:hover td{background:var(--surface2)}
 .health-warn{color:var(--warn)}
 .health-danger{color:var(--danger)}
 .health-none{color:var(--text3)}
+
+/* ══ 모바일 화면 (폭 768px 이하) — 2026-11-25 추가 ══
+   · 왼쪽 메뉴는 숨겼다가 아래 [☰ 메뉴]로 열기 (화면 위로 겹쳐서 표시)
+   · 아래 탭바(달력/연차/명부/메뉴) 고정
+   · 입력칸 2칸 → 1칸, 넓은 표는 좌우로 밀어서 보기 */
+#mobile-tabbar{display:none}
+#sidebar-overlay.show{display:block !important}
+@media(max-width:768px){
+  .app{height:100vh;height:100dvh}
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:260px !important;max-width:82vw;z-index:1000;transform:translateX(-105%);transition:transform .25s ease;box-shadow:4px 0 24px rgba(0,0,0,.18)}
+  .sidebar.mobile-open{transform:translateX(0)}
+  .nav-item{padding:11px 12px;font-size:15px}
+  #sb-toggle-fixed-btn{display:none !important}
+  .main{height:100vh;height:100dvh}
+  .topbar{padding:0 12px;height:50px;gap:8px}
+  .page-title{padding-left:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #bday-alarm-bar{display:none !important}
+  .content{padding:12px 10px calc(78px + env(safe-area-inset-bottom))}
+  .card{padding:12px;overflow-x:auto}
+  .stats-row{grid-template-columns:repeat(2,1fr);gap:8px}
+  .form-grid{grid-template-columns:1fr}
+  .field input,.field select,.field textarea,textarea,.date-seg{font-size:16px}
+  .modal,.modal.modal-lg{width:96vw !important;max-width:96vw !important;padding:16px 14px;max-height:88vh !important}
+  .modal-footer{flex-wrap:wrap}
+  .modal-bg{z-index:1100}   /* 팝업은 아래 탭바보다 위에 */
+  td,th{padding:8px 8px;white-space:nowrap}   /* 표는 줄바꿈 대신 좌우로 밀어서 보기 */
+  .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
+  .cal-day{overflow:hidden}
+  #mobile-tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:900;background:var(--surface);border-top:1px solid var(--border);box-shadow:0 -2px 10px rgba(0,0,0,.06);padding-bottom:env(safe-area-inset-bottom)}
+  #mobile-tabbar button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:58px;border:none;background:transparent;color:var(--text2);font-size:12px;font-weight:600}
+  #mobile-tabbar button .tab-icon{font-size:21px;line-height:1}
+  #mobile-tabbar button.active{color:var(--accent)}
+  .app[style*="none"] ~ #mobile-tabbar{display:none}   /* 로그인 전에는 탭바 숨김 */
+}
 </style>
 </head>
 <body>
@@ -568,6 +602,7 @@ function normalizeEmp(r) {
     address:r.address||'', avatarUrl:r.avatar_url||'',
     muteNotify:r.mute_notify||false,
     notifyMail:(r.notify_mail===true||r.notify_mail===false)?r.notify_mail:null,
+    corpCard:r.corp_card||false,
     anniversaryType:r.anniversary_type||'birthday',
     isInactive:r.is_inactive||false };
 }
@@ -1191,7 +1226,7 @@ async function onSignedIn(user) {
 
 function onSignedOut() {
   stopIdleTimer();
-  currentUser = null; currentEmp = null; isAdmin = false; isSuperAdmin = false; myPerms = {}; _ce = null;
+  currentUser = null; currentEmp = null; isAdmin = false; isSuperAdmin = false; myPerms = {}; _ce = null; cardKind = null; cardAdminKind = 'personal';
   try { localStorage.removeItem(LS_CACHE); } catch(e) {} // 보안: 로그아웃 시 회사 데이터 캐시 삭제
   // 접기/펴기 버튼 숨김
   const sbBtn = document.getElementById('sb-toggle-fixed-btn');
@@ -1483,7 +1518,7 @@ function closeSidebarIfOpen() {
   const ov = document.getElementById('sidebar-overlay');
   if (sb && sb.classList.contains('mobile-open')) {
     sb.classList.remove('mobile-open');
-    if (ov) ov.style.display = 'none';
+    if (ov) ov.classList.remove('show');
   }
 }
 function updateMobileTabbar(page) {
@@ -1959,9 +1994,17 @@ function cardDeadline(year, month) {
 }
 function cardIsClosed(year, month) { return todayStr() > cardDeadline(year, month); }
 
+// ── 카드 구분: personal(개인카드) / corp(법인카드 — 입금 없음, 권한 관리에서 지정한 직원만) ──
+let cardKind = null;              // 직원 화면 탭 (null = 처음 열 때 결정)
+let cardAdminKind = 'personal';   // 총관리 화면 탭
+let _cardHasType = false;         // DB에 card_type 칸이 있는지 (법인카드 SQL 적용 여부)
+const CARD_KIND_LABEL = { personal:'개인카드', corp:'법인카드' };
+function _cardKindOf(h){ return (h && h.cardType) || 'personal'; }
+function _cardCats(kind){ return kind==='corp' ? ['법인카드'] : ['개인카드','교통비']; }
+
 // ── db 헬퍼 ──
-function getCardHeader(empId, year, month) {
-  return (db.cardHeaders||[]).find(h => String(h.empId)===String(empId) && Number(h.year)===Number(year) && Number(h.month)===Number(month)) || null;
+function getCardHeader(empId, year, month, kind='personal') {
+  return (db.cardHeaders||[]).find(h => String(h.empId)===String(empId) && Number(h.year)===Number(year) && Number(h.month)===Number(month) && _cardKindOf(h)===kind) || null;
 }
 function getCardRows(headerId, category) {
   return (db.cardRows||[]).filter(r => String(r.headerId)===String(headerId) && (!category || r.category===category))
@@ -1970,7 +2013,7 @@ function getCardRows(headerId, category) {
 // 직전 입금정보 (가장 최근 헤더)
 function getLastBankInfo(empId) {
   const headers = (db.cardHeaders||[])
-    .filter(h=>String(h.empId)===String(empId) && (h.bankName||h.accountNumber||h.accountHolder))
+    .filter(h=>String(h.empId)===String(empId) && _cardKindOf(h)==='personal' && (h.bankName||h.accountNumber||h.accountHolder))
     .sort((a,b)=> a.year!==b.year ? b.year-a.year : b.month-a.month);
   if (!headers.length) return { bankName:'', accountNumber:'', accountHolder:'' };
   const h = headers[0];
@@ -2003,7 +2046,9 @@ async function reloadCardData() {
       return q;
     });
     if (db._hidden) { delete db._hidden.cardHeaders; delete db._hidden.cardRows; }
-    db.cardHeaders = chData.map(r=>({id:r.id,empId:r.emp_id,year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
+    if (chData.length) _cardHasType = ('card_type' in chData[0]);
+    else { const {error:tErr} = await _supa.from('card_expense_headers').select('card_type').limit(1); _cardHasType = !tErr; }
+    db.cardHeaders = chData.map(r=>({id:r.id,empId:r.emp_id,cardType:r.card_type||'personal',year:r.year,month:r.month,bankName:r.bank_name||'',accountNumber:r.account_number||'',accountHolder:r.account_holder||'',status:r.status||'작성중',submittedAt:r.submitted_at||null,rejectReason:r.reject_reason||''}));
     const ids = chData.map(r=>r.id);
     const rows = [];
     for(let i=0;i<ids.length;i+=150){
@@ -2026,20 +2071,21 @@ async function reloadCardData() {
 let _ce = null;      // {ctx:'page'|'modal', empId, yr, mo, headerId, rows, deleted, bank, dirty}
 let _ceBusy = false;
 
-function _ceOpen(ctx, empId, yr, mo){
-  const h = getCardHeader(empId, yr, mo);
+function _ceOpen(ctx, empId, yr, mo, kind='personal'){
+  const h = getCardHeader(empId, yr, mo, kind);
   const pfx = `${yr}-${String(mo).padStart(2,'0')}-`;
   const rows = h ? getCardRows(h.id).map(r=>({...r,
       _uid:_ceUid(),
       _day: String(r.useDate||'').startsWith(pfx) ? String(parseInt(String(r.useDate).slice(8,10),10)) : '',
       _oldDate: String(r.useDate||'').startsWith(pfx) ? '' : (r.useDate||'')
     })) : [];
-  const b = h ? {bankName:h.bankName, accountNumber:h.accountNumber, accountHolder:h.accountHolder} : getLastBankInfo(empId);
-  _ce = {ctx, empId, yr, mo, headerId: h ? h.id : null, rows, deleted:[], bank:{...b}, dirty:false};
+  const b = kind==='corp' ? {bankName:'',accountNumber:'',accountHolder:''}
+    : h ? {bankName:h.bankName, accountNumber:h.accountNumber, accountHolder:h.accountHolder} : getLastBankInfo(empId);
+  _ce = {ctx, empId, yr, mo, kind, headerId: h ? h.id : null, rows, deleted:[], bank:{...b}, dirty:false};
   return _ce;
 }
-function _ceIs(ctx, empId, yr, mo){
-  return _ce && _ce.ctx===ctx && String(_ce.empId)===String(empId) && _ce.yr===yr && _ce.mo===mo;
+function _ceIs(ctx, empId, yr, mo, kind='personal'){
+  return _ce && _ce.ctx===ctx && String(_ce.empId)===String(empId) && _ce.yr===yr && _ce.mo===mo && _ce.kind===kind;
 }
 function _ceSet(el){
   if(!_ce) return;
@@ -2053,11 +2099,12 @@ function _ceSetBank(el){ if(!_ce) return; _ce.bank[el.dataset.f]=el.value; _ce.d
 function _ceAmt(v){ const s=String(v??'').replace(/[^0-9]/g,''); return s ? parseInt(s,10) : 0; }
 function _ceSum(cat){ return (_ce?_ce.rows:[]).filter(r=>r.category===cat).reduce((s,r)=>s+_ceAmt(r.amount),0); }
 function _ceTotals(){
-  const a=document.getElementById('ce-total-cc'), b=document.getElementById('ce-total-ct'), c=document.getElementById('ce-total-all');
+  const a=document.getElementById('ce-total-cc'), b=document.getElementById('ce-total-ct'), c=document.getElementById('ce-total-all'), d=document.getElementById('ce-total-corp');
   const cc=_ceSum('개인카드'), ct=_ceSum('교통비');
   if(a) a.textContent=cc.toLocaleString()+'원';
   if(b) b.textContent=ct.toLocaleString()+'원';
   if(c) c.textContent=(cc+ct).toLocaleString()+'원';
+  if(d) d.textContent=_ceSum('법인카드').toLocaleString()+'원';
 }
 function _ceAdd(cat){
   if(!_ce) return;
@@ -2065,7 +2112,7 @@ function _ceAdd(cat){
   const prev = same[same.length-1];
   _ce.rows.push({_uid:_ceUid(), id:null, category:cat, _day:'', detail:'',
     cardCompany: prev?prev.cardCompany:'', cardNumber: prev?prev.cardNumber:'',   // 같은 카드 반복 입력 편의
-    place:'', amount:'', receiptType:'영수증', branch: cat==='개인카드'?'본사':''});
+    place:'', amount:'', receiptType:'영수증', branch: (cat==='개인카드'||cat==='법인카드')?'본사':''});
   _ce.dirty = true;
   _ceRender();
 }
@@ -2080,16 +2127,17 @@ function _ceDel(uid){
 function _ceRender(){
   if(!_ce) return;
   if(_ce.ctx==='page') { renderCardMy(_ce.yr, _ce.mo); return; }
-  const a=document.getElementById('ce-m-cc'), b=document.getElementById('ce-m-ct');
+  const a=document.getElementById('ce-m-cc'), b=document.getElementById('ce-m-ct'), c=document.getElementById('ce-m-corp');
   if(a) a.innerHTML=_ceTable('개인카드', true);
   if(b) b.innerHTML=_ceTable('교통비', true);
+  if(c) c.innerHTML=_ceTable('법인카드', true);
   _ceTotals();
 }
 
 const CARD_RECEIPT_NOTICE = '<div style="font-size:14px;color:var(--danger);font-weight:700;margin:4px 0 12px">※ 영수증은 증빙자료에 붙여 실물로 제출해 주시기 바랍니다.</div>';
 
 function _ceTable(cat, canEdit){
-  const isCc = cat==='개인카드';
+  const isCc = cat==='개인카드' || cat==='법인카드';   // 구분(본사/개인/양감) 칸 있음
   const rows = _ce.rows.filter(r=>r.category===cat);
   const heads = ['사용일자','사용내역','카드사','카드번호','사용처','금액','지출증빙'].concat(isCc?['구분']:[]).concat(canEdit?['']:[]);
   const ths = heads.map(h=>`<th style="padding:6px 8px;font-size:12px;color:var(--text3);text-align:left;white-space:nowrap">${h}</th>`).join('');
@@ -2141,7 +2189,7 @@ function _ceBankHtml(canEdit){
 function _ceCollect(){
   const last = new Date(_ce.yr, _ce.mo, 0).getDate();
   const out=[], errs=[], empties=[];
-  ['개인카드','교통비'].forEach(cat=>{
+  _cardCats(_ce.kind).forEach(cat=>{
     let seq=0;
     _ce.rows.filter(r=>r.category===cat).forEach((r,i)=>{
       const dayStr = String(r._day??'').trim();
@@ -2154,7 +2202,7 @@ function _ceCollect(){
       seq++;
       out.push({r, data:{seq, use_date:`${_ce.yr}-${String(_ce.mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`,
         detail:String(r.detail||'').trim(), card_company:String(r.cardCompany||'').trim(), card_number:String(r.cardNumber||'').trim(),
-        place:String(r.place||'').trim(), amount, receipt_type:r.receiptType||'영수증', branch: cat==='개인카드'?(r.branch||'본사'):''}});
+        place:String(r.place||'').trim(), amount, receipt_type:r.receiptType||'영수증', branch: (cat==='개인카드'||cat==='법인카드')?(r.branch||'본사'):''}});
     });
   });
   return {out, errs, empties};
@@ -2168,6 +2216,8 @@ async function _ceSave(status){
   const {out, errs, empties} = _ceCollect();
   if(errs.length){ alert('입력 내용을 확인해 주세요\n\n'+errs.slice(0,12).join('\n')+(errs.length>12?`\n…외 ${errs.length-12}건`:'')); return null; }
   if(status==='제출' && !out.length){ showToast('⚠️ 입력된 내역이 없습니다'); return null; }
+  const kind = _ce.kind || 'personal';
+  if(kind==='corp' && !_cardHasType){ showToast('⚠️ 법인카드 저장 준비가 안 됐습니다 — 총관리자에게 Supabase 법인카드 SQL 적용을 요청해 주세요'); return null; }
   _ceBusy = true;
   showToast('⏳ 저장 중...');
   const failMsg = '저장 실패 — 네트워크/권한을 확인하고 다시 [저장]을 눌러 주세요';
@@ -2176,13 +2226,16 @@ async function _ceSave(status){
     const head = {emp_id:_ce.empId, year:_ce.yr, month:_ce.mo,
       bank_name:String(_ce.bank.bankName||'').trim(), account_number:String(_ce.bank.accountNumber||'').trim(), account_holder:String(_ce.bank.accountHolder||'').trim(),
       updated_at:now};
+    if(_cardHasType) head.card_type = kind;
     // 1) 헤더 확보 (새로 만들 때는 '작성중'으로 먼저 생성 → 행 저장이 모두 끝난 뒤 최종 상태 반영)
-    let hid = _ce.headerId || getCardHeader(_ce.empId,_ce.yr,_ce.mo)?.id || null;
+    let hid = _ce.headerId || getCardHeader(_ce.empId,_ce.yr,_ce.mo,kind)?.id || null;
     if(!hid){
       const ins = await sbInsert('card_expense_headers', {...head, status:'작성중'});
       if(ins) hid = ins.id;
       else {
-        const {data:ex} = await _supa.from('card_expense_headers').select('id').eq('emp_id',_ce.empId).eq('year',_ce.yr).eq('month',_ce.mo).maybeSingle();
+        let q = _supa.from('card_expense_headers').select('id').eq('emp_id',_ce.empId).eq('year',_ce.yr).eq('month',_ce.mo);
+        if(_cardHasType) q = q.eq('card_type', kind);
+        const {data:ex} = await q.maybeSingle();
         if(ex?.id) hid = ex.id;
       }
       if(!hid){ showToast('⚠️ '+failMsg); return null; }
@@ -2224,7 +2277,15 @@ async function _ceSave(status){
 function renderCard() {
   if (!currentEmp) { setContent('<div style="padding:24px;color:var(--text3)">로그인이 필요합니다.</div>'); return; }
   const mo = currentMonth || _calcDefaultCardYM().m;
+  // 법인카드 사용자로 지정된 직원만 탭 선택 가능 (처음엔 법인카드 탭)
+  if(!currentEmp.corpCard) cardKind = 'personal';
+  else if(cardKind!=='personal' && cardKind!=='corp') cardKind = 'corp';
   renderCardMy(cardYear, mo);
+}
+function switchCardKind(k){
+  if(k===cardKind) return;
+  if(!_ceConfirmLeave()) return;
+  _ce = null; cardKind = k; renderCard();
 }
 function _ceConfirmLeave(){
   return !(_ce && _ce.dirty) || confirm('저장하지 않은 입력 내용이 있습니다.\n저장하지 않고 이동할까요?');
@@ -2240,8 +2301,10 @@ function switchCardYear(d){
 
 function renderCardMy(yr, mo) {
   const empId = currentEmp.id;
-  if(!_ceIs('page', empId, yr, mo)) _ceOpen('page', empId, yr, mo);
-  const header = getCardHeader(empId, yr, mo);
+  const kind = cardKind==='corp' ? 'corp' : 'personal';
+  const isCorp = kind==='corp';
+  if(!_ceIs('page', empId, yr, mo, kind)) _ceOpen('page', empId, yr, mo, kind);
+  const header = getCardHeader(empId, yr, mo, kind);
   const closed = cardIsClosed(yr, mo);
   const deadline = cardDeadline(yr, mo);
   const canEdit = isAdmin || (!closed && (!header || header.status!=='확인'));
@@ -2258,18 +2321,19 @@ function renderCardMy(yr, mo) {
   const monthTabs = Array.from({length:12},(_,i)=>i+1).map(m=>`<button onclick="switchCardMonth(${m})" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px">${m}월</button>`).join('');
   const yearNav = `<button class="btn btn-sm" onclick="switchCardYear(-1)">◀</button><span style="font-weight:700;padding:0 6px">${yr}년</span><button class="btn btn-sm" onclick="switchCardYear(1)">▶</button>`;
 
-  setContent(`<div id="ce-page-root">
-    <div class="card" style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
-        <div style="font-weight:800;font-size:17px;color:#dc2626">${yr}년 ${mo}월 귀속분 개인카드 사용내역 ${statusBadge}</div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${yearNav}${monthTabs}</div>
-      </div>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:10px">${yr}년 ${mo}월 1일 ~ ${mo}월 ${new Date(yr,mo,0).getDate()}일에 사용한 내역을 입력합니다.</div>
-      ${banner}
-      ${header?.status==='반려' && header.rejectReason ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#dc2626">반려 사유: ${_ceEsc(header.rejectReason)}</div>` : ''}
-      ${CARD_RECEIPT_NOTICE}
-    </div>
+  const kindTab = (k,label) => `<button onclick="switchCardKind('${k}')" style="padding:8px 18px;border:2px solid ${k===kind?'var(--accent)':'var(--border2)'};border-radius:8px;background:${k===kind?'var(--accent)':'transparent'};color:${k===kind?'#fff':'var(--text2)'};cursor:pointer;font-size:14px;font-weight:700">${label}</button>`;
+  const kindTabs = currentEmp.corpCard ? `<div style="display:flex;gap:8px;margin-bottom:12px">${kindTab('corp','🏢 법인카드')}${kindTab('personal','💳 개인카드')}</div>` : '';
 
+  const sections = isCorp ? `
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div class="card-title" style="margin:0">🏢 법인카드 사용내역</div>
+        ${canEdit?`<button class="btn btn-primary btn-sm" onclick="_ceAdd('법인카드')">+ 행 추가</button>`:''}
+      </div>
+      ${_ceTable('법인카드', canEdit)}
+      <div style="text-align:right;font-size:15px;font-weight:800;margin-top:10px;color:var(--accent)">총 사용금액: <span id="ce-total-corp">${_ceSum('법인카드').toLocaleString()}원</span></div>
+      <div style="font-size:12px;color:var(--text3);margin-top:6px">※ 법인카드 사용분은 회사가 카드사에 결제하므로 입금(지급)되지 않습니다.</div>
+    </div>` : `
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <div class="card-title" style="margin:0">💳 개인카드 지출</div>
@@ -2292,8 +2356,21 @@ function renderCardMy(yr, mo) {
       <div class="card-title">💰 입금 정보</div>
       ${_ceBankHtml(canEdit)}
       <div style="text-align:right;font-size:15px;font-weight:800;margin-top:12px">총 금액: <span id="ce-total-all">${(_ceSum('개인카드')+_ceSum('교통비')).toLocaleString()}원</span></div>
-    </div>
+    </div>`;
 
+  setContent(`<div id="ce-page-root">
+    ${kindTabs}
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <div style="font-weight:800;font-size:17px;color:#dc2626">${yr}년 ${mo}월 귀속분 ${CARD_KIND_LABEL[kind]} 사용내역 ${statusBadge}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${yearNav}${monthTabs}</div>
+      </div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:10px">${yr}년 ${mo}월 1일 ~ ${mo}월 ${new Date(yr,mo,0).getDate()}일에 사용한 내역을 입력합니다.</div>
+      ${banner}
+      ${header?.status==='반려' && header.rejectReason ? `<div style="background:#fee2e2;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:#dc2626">반려 사유: ${_ceEsc(header.rejectReason)}</div>` : ''}
+      ${CARD_RECEIPT_NOTICE}
+    </div>
+    ${sections}
     <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-bottom:24px">
       ${canEdit ? `
         <button class="btn btn-primary" onclick="saveCardDraft()" title="내용을 저장만 합니다 (제출 전)">💾 저장</button>
@@ -2313,13 +2390,14 @@ async function saveCardDraft() {
 
 async function submitCard() {
   if(!_ce) return;
-  if(!confirm(`${_ce.yr}년 ${_ce.mo}월 귀속분을 제출할까요?\n제출하면 담당자에게 알림 메일이 가고 엑셀 파일이 내려받아집니다.`)) return;
-  const yr=_ce.yr, mo=_ce.mo;
+  const kLabel = CARD_KIND_LABEL[_ce.kind||'personal'];
+  if(!confirm(`${_ce.yr}년 ${_ce.mo}월 귀속분 ${kLabel} 사용내역을 제출할까요?\n제출하면 담당자에게 알림 메일이 가고 엑셀 파일이 내려받아집니다.`)) return;
+  const yr=_ce.yr, mo=_ce.mo, kind=_ce.kind||'personal';
   const hid = await _ceSave('제출');
   if(!hid) return;
   _ce = null; renderCard();
   try { await downloadCardExcel(hid); } catch(e){ console.warn('엑셀 생성 실패:', e); }
-  const mailOk = await sendCardSubmitMail(currentEmp?.name||'', yr, mo);
+  const mailOk = await sendCardSubmitMail(currentEmp?.name||'', yr, mo, kind);
   showToast(mailOk ? '✅ 제출 완료 · 담당자에게 알림 메일을 보냈습니다'
                    : '⚠️ 제출은 완료됐지만 담당자 알림 메일 발송에 실패했습니다 (담당자에게 따로 알려 주세요)');
 }
@@ -2343,38 +2421,51 @@ function getSortedEmps() {
 }
 function _cardHeaderTotal(h, cat){ return h ? getCardRows(h.id, cat).reduce((s,r)=>s+(Number(r.amount)||0),0) : 0; }
 
+// 총관리 대상 직원: 개인카드 = 전체, 법인카드 = 법인카드 사용자 + 그 해 법인카드 내역이 있는 직원
+function _cardAdminEmps(kind, yr){
+  const all = getSortedEmps();
+  if(kind!=='corp') return all;
+  const has = new Set((db.cardHeaders||[]).filter(h=>_cardKindOf(h)==='corp' && Number(h.year)===Number(yr)).map(h=>String(h.empId)));
+  return all.filter(e=>e.corpCard || has.has(String(e.id)));
+}
+function _cardAmtOf(h){ if(!h) return 0; return _cardKindOf(h)==='corp' ? _cardHeaderTotal(h,'법인카드') : _cardHeaderTotal(h,'개인카드')+_cardHeaderTotal(h,'교통비'); }
+function switchCardAdminKind(k){ cardAdminKind = k==='corp' ? 'corp' : 'personal'; renderCardAdmin(cardYear, currentMonth); }
+
 function renderCardAdmin(yr, mo) {
   cardYear = yr; currentMonth = mo;
+  const kind = cardAdminKind==='corp' ? 'corp' : 'personal';
+  const isCorp = kind==='corp';
+  const K = CARD_KIND_LABEL[kind];
   const isAllMode = mo===0;
   const tabBtn = (m,label) => `<button onclick="renderCardAdmin(${yr},${m})" style="padding:5px 10px;border:1px solid var(--border2);border-radius:6px;background:${m===mo?'var(--accent)':'transparent'};color:${m===mo?'#fff':'var(--text2)'};cursor:pointer;font-size:13px;${m===0?'font-weight:600':''}">${label}</button>`;
   const monthTabs = tabBtn(0,'전체')+' '+Array.from({length:12},(_,i)=>tabBtn(i+1,(i+1)+'월')).join('');
   const yearNav = `<button class="btn btn-sm" onclick="renderCardAdmin(${yr-1},${mo})">◀</button><span style="font-weight:700;padding:0 6px">${yr}년</span><button class="btn btn-sm" onclick="renderCardAdmin(${yr+1},${mo})">▶</button>`;
+  const kindTab = (k,label) => `<button onclick="switchCardAdminKind('${k}')" style="padding:8px 18px;border:2px solid ${k===kind?'var(--accent)':'var(--border2)'};border-radius:8px;background:${k===kind?'var(--accent)':'transparent'};color:${k===kind?'#fff':'var(--text2)'};cursor:pointer;font-size:14px;font-weight:700">${label}</button>`;
   const sc={작성중:'#64748b',제출:'#2563eb',확인:'#16a34a',반려:'#dc2626'};
-  const rows = getSortedEmps().map(e=>{
+  const emps = _cardAdminEmps(kind, yr);
+  const td = (v,extra='') => `<td style="padding:9px 10px;${extra}">${v}</td>`;
+  const won = v => v ? v.toLocaleString()+'원' : '—';
+  const rows = emps.map(e=>{
     if(isAllMode){
-      const headers=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&String(h.empId)===String(e.id));
+      const headers=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&String(h.empId)===String(e.id)&&_cardKindOf(h)===kind);
+      if(isCorp){
+        const tot=headers.reduce((s,h)=>s+_cardHeaderTotal(h,'법인카드'),0);
+        return `<tr>${td(_ceEsc(e.name))}${td(_ceEsc(e.dept),'color:var(--text3)')}${td(won(tot),'text-align:right;font-weight:700;color:var(--accent)')}${td(headers.length+'개월','color:var(--text3);font-size:12px')}</tr>`;
+      }
       const totalCc=headers.reduce((s,h)=>s+_cardHeaderTotal(h,'개인카드'),0);
       const totalCt=headers.reduce((s,h)=>s+_cardHeaderTotal(h,'교통비'),0);
       const lastH=[...headers].sort((a,b)=>b.month-a.month)[0];
-      return `<tr>
-        <td style="padding:9px 10px">${_ceEsc(e.name)}</td>
-        <td style="padding:9px 10px;color:var(--text3)">${_ceEsc(e.dept)}</td>
-        <td style="padding:9px 10px;text-align:right">${totalCc?totalCc.toLocaleString()+'원':'—'}</td>
-        <td style="padding:9px 10px;text-align:right">${totalCt?totalCt.toLocaleString()+'원':'—'}</td>
-        <td style="padding:9px 10px;text-align:right;font-weight:700;color:var(--accent)">${(totalCc+totalCt)?(totalCc+totalCt).toLocaleString()+'원':'—'}</td>
-        <td style="padding:9px 10px;color:var(--text3);font-size:12px">${lastH?_ceEsc(lastH.bankName+' '+lastH.accountNumber+' ('+lastH.accountHolder+')'):'—'}</td>
-      </tr>`;
+      return `<tr>${td(_ceEsc(e.name))}${td(_ceEsc(e.dept),'color:var(--text3)')}${td(won(totalCc),'text-align:right')}${td(won(totalCt),'text-align:right')}${td(won(totalCc+totalCt),'text-align:right;font-weight:700;color:var(--accent)')}${td(lastH?_ceEsc(lastH.bankName+' '+lastH.accountNumber+' ('+lastH.accountHolder+')'):'—','color:var(--text3);font-size:12px')}</tr>`;
     }
-    const h=getCardHeader(e.id,yr,mo);
+    const h=getCardHeader(e.id,yr,mo,kind);
     const st=h?h.status:'미제출';
     const color=sc[st]||'#94a3b8';
-    const cc=_cardHeaderTotal(h,'개인카드'), ct=_cardHeaderTotal(h,'교통비');
+    const amounts = isCorp ? td(won(_cardHeaderTotal(h,'법인카드')),'text-align:right')
+      : td(won(_cardHeaderTotal(h,'개인카드')),'text-align:right')+td(won(_cardHeaderTotal(h,'교통비')),'text-align:right');
     return `<tr>
-      <td style="padding:9px 10px">${_ceEsc(e.name)}</td>
-      <td style="padding:9px 10px;color:var(--text3)">${_ceEsc(e.dept)}</td>
+      ${td(_ceEsc(e.name))}${td(_ceEsc(e.dept),'color:var(--text3)')}
       <td style="padding:9px 10px"><span style="background:${color}15;color:${color};border:1px solid ${color}40;border-radius:20px;padding:2px 10px;font-size:12px;font-weight:600">${_ceEsc(st)}</span></td>
-      <td style="padding:9px 10px;text-align:right">${cc?cc.toLocaleString()+'원':'—'}</td>
-      <td style="padding:9px 10px;text-align:right">${ct?ct.toLocaleString()+'원':'—'}</td>
+      ${amounts}
       <td style="padding:9px 10px;text-align:right;white-space:nowrap">
         ${h?`<button class="btn btn-sm" onclick="openCardAdminEdit(${Number(h.id)})">상세/편집</button>`:`<button class="btn btn-sm btn-primary" onclick="openCardAdminNew(${Number(e.id)})">등록</button>`}
         ${h&&h.status==='제출'?`<button class="btn btn-sm btn-primary" onclick="confirmCard(${Number(h.id)})" style="margin-left:4px">확인</button><button class="btn btn-sm btn-danger" onclick="rejectCard(${Number(h.id)})" style="margin-left:4px">반려</button>`:''}
@@ -2382,11 +2473,18 @@ function renderCardAdmin(yr, mo) {
       </td>
     </tr>`;
   }).join('');
+  const th = (v,al='left') => `<th style="padding:8px 10px;text-align:${al}">${v}</th>`;
+  const heads = isAllMode
+    ? (isCorp ? th('법인카드(연)','right')+th('제출 월수') : th('개인카드(연)','right')+th('교통비(연)','right')+th('합계','right')+th('입금정보'))
+    : th('상태') + (isCorp ? th('법인카드','right') : th('개인카드','right')+th('교통비','right')) + th('관리','right');
+  const nCols = 2 + (isAllMode ? (isCorp?2:4) : (isCorp?3:4));
+  const emptyRow = `<tr><td colspan="${nCols}" style="padding:18px;text-align:center;color:var(--text3)">${isCorp?'법인카드 사용자로 지정된 직원이 없습니다. 총관리자 → 🔐 권한 관리에서 💳 법인카드를 체크해 주세요.':'직원이 없습니다.'}</td></tr>`;
   const recv=_getCardRecvMails().join(', ');
   setContent(`
+    <div style="display:flex;gap:8px;margin-bottom:12px">${kindTab('personal','💳 개인카드')}${kindTab('corp','🏢 법인카드')}</div>
     <div class="card" style="margin-bottom:14px">
       <div class="card-title">📨 제출 알림 수신 메일</div>
-      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">직원이 개인카드내역을 <b>제출</b>하면 아래 메일로 알림이 갑니다. (파일은 첨부되지 않으며, 근태관리 시스템에 로그인해서 확인합니다) 여러 명은 쉼표(,)로 구분해 주세요.</div>
+      <div style="font-size:13px;color:var(--text3);margin-bottom:12px">직원이 개인카드·법인카드 내역을 <b>제출</b>하면 아래 메일로 알림이 갑니다. (파일은 첨부되지 않으며, 근태관리 시스템에 로그인해서 확인합니다) 여러 명은 쉼표(,)로 구분해 주세요.</div>
       <div style="display:flex;gap:8px;align-items:center">
         <input id="card-recv-mail-admin" value="${_ceEsc(recv)}" placeholder="예: finance@jmsemicon.co.kr"
           style="flex:1;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:14px">
@@ -2395,17 +2493,14 @@ function renderCardAdmin(yr, mo) {
     </div>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px">
-        <div class="card-title" style="margin:0;color:#dc2626">📋 ${yr}년 ${isAllMode?'전체':mo+'월 귀속분'} 개인카드 사용내역 현황</div>
+        <div class="card-title" style="margin:0;color:#dc2626">📋 ${yr}년 ${isAllMode?'전체':mo+'월 귀속분'} ${K} 사용내역 현황</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${yearNav}${monthTabs}</div>
       </div>
       ${isAllMode?'':`<div style="font-size:13px;color:var(--text3);margin-bottom:10px">직원 입력·제출 마감: ${cardDeadline(yr,mo)}</div>`}
+      ${isCorp?'<div style="font-size:13px;color:var(--text3);margin-bottom:10px">※ 법인카드는 회사가 카드사에 결제하므로 입금 정보가 없습니다.</div>':''}
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
-        <thead><tr style="background:var(--bg);color:var(--text2)">
-          <th style="padding:8px 10px;text-align:left">이름</th>
-          <th style="padding:8px 10px;text-align:left">부서</th>
-          ${isAllMode?`<th style="padding:8px 10px;text-align:right">개인카드(연)</th><th style="padding:8px 10px;text-align:right">교통비(연)</th><th style="padding:8px 10px;text-align:right">합계</th><th style="padding:8px 10px;text-align:left">입금정보</th>`:`<th style="padding:8px 10px;text-align:left">상태</th><th style="padding:8px 10px;text-align:right">개인카드</th><th style="padding:8px 10px;text-align:right">교통비</th><th style="padding:8px 10px;text-align:right">관리</th>`}
-        </tr></thead>
-        <tbody>${rows}</tbody>
+        <thead><tr style="background:var(--bg);color:var(--text2)">${th('이름')}${th('부서')}${heads}</tr></thead>
+        <tbody>${rows||emptyRow}</tbody>
       </table></div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="downloadCardSummaryExcel(${yr},${mo})">📥 ${isAllMode?'전체 통계':mo+'월 현황'} 엑셀 추출</button>
@@ -2418,25 +2513,29 @@ async function downloadCardSummaryExcel(yr, mo) {
   if(!window.XLSX){
     await new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';sc.onload=res;sc.onerror=rej;document.head.appendChild(sc);});
   }
+  const kind = cardAdminKind==='corp' ? 'corp' : 'personal';
+  const isCorp = kind==='corp';
+  const T = isCorp ? '법인카드사용' : '개인카드비용';
   const XL=window.XLSX;
   const wb=XL.utils.book_new();
-  const emps=getSortedEmps();
+  const emps=_cardAdminEmps(kind, yr);
   const months=mo===0?Array.from({length:12},(_,i)=>i+1):[mo];
-  const hdrOf=(e,m)=>getCardHeader(e.id,yr,m);
-  const amtOf=h=>_cardHeaderTotal(h,'개인카드')+_cardHeaderTotal(h,'교통비');
+  const hdrOf=(e,m)=>getCardHeader(e.id,yr,m,kind);
 
   for(const m of months){
-    const headers=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&Number(h.month)===m);
+    const headers=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&Number(h.month)===m&&_cardKindOf(h)===kind);
     if(!headers.length && mo!==0) continue;
     const aoa=[];
-    aoa.push([null,`개인카드비용_${yr}년도 ${m}월 귀속분`]);
+    aoa.push([null,`${T}_${yr}년도 ${m}월 귀속분`]);
     aoa.push([]);
-    aoa.push([null,'코드','직원명',`${yr}년 ${m}월 총 사용금액`,'은행명','계좌번호','예금주']);
+    aoa.push(isCorp ? [null,'코드','직원명',`${yr}년 ${m}월 총 사용금액`,'상태']
+                    : [null,'코드','직원명',`${yr}년 ${m}월 총 사용금액`,'은행명','계좌번호','예금주']);
     let totalSum=0;
     emps.forEach((e,i)=>{
       const h=hdrOf(e,m);
-      const total=amtOf(h);
+      const total=_cardAmtOf(h);
       totalSum+=total;
+      if(isCorp){ aoa.push([null,i+1,e.name,total||null,h?h.status:null]); return; }
       const b=h||getLastBankInfo(e.id);
       aoa.push([null,i+1,e.name,total||null,b.bankName||null,b.accountNumber||null,b.accountHolder||null]);
     });
@@ -2448,16 +2547,17 @@ async function downloadCardSummaryExcel(yr, mo) {
   }
   if(mo===0){
     const aoa2=[];
-    aoa2.push([null,`개인카드비용_${yr}년도 연간 합계`]);
+    aoa2.push([null,`${T}_${yr}년도 연간 합계`]);
     aoa2.push([]);
-    aoa2.push([null,'코드','직원명',...Array.from({length:12},(_,i)=>`${i+1}월`),'연간합계','은행명','계좌번호','예금주']);
+    aoa2.push([null,'코드','직원명',...Array.from({length:12},(_,i)=>`${i+1}월`),'연간합계',...(isCorp?[]:['은행명','계좌번호','예금주'])]);
     let grandTotal=0;
     const foot=Array(12).fill(0);
     emps.forEach((e,i)=>{
-      const monthAmts=Array.from({length:12},(_,mi)=>{ const h=hdrOf(e,mi+1); const v=h?amtOf(h):null; if(v) foot[mi]+=v; return v; });
+      const monthAmts=Array.from({length:12},(_,mi)=>{ const h=hdrOf(e,mi+1); const v=h?_cardAmtOf(h):null; if(v) foot[mi]+=v; return v; });
       const empTotal=monthAmts.reduce((s,v)=>s+(v||0),0);
       grandTotal+=empTotal;
-      const lastH=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&String(h.empId)===String(e.id)).sort((a,b)=>b.month-a.month)[0];
+      if(isCorp){ aoa2.push([null,i+1,e.name,...monthAmts,empTotal||null]); return; }
+      const lastH=(db.cardHeaders||[]).filter(h=>Number(h.year)===yr&&String(h.empId)===String(e.id)&&_cardKindOf(h)==='personal').sort((a,b)=>b.month-a.month)[0];
       aoa2.push([null,i+1,e.name,...monthAmts,empTotal||null,lastH?.bankName||null,lastH?.accountNumber||null,lastH?.accountHolder||null]);
     });
     aoa2.push([null,null,'합계',...foot.map(v=>v||null),grandTotal]);
@@ -2468,7 +2568,7 @@ async function downloadCardSummaryExcel(yr, mo) {
   if(!wb.SheetNames.length){ showToast('⚠️ 해당 월에 입력된 내역이 없습니다'); return null; }
   const wbBin=XL.write(wb,{bookType:'xlsx',type:'array'});
   const blob=new Blob([wbBin],{type:'application/octet-stream'});
-  const fileName=mo===0?`개인카드비용_${yr}년_전체통계.xlsx`:`개인카드비용_${yr}년${mo}월.xlsx`;
+  const fileName=mo===0?`${T}_${yr}년_전체통계.xlsx`:`${T}_${yr}년${mo}월.xlsx`;
   const url=URL.createObjectURL(blob);
   const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
   showToast('📥 엑셀 추출 완료');
@@ -2491,20 +2591,26 @@ async function saveCardMailSettingAdmin() {
 // ── 총관리: 직원 내역 등록/편집 모달 ──
 function openCardAdminNew(empId) {
   if(!eid(empId)) return;
-  _openCardEditModal(empId, cardYear, currentMonth || _calcDefaultCardYM().m);
+  _openCardEditModal(empId, cardYear, currentMonth || _calcDefaultCardYM().m, cardAdminKind==='corp'?'corp':'personal');
 }
 function openCardAdminEdit(headerId) {
   const h=(db.cardHeaders||[]).find(h=>String(h.id)===String(headerId));
   if(!h) return;
-  _openCardEditModal(h.empId, Number(h.year), Number(h.month));
+  _openCardEditModal(h.empId, Number(h.year), Number(h.month), _cardKindOf(h));
 }
-function _openCardEditModal(empId, yr, mo) {
-  _ceOpen('modal', empId, yr, mo);
+function _openCardEditModal(empId, yr, mo, kind='personal') {
+  _ceOpen('modal', empId, yr, mo, kind);
   const emp=eid(empId);
+  const body = kind==='corp' ? `
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent)">🏢 법인카드 사용내역 <span style="font-weight:600;color:var(--text2)">합계 <span id="ce-total-corp">${_ceSum('법인카드').toLocaleString()}원</span></span></div>
+      <div id="ce-m-corp">${_ceTable('법인카드',true)}</div>
+      <button class="btn btn-sm btn-primary" onclick="_ceAdd('법인카드')" style="margin:6px 0 14px">+ 행 추가</button>
+      <div style="font-size:12px;color:var(--text3)">※ 법인카드 사용분은 입금 대상이 아닙니다.</div>` : null;
   openModal(`
-    <div class="modal-title" style="color:#dc2626">💳 ${_ceEsc(emp?.name||'')}님 ${yr}년 ${mo}월 귀속분 개인카드 사용내역</div>
+    <div class="modal-title" style="color:#dc2626">${kind==='corp'?'🏢':'💳'} ${_ceEsc(emp?.name||'')}님 ${yr}년 ${mo}월 귀속분 ${CARD_KIND_LABEL[kind]} 사용내역</div>
     <div style="max-height:75vh;overflow-y:auto;padding-right:4px">
       ${CARD_RECEIPT_NOTICE}
+      ${body!==null ? body : `
       <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:var(--accent)">💳 개인카드 지출 <span style="font-weight:600;color:var(--text2)">합계 <span id="ce-total-cc">${_ceSum('개인카드').toLocaleString()}원</span></span></div>
       <div id="ce-m-cc">${_ceTable('개인카드',true)}</div>
       <button class="btn btn-sm btn-primary" onclick="_ceAdd('개인카드')" style="margin:6px 0 14px">+ 행 추가</button>
@@ -2512,7 +2618,7 @@ function _openCardEditModal(empId, yr, mo) {
       <div id="ce-m-ct">${_ceTable('교통비',true)}</div>
       <button class="btn btn-sm btn-primary" onclick="_ceAdd('교통비')" style="margin:6px 0 14px">+ 행 추가</button>
       ${_ceBankHtml(true)}
-      <div style="text-align:right;font-size:15px;font-weight:800;margin-top:10px">총 금액: <span id="ce-total-all">${(_ceSum('개인카드')+_ceSum('교통비')).toLocaleString()}원</span></div>
+      <div style="text-align:right;font-size:15px;font-weight:800;margin-top:10px">총 금액: <span id="ce-total-all">${(_ceSum('개인카드')+_ceSum('교통비')).toLocaleString()}원</span></div>`}
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="cancelCardAdminModal()">취소</button>
@@ -2566,7 +2672,8 @@ async function rejectCard(headerId) {
 async function downloadCardExcel(headerId) {
   const h=(db.cardHeaders||[]).find(h=>String(h.id)===String(headerId)); if(!h){ showToast('⚠️ 저장된 내역이 없습니다'); return null; }
   const e=eid(h.empId); if(!e)return null;
-  const ccRows=getCardRows(h.id,'개인카드'), ctRows=getCardRows(h.id,'교통비');
+  const isCorp=_cardKindOf(h)==='corp';
+  const ccRows=getCardRows(h.id,isCorp?'법인카드':'개인카드'), ctRows=isCorp?[]:getCardRows(h.id,'교통비');
   const ccTotal=ccRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
   const ctTotal=ctRows.reduce((s,r)=>s+(Number(r.amount)||0),0);
   const yr=h.year, mo=String(h.month).padStart(2,'0');
@@ -2595,7 +2702,7 @@ async function downloadCardExcel(headerId) {
   const TOTAL_R=CT_SUM+2, BANK_LBL=CT_SUM+4, BANK_HDR=CT_SUM+5, BANK_VAL=CT_SUM+6;
   const boxed=(r,c,v)=>{ r.getCell(c).value=v; _st(r.getCell(c),{font:FONT_BASE,align:ALIGN_C,border:_bd('thin','thin','thin','thin')}); };
 
-  { const r=ws.getRow(1); r.getCell(5).value='개인카드 지출결의서'; _st(r.getCell(5),{font:FONT_TITLE,align:ALIGN_L}); boxed(r,8,'소속기관'); boxed(r,9,'㈜제이엠반도체'); }
+  { const r=ws.getRow(1); r.getCell(5).value=isCorp?'법인카드 사용내역서':'개인카드 지출결의서'; _st(r.getCell(5),{font:FONT_TITLE,align:ALIGN_L}); boxed(r,8,'소속기관'); boxed(r,9,'㈜제이엠반도체'); }
   { const r=ws.getRow(2); boxed(r,8,'작성자'); boxed(r,9,e.name); }
   { const r=ws.getRow(3); boxed(r,8,'작성일자'); boxed(r,9,todayStr2); }
   { const r=ws.getRow(5); r.getCell(1).value=`${yr}년 ${h.month}월귀속`; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L}); }
@@ -2617,6 +2724,11 @@ async function downloadCardExcel(headerId) {
   };
   writeSection(CC_HDR,['NO','사용일자','사용내역 (자세히 기입필요)','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)','개인/본사/양감'],CC_S,CC_N,ccRows,true);
   { const r=ws.getRow(CC_SUM); r.getCell(1).value='합계'; r.getCell(7).value=ccTotal; _row9(ws,CC_SUM,true,'medium','medium'); r.getCell(7).numFmt='#,##0'; }
+  if(isCorp){
+    // 법인카드: 교통비·입금정보 없음
+    { const r=ws.getRow(CC_SUM+2); r.getCell(1).value='※ 법인카드 사용분은 회사가 카드사에 결제합니다 (입금 대상 아님)'; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L}); }
+    for(let rn=1;rn<=CC_SUM+2;rn++) ws.getRow(rn).height=17.25;
+  } else {
   { const r=ws.getRow(CT_LBL); r.getCell(1).value='교통비'; r.getCell(2).value='(차량번호:           )'; _st(r.getCell(1),{font:FONT_BASE,align:ALIGN_L}); _st(r.getCell(2),{font:FONT_BASE,align:ALIGN_L}); }
   writeSection(CT_HDR,['NO','사용일자','사용내역','카드사','카드번호','사용처','사용금액','지출증빙(현금영수증/영수증)',''],CT_S,CT_N,ctRows,false);
   { const r=ws.getRow(CT_SUM); r.getCell(1).value='합계'; r.getCell(7).value=ctTotal; _row9(ws,CT_SUM,true,'medium','medium'); r.getCell(7).numFmt='#,##0'; }
@@ -2625,6 +2737,7 @@ async function downloadCardExcel(headerId) {
   { const r=ws.getRow(BANK_HDR); r.getCell(1).value='은행명'; r.getCell(3).value='계좌번호'; r.getCell(4).value='예금주명'; [1,3,4].forEach(c=>_st(r.getCell(c),{font:FONT_BASE,align:ALIGN_L})); }
   { const r=ws.getRow(BANK_VAL); r.getCell(1).value=h.bankName||''; r.getCell(3).value=h.accountNumber||''; r.getCell(4).value=h.accountHolder||''; [1,3,4].forEach(c=>_st(r.getCell(c),{font:FONT_BASE,align:ALIGN_L})); }
   for(let rn=1;rn<=BANK_VAL;rn++) ws.getRow(rn).height=17.25;
+  }
 
   // 시트2: 증빙자료 (영수증 실물 부착용 — 연번만 표시)
   const ws2=wb.addWorksheet('증빙');
@@ -2641,7 +2754,7 @@ async function downloadCardExcel(headerId) {
     }
   }
 
-  const fileName=`개인카드사용대장_${e.name}_${yr}${mo}.xlsx`;
+  const fileName=`${isCorp?'법인카드':'개인카드'}사용대장_${e.name}_${yr}${mo}.xlsx`;
   const buf=await wb.xlsx.writeBuffer();
   const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const url=URL.createObjectURL(blob); const a2=document.createElement('a'); a2.href=url; a2.download=fileName; a2.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -2657,7 +2770,8 @@ function _getCardRecvMails(){
   try{ const p=JSON.parse(raw); return Array.isArray(p)?p.filter(Boolean):[String(p)]; }
   catch(e){ return String(raw).split(',').map(x=>x.trim()).filter(Boolean); }
 }
-async function sendCardSubmitMail(empName, yr, mo) {
+async function sendCardSubmitMail(empName, yr, mo, kind='personal') {
+  const K = CARD_KIND_LABEL[kind] || '개인카드';
   try {
     const recvMails=_getCardRecvMails();
     if(!recvMails.length){ console.warn('카드 제출 알림: 수신 메일 미설정'); return false; }
@@ -2666,15 +2780,15 @@ async function sendCardSubmitMail(empName, yr, mo) {
     const name=_ceEsc(empName);
     const payload={
       to: recvMails,
-      subject:`[JM반도체] ${empName} ${yr}년 ${mo}월 귀속분 개인카드 사용내역 제출`,
+      subject:`[JM반도체] ${empName} ${yr}년 ${mo}월 귀속분 ${K} 사용내역 제출`,
       html:`<div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
-        <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0"><span style="color:#fff;font-size:18px;font-weight:700">JM반도체 개인카드 내역 알림</span></div>
+        <div style="background:#1e40af;padding:16px 20px;border-radius:8px 8px 0 0"><span style="color:#fff;font-size:18px;font-weight:700">JM반도체 ${K} 내역 알림</span></div>
         <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px;padding:20px">
-          <p><b>${name}</b>님이 <b>${yr}년 ${mo}월 귀속분</b> 개인카드 사용내역을 제출했습니다.</p>
+          <p><b>${name}</b>님이 <b>${yr}년 ${mo}월 귀속분</b> ${K} 사용내역을 제출했습니다.</p>
           <p>근태관리 시스템에 로그인해서 확인해 주세요.</p>
           <p><a href="${siteUrl}" style="background:#1e40af;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">근태관리 시스템 열기</a></p>
         </div></div>`,
-      text:`${empName}님이 ${yr}년 ${mo}월 귀속분 개인카드 사용내역을 제출했습니다.\n근태관리 시스템에 로그인해서 확인해 주세요.\n${siteUrl}`
+      text:`${empName}님이 ${yr}년 ${mo}월 귀속분 ${K} 사용내역을 제출했습니다.\n근태관리 시스템에 로그인해서 확인해 주세요.\n${siteUrl}`
     };
     const res=await fetch(`${SUPA_URL}/functions/v1/notify-admin`,{
       method:'POST',
@@ -2741,6 +2855,7 @@ function renderPermissions(){
       <td style="padding:9px 10px;text-align:center;white-space:nowrap">${e.email
         ?`<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" ${receivesNotify(e)?'checked':''} onchange="toggleNotifyMail(${Number(e.id)},this)" style="width:18px;height:18px;cursor:pointer"> <span>${receivesNotify(e)?'🔔 받음':'🔕 안 받음'}</span></label>`
         :'<span style="font-size:12px;color:var(--text3)">이메일 없음</span>'}</td>
+      <td style="padding:9px 10px;text-align:center;white-space:nowrap"><label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" ${e.corpCard?'checked':''} onchange="toggleCorpCard(${Number(e.id)},this)" style="width:18px;height:18px;cursor:pointer"> <span>${e.corpCard?'사용':'—'}</span></label></td>
       <td style="padding:9px 10px;text-align:right;white-space:nowrap">${sup?'':(e.user_id?`<button class="btn btn-sm btn-primary" onclick="openPermEdit(${Number(e.id)})">권한 설정</button>`:'<span style="font-size:12px;color:var(--text3)">로그인 계정 없음</span>')}</td>
     </tr>`;
   }).join('');
@@ -2753,14 +2868,15 @@ function renderPermissions(){
         · <b>직원</b>: 본인 내역만 (지금과 같음)<br>
         · 비활성(퇴사) 처리된 직원의 관리자 권한은 자동으로 사용할 수 없게 됩니다<br>
         · <b>🔔 알림메일</b>: 체크한 사람에게 직원들의 신청(연차·특근·대휴·출장 등)·건강검진·차량 신청 알림메일이 갑니다. 권한과 상관없이 따로 켜고 끌 수 있어요<br>
-        · 신청할 때 직원이 직접 지정한 <b>추가 수신인</b>에게는 이 설정과 상관없이 항상 메일이 갑니다
+        · 신청할 때 직원이 직접 지정한 <b>추가 수신인</b>에게는 이 설정과 상관없이 항상 메일이 갑니다<br>
+        · <b>💳 법인카드</b>: 체크한 직원은 개인카드사용내역 메뉴에 <b>🏢 법인카드</b> 탭이 생겨 법인카드 사용내역을 따로 제출합니다 (입금 정보 없음)
       </div>
     </div>
     <div class="card">
       <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:14px">
         <thead><tr style="background:var(--bg);color:var(--text2)">
           <th style="padding:8px 10px;text-align:left">직원</th><th style="padding:8px 10px;text-align:left">구분</th>
-          <th style="padding:8px 10px;text-align:left">부여된 권한</th><th style="padding:8px 10px">🔔 알림메일</th><th style="padding:8px 10px"></th>
+          <th style="padding:8px 10px;text-align:left">부여된 권한</th><th style="padding:8px 10px">🔔 알림메일</th><th style="padding:8px 10px">💳 법인카드</th><th style="padding:8px 10px"></th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table></div>
@@ -2781,6 +2897,22 @@ async function toggleNotifyMail(empId, el){
   e.notifyMail=on; saveAll(); await loadAdminEmails();
   const sp=el.parentElement?.querySelector('span'); if(sp) sp.textContent = on?'🔔 받음':'🔕 안 받음';
   showToast(on ? `🔔 ${e.name}님이 알림메일을 받습니다` : `🔕 ${e.name}님 알림메일을 껐습니다`);
+}
+async function toggleCorpCard(empId, el){
+  if(!isSuperAdmin || !_supa) return;
+  const e=(db.allEmployees||db.employees||[]).find(x=>String(x.id)===String(empId)); if(!e) return;
+  const on=!!el.checked; el.disabled=true;
+  const { data, error } = await _supa.from('employees').update({ corp_card: on }).eq('id', e.id).select('id');
+  el.disabled=false;
+  if(error || !data || !data.length){
+    el.checked=!on;
+    const colMissing = error && /corp_card/.test(error.message||'');
+    showToast(colMissing ? '⚠️ Supabase에 법인카드 설정(SQL)을 먼저 적용해 주세요' : '⚠️ 저장 실패: '+(error?.message||'변경된 행 없음'));
+    return;
+  }
+  e.corpCard=on; saveAll();
+  const sp=el.parentElement?.querySelector('span'); if(sp) sp.textContent = on?'사용':'—';
+  showToast(on ? `💳 ${e.name}님을 법인카드 사용자로 지정했습니다` : `${e.name}님 법인카드 사용자 지정을 해제했습니다`);
 }
 function openPermEdit(empId){
   if(!isSuperAdmin) return;
