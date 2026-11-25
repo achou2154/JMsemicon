@@ -1523,7 +1523,7 @@ function closeSidebarIfOpen() {
 }
 function updateMobileTabbar(page) {
   document.querySelectorAll('#mobile-tabbar button').forEach(b => b.classList.remove('active'));
-  const tabMap = {calendar:'mtab-calendar',requests:'mtab-requests',leave:'mtab-leave',roster:'mtab-roster'};
+  const tabMap = {calendar:'mtab-calendar',requests:'mtab-requests',leave:'mtab-leave',ot:'mtab-ot'};
   const activeId = tabMap[page];
   if (activeId) document.getElementById(activeId)?.classList.add('active');
 }
@@ -11049,8 +11049,8 @@ if (initSupabase()) {
   <button onclick="go('leave')" id="mtab-leave">
     <span class="tab-icon">🏖️</span>연차
   </button>
-  <button onclick="go('roster')" id="mtab-roster">
-    <span class="tab-icon">👥</span>명부
+  <button onclick="go('ot')" id="mtab-ot">
+    <span class="tab-icon">⏰</span>특근/대휴
   </button>
   <button onclick="toggleSidebar()" id="mtab-menu">
     <span class="tab-icon">☰</span>메뉴
