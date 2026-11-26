@@ -5710,7 +5710,8 @@ function renderHealth(){
     ? db.employees.filter(e=>!e.isExternal&&!e.isInactive)
     : db.employees.filter(e=>currentEmp && String(e.id)===String(currentEmp.id));
 
-  const sortedEmps = showEmps.slice().sort((a,b)=>{
+  const _otherIds = new Set(otherClinicEmps.map(o=>String(o.e.id)));
+  const sortedEmps = showEmps.filter(e=>!_otherIds.has(String(e.id))).sort((a,b)=>{   // 타기관 검진자는 아래 노란 행에만 표시
     const ha = db.health.find(r=>String(r.empId)===String(a.id)&&String(r.year)===String(yr));
     const hb = db.health.find(r=>String(r.empId)===String(b.id)&&String(r.year)===String(yr));
     const da = ha?.reserveDate||'9999-99-99';
@@ -5741,14 +5742,14 @@ function renderHealth(){
   }).join('');
 
   // 타기관 검진자 행
-  const otherRows = otherClinicEmps.map(({e,h})=>{
+  const otherRows = otherClinicEmps.filter(({e})=>isAdmin || (currentEmp && String(e.id)===String(currentEmp.id))).map(({e,h})=>{   // 직원은 본인 것만
     const isMine = currentEmp && String(e.id)===String(currentEmp.id);
     const famMembers = (h?.members||[]).filter(m=>m.relation!=='본인');
     const famBadges = famMembers.map(m=>`<span class="badge" style="font-size:11px;margin-right:2px">${m.relation}</span>`).join('');
     return`<tr style="background:#fef9ec">
       <td><div class="name-cell">${av(e.id)}<span>${e.name}</span></div></td>
       <td>${e.dept}</td>
-      <td colspan="2" style="font-size:13px;color:var(--text2)">타기관 검진 (실비지원)</td>
+      <td colspan="2" style="font-size:13px;color:var(--text2)">${(()=>{const _m=(h?.members||[]).find(m=>m.relation==='본인')||h?.members?.[0];const _d=h?.reserveDate||_m?.reserveDate||'';const _i=_m?.institution||'';return (_d?`<b style="color:var(--text)">${fmt(_d)}</b> · `:'')+(_i?String(_i).replace(/</g,'&lt;'):'타기관 검진')+' <span style="color:var(--text3)">(실비지원)</span>';})()}</td>
       <td><span class="badge" style="background:#fef3c7;color:#92400e">타기관</span></td>
       <td style="font-size:12px">${famBadges||'—'}</td>
       <td style="white-space:nowrap">
@@ -5795,7 +5796,7 @@ function renderHealth(){
       <div class="card-title">${yr}년 건강검진 현황</div>
       <div class="table-wrap"><table>
         <thead><tr><th>직원</th><th>부서</th><th>예약일</th><th>수검일</th><th>상태</th><th>가족</th><th></th></tr></thead>
-        <tbody>${rows||emptyRow(7)}${otherRows}</tbody>
+        <tbody>${rows||(otherRows?'':emptyRow(7))}${otherRows}</tbody>
       </table></div>
     </div>
     ${otherClinicCount>0?`
@@ -5846,7 +5847,11 @@ function openHealthApply(empId) {
       <button class="btn btn-sm btn-danger" onclick="this.closest('.fam-row').remove()" style="padding:4px 8px">✕</button>
     </div>`).join('');
 
-  const isOtherInit = h?.members?.[0]?.otherClinic || false;
+  const _hMain = h?.members?.find(m=>m.relation==='본인') || h?.members?.[0];
+  const isOtherInit = _hMain?.otherClinic || false;
+  const ocDate = isOtherInit ? (h?.reserveDate || _hMain?.reserveDate || '') : '';
+  const ocInst = isOtherInit ? (_hMain?.institution || '') : '';
+  const _ocNum = 'padding:9px 10px;border:1px solid var(--border2);border-radius:var(--radius);font-size:15px';
   openModal(`
     <div class="modal-title">건강검진 예약 신청 — ${e.name}</div>
     <div id="h-reserve-wrap" class="field" style="margin-bottom:12px${isOtherInit?';opacity:0.4':''}">
@@ -5883,9 +5888,25 @@ function openHealthApply(empId) {
       <div style="font-size:12px;color:var(--text3);margin-top:4px;margin-left:23px">
         ※ 동일한 금액 실비지원 (영수증이 없는 경우, 소득세 발생)
       </div>
+      <div id="h-other-wrap" style="display:${isOtherInit?'block':'none'};margin-top:10px;background:#fef9ec;border:1px solid #fcd34d;border-radius:var(--radius);padding:12px 14px">
+        <div class="field" style="margin-bottom:10px">
+          <label>검진일 *</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input type="number" id="h-oc-year" placeholder="년(4자리)" value="${ocDate?ocDate.slice(0,4):''}" style="width:90px;${_ocNum}" oninput="if(this.value.length>4)this.value=this.value.slice(0,4)">
+            <span>-</span>
+            <input type="number" id="h-oc-month" placeholder="월" value="${ocDate?parseInt(ocDate.slice(5,7)):''}" style="width:60px;${_ocNum}" oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+            <span>-</span>
+            <input type="number" id="h-oc-day" placeholder="일" value="${ocDate?parseInt(ocDate.slice(8,10)):''}" style="width:60px;${_ocNum}" oninput="if(this.value.length>2)this.value=this.value.slice(0,2)">
+          </div>
+        </div>
+        <div class="field">
+          <label>검진기관 *</label>
+          <input id="h-oc-inst" value="${(ocInst||'').replace(/"/g,'&quot;')}" placeholder="예) ○○병원 건강검진센터" style="${_ocNum}">
+        </div>
+      </div>
     </div>
     <div style="background:var(--bg);border-radius:var(--radius);padding:10px 14px;font-size:13px;color:var(--text2);margin-bottom:16px">
-      💡 <span id="h-notice-text">예약일 입력 후 저장하면 관리자 승인을 받습니다.</span>
+      💡 <span id="h-notice-text">${isOtherInit?'타기관 검진은 검진일과 검진기관을 입력하면 바로 등록되고, 타기관 검진으로 집계됩니다.':'예약일 입력 후 저장하면 관리자 승인을 받습니다.'}</span>
     </div>
     <div class="modal-footer">
       <button class="btn" onclick="closeModal()">취소</button>
@@ -5909,9 +5930,11 @@ function toggleHealthReserveDate(isOther) {
     famWrap.querySelectorAll('input').forEach(inp => inp.disabled = isOther);
   }
   if (famBtn) famBtn.disabled = isOther;
+  const ocWrap = document.getElementById('h-other-wrap');
+  if (ocWrap) ocWrap.style.display = isOther ? 'block' : 'none';
   if (noticeText) {
     noticeText.textContent = isOther
-      ? '타기관 검진은 예약일 없이 저장하면 바로 관리자 승인을 받습니다.'
+      ? '타기관 검진은 검진일과 검진기관을 입력하면 바로 등록되고, 타기관 검진으로 집계됩니다.'
       : '예약일 입력 후 저장하면 관리자 승인을 받습니다.';
   }
 }
@@ -5938,24 +5961,37 @@ function addFamRow() {
 
 async function saveHealthApply(empId) {
   const otherClinic = document.getElementById('h-other-clinic')?.checked || false;
-  let reserveDate = '';
-  if (!otherClinic) {
-    const resY = document.getElementById('h-res-year')?.value;
-    const resM = String(document.getElementById('h-res-month')?.value||'').padStart(2,'0');
-    const resD = String(document.getElementById('h-res-day')?.value||'').padStart(2,'0');
-    reserveDate = (resY&&resM&&resD) ? `${resY}-${resM}-${resD}` : '';
-    if (!reserveDate || resY.length!==4) { showToast('예약일을 올바르게 입력하세요 (년 4자리)'); return; }
+  // 년·월·일 3칸 → YYYY-MM-DD (잘못된 날짜면 '')
+  const _readYMD = (p) => {
+    const y = String(document.getElementById(p+'-year')?.value||'').trim();
+    const m = parseInt(document.getElementById(p+'-month')?.value||'',10);
+    const d = parseInt(document.getElementById(p+'-day')?.value||'',10);
+    if (y.length!==4 || !(m>=1&&m<=12) || !(d>=1&&d<=new Date(+y,m,0).getDate())) return '';
+    return `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  };
+  let reserveDate = '', institution = '';
+  if (otherClinic) {
+    // 타기관 검진: 검진일 + 검진기관 필수
+    reserveDate = _readYMD('h-oc');
+    institution = (document.getElementById('h-oc-inst')?.value||'').trim();
+    if (!reserveDate) { showToast('⚠️ 타기관 검진일을 올바르게 입력하세요 (년 4자리)'); return; }
+    if (!institution) { showToast('⚠️ 검진기관을 입력하세요'); return; }
+  } else {
+    reserveDate = _readYMD('h-res');
+    if (!reserveDate) { showToast('예약일을 올바르게 입력하세요 (년 4자리)'); return; }
   }
   const yr = currentYear;
   const h = db.health.find(r=>String(r.empId)===String(empId)&&String(r.year)===String(yr));
-  // 타기관 검진이면 별도 status 사용 (미검진과 구분)
-  const newStatus = otherClinic ? 'other_clinic'
-    : (h?.status === 'approved' ? 'modify_requested' : 'pending');
+  // 타기관 검진은 DB 상태값 제한(pending/approved/modify_requested/completed) 때문에
+  // status='approved' + 본인 항목의 otherClinic 표시로 저장 → 화면·집계에서 '타기관'으로 구분
+  const _wasOther = !!(h?.members?.find(m=>m.relation==='본인')||h?.members?.[0])?.otherClinic;
+  const newStatus = otherClinic ? 'approved'
+    : (h?.status === 'approved' && !_wasOther ? 'modify_requested' : 'pending');
+  const newApproved = otherClinic;
 
-  // 가족 정보 수집
-  const famRows = document.querySelectorAll('#fam-list .fam-row');
-  // otherClinic은 위에서 처리됨
-  const members = [{relation:'본인', birthdate:'', confirmed:false, reserveDate, checkupDate:'', cost:0, otherClinic}];
+  // 가족 정보 수집 (타기관 검진이면 가족 입력칸이 잠겨 있으므로 본인만)
+  const famRows = otherClinic ? [] : document.querySelectorAll('#fam-list .fam-row');
+  const members = [{relation:'본인', birthdate:'', confirmed:false, reserveDate, checkupDate:'', cost:0, otherClinic, institution: otherClinic ? institution : ''}];
   famRows.forEach(row => {
     const relEl = row.querySelector('input[id^="fam-rel"]');
     const nameEl = row.querySelector('input[id^="fam-name"]');
@@ -5972,31 +6008,27 @@ async function saveHealthApply(empId) {
     }
   });
 
+  const membersJson = JSON.stringify(members);
   if (h?.id) {
-    const membersJson = JSON.stringify(members);
     const ok = await sbUpdate('health_records', h.id, {
-      reserve_date: reserveDate, status: newStatus, approved: false, members_json: membersJson
+      reserve_date: reserveDate || null, status: newStatus, approved: newApproved, members_json: membersJson
     });
-    if (ok) {
-      h.reserveDate = reserveDate;
-      h.status = newStatus;
-      h.approved = false;
-      h.members = members; // 로컬에도 반영 (otherClinic 포함)
-      try { h.members = JSON.parse(membersJson); } catch(e) {}
-    }
+    if (!ok) { showToast('⚠️ 건강검진 저장 실패 — 네트워크를 확인하고 다시 시도해 주세요'); return; }
+    h.reserveDate = reserveDate;
+    h.status = newStatus;
+    h.approved = newApproved;
+    h.members = JSON.parse(membersJson);
   } else {
     const saved = await sbInsert('health_records', {
-      emp_id: empId, year: yr, members_json: JSON.stringify(members),
-      reserve_date: reserveDate, status: otherClinic?'other_clinic':'pending', approved: otherClinic
+      emp_id: empId, year: yr, members_json: membersJson,
+      reserve_date: reserveDate || null, status: newStatus, approved: newApproved
     });
-    if (saved) {
-      const membersJson2 = JSON.stringify(members);
-      db.health.push(normalizeHealth({...saved, reserve_date: reserveDate, status:'pending', approved:false, members_json: membersJson2, status: otherClinic?'other_clinic':'pending', approved: otherClinic}));
-    }
+    if (!saved) { showToast('⚠️ 건강검진 저장 실패 — 네트워크를 확인하고 다시 시도해 주세요'); return; }
+    db.health.push(normalizeHealth({...saved, members_json: membersJson}));
   }
   saveAll();
-  await notifyHealthChange(empId, members, reserveDate);
-  showToast('✅ 건강검진 신청됨 — 관리자 승인 대기');
+  await notifyHealthChange(empId, members, reserveDate, otherClinic ? '타기관 검진 등록' : '신청');
+  showToast(otherClinic ? '✅ 타기관 검진이 등록되었습니다' : '✅ 건강검진 신청됨 — 관리자 승인 대기');
   closeModal();
   renderHealth();
 }
@@ -6134,7 +6166,9 @@ async function notifyHealthChange(empId, members, reserveDate='', action='신청
   if (!e) return;
   const main = members.find(m => m.relation === '본인') || members[0];
   const famCount = members.filter(m => m.relation !== '본인').length;
-  const detail = `예약일: ${reserveDate||main?.reserveDate||'미정'} / 가족: ${famCount}명`;
+  const detail = main?.otherClinic
+    ? `타기관 검진 / 검진일: ${reserveDate||main?.reserveDate||'미정'} / 검진기관: ${main?.institution||'-'}`
+    : `예약일: ${reserveDate||main?.reserveDate||'미정'} / 가족: ${famCount}명`;
   const siteUrl = 'https://achou2154.github.io/JMsemicon';
   const html = `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
@@ -8083,6 +8117,7 @@ function checkHealthCheckupAlert() {
   if (!h.approved && h.status !== 'approved') return;
   // 본인 예약일 확인
   const mainM = (h.members||[]).find(m=>m.relation==='본인')||(h.members||[])[0];
+  if (mainM?.otherClinic) return;   // 타기관 검진은 수검완료 안내 대상 아님
   const rDate = mainM?.reserveDate || h.reserveDate || '';
   if (!rDate) return;
   // 예약일이 오늘 이전인 경우만
